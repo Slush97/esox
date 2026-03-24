@@ -21,12 +21,7 @@ use crate::Ui;
 
 impl<'f> Ui<'f> {
     /// Draw a text input field. The `InputState` is app-owned.
-    pub fn text_input(
-        &mut self,
-        id: u64,
-        input: &mut InputState,
-        placeholder: &str,
-    ) -> Response {
+    pub fn text_input(&mut self, id: u64, input: &mut InputState, placeholder: &str) -> Response {
         self.text_input_inner(id, input, placeholder, None)
     }
 
@@ -55,10 +50,18 @@ impl<'f> Ui<'f> {
         let disabled = response.disabled;
 
         self.push_a11y_node(A11yNode {
-            id, role: A11yRole::TextInput, label: placeholder.to_string(),
-            value: Some(input.text.clone()), rect, focused: response.focused, disabled,
-            expanded: None, selected: None, checked: None,
-            value_range: None, children: Vec::new(),
+            id,
+            role: A11yRole::TextInput,
+            label: placeholder.to_string(),
+            value: Some(input.text.clone()),
+            rect,
+            focused: response.focused,
+            disabled,
+            expanded: None,
+            selected: None,
+            checked: None,
+            value_range: None,
+            children: Vec::new(),
         });
 
         if disabled {
@@ -70,8 +73,12 @@ impl<'f> Ui<'f> {
                 self.theme.corner_radius,
             );
             paint::draw_dashed_border(
-                self.frame, rect, self.theme.disabled_border,
-                self.theme.disabled_dash_len, self.theme.disabled_dash_gap, self.theme.disabled_dash_thickness,
+                self.frame,
+                rect,
+                self.theme.disabled_border,
+                self.theme.disabled_dash_len,
+                self.theme.disabled_dash_gap,
+                self.theme.disabled_dash_thickness,
             );
             let text_x = rect.x + self.theme.input_padding;
             let text_y = rect.y + (rect.h - self.theme.font_size) / 2.0;
@@ -137,7 +144,9 @@ impl<'f> Ui<'f> {
                     if let Key::Character(ch) = &event.key {
                         match ch.as_str() {
                             "c" => {
-                                if let (Some(sel_text), Some(clip)) = (input.selected_text(), &self.state.clipboard) {
+                                if let (Some(sel_text), Some(clip)) =
+                                    (input.selected_text(), &self.state.clipboard)
+                                {
                                     clip.write_text(sel_text);
                                 }
                                 continue;
@@ -213,7 +222,7 @@ impl<'f> Ui<'f> {
                 _ => self.theme.border,
             }
         };
-        paint::draw_border(self.frame, rect, border_color);
+        paint::draw_rounded_border(self.frame, rect, border_color, self.theme.corner_radius);
 
         let text_x = rect.x + self.theme.input_padding;
         let text_y = rect.y + (rect.h - self.theme.font_size) / 2.0;
@@ -237,8 +246,14 @@ impl<'f> Ui<'f> {
 
         // Selection highlight.
         if let Some((sel_start, sel_end)) = input.selection {
-            let sel_x0 = self.text.measure_text(&input.text[..sel_start], self.theme.font_size) - scroll;
-            let sel_x1 = self.text.measure_text(&input.text[..sel_end], self.theme.font_size) - scroll;
+            let sel_x0 = self
+                .text
+                .measure_text(&input.text[..sel_start], self.theme.font_size)
+                - scroll;
+            let sel_x1 = self
+                .text
+                .measure_text(&input.text[..sel_end], self.theme.font_size)
+                - scroll;
             let sel_left = sel_x0.max(0.0);
             let sel_right = sel_x1.min(inner_w);
             if sel_right > sel_left {
@@ -270,10 +285,13 @@ impl<'f> Ui<'f> {
 
         // IME preedit rendering.
         if response.focused && !self.state.ime.preedit.is_empty() {
-            let cursor_x_in_text =
-                self.text.measure_text(&input.text[..input.cursor], self.theme.font_size);
+            let cursor_x_in_text = self
+                .text
+                .measure_text(&input.text[..input.cursor], self.theme.font_size);
             let preedit_x = text_x + cursor_x_in_text - scroll;
-            let preedit_w = self.text.measure_text(&self.state.ime.preedit, self.theme.font_size);
+            let preedit_w = self
+                .text
+                .measure_text(&self.state.ime.preedit, self.theme.font_size);
             // Underline.
             self.frame.push(
                 ShapeBuilder::rect(
@@ -299,12 +317,14 @@ impl<'f> Ui<'f> {
 
         // Cursor.
         if response.focused && self.state.cursor_blink {
-            let cursor_x_in_text =
-                self.text.measure_text(&input.text[..input.cursor], self.theme.font_size);
+            let cursor_x_in_text = self
+                .text
+                .measure_text(&input.text[..input.cursor], self.theme.font_size);
             let cx = text_x + cursor_x_in_text - scroll;
             // Offset cursor past preedit if active.
             let preedit_offset = if !self.state.ime.preedit.is_empty() {
-                self.text.measure_text(&self.state.ime.preedit, self.theme.font_size)
+                self.text
+                    .measure_text(&self.state.ime.preedit, self.theme.font_size)
             } else {
                 0.0
             };
@@ -332,12 +352,20 @@ fn process_text_key(input: &mut InputState, key: &Key, ctrl: bool, shift: bool) 
     match key {
         Key::Named(NamedKey::Backspace) => {
             input.save_undo();
-            if ctrl { input.delete_word_back(); } else { input.delete_back(); }
+            if ctrl {
+                input.delete_word_back();
+            } else {
+                input.delete_back();
+            }
             true
         }
         Key::Named(NamedKey::Delete) => {
             input.save_undo();
-            if ctrl { input.delete_word_forward(); } else { input.delete_forward(); }
+            if ctrl {
+                input.delete_word_forward();
+            } else {
+                input.delete_forward();
+            }
             true
         }
         Key::Named(NamedKey::ArrowLeft) => {
@@ -365,11 +393,19 @@ fn process_text_key(input: &mut InputState, key: &Key, ctrl: bool, shift: bool) 
             true
         }
         Key::Named(NamedKey::Home) => {
-            if shift { input.home_extend(); } else { input.home(); }
+            if shift {
+                input.home_extend();
+            } else {
+                input.home();
+            }
             true
         }
         Key::Named(NamedKey::End) => {
-            if shift { input.end_extend(); } else { input.end(); }
+            if shift {
+                input.end_extend();
+            } else {
+                input.end();
+            }
             true
         }
         Key::Named(NamedKey::Space) => {
@@ -382,7 +418,11 @@ fn process_text_key(input: &mut InputState, key: &Key, ctrl: bool, shift: bool) 
             true
         }
         Key::Character(ch) if ctrl && ch.as_str() == "z" => {
-            if shift { input.redo(); } else { input.undo(); }
+            if shift {
+                input.redo();
+            } else {
+                input.undo();
+            }
             true
         }
         Key::Character(ch) if ctrl && ch.as_str() == "Z" => {

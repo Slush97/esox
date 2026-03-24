@@ -18,10 +18,7 @@ fn line_of_offset(text: &str, offset: usize) -> usize {
 
 /// Byte offset of the start of the line containing `offset`.
 fn line_start(text: &str, offset: usize) -> usize {
-    text[..offset]
-        .rfind('\n')
-        .map(|i| i + 1)
-        .unwrap_or(0)
+    text[..offset].rfind('\n').map(|i| i + 1).unwrap_or(0)
 }
 
 /// Byte offset of the end of the line containing `offset` (before the \n or text end).
@@ -74,23 +71,48 @@ impl<'f> Ui<'f> {
         let disabled = response.disabled;
 
         self.push_a11y_node(crate::state::A11yNode {
-            id, role: crate::state::A11yRole::TextArea, label: placeholder.to_string(),
-            value: Some(input.text.clone()), rect, focused: response.focused, disabled: response.disabled,
-            expanded: None, selected: None, checked: None,
-            value_range: None, children: Vec::new(),
+            id,
+            role: crate::state::A11yRole::TextArea,
+            label: placeholder.to_string(),
+            value: Some(input.text.clone()),
+            rect,
+            focused: response.focused,
+            disabled: response.disabled,
+            expanded: None,
+            selected: None,
+            checked: None,
+            value_range: None,
+            children: Vec::new(),
         });
 
         if disabled {
             // ── Disabled draw ──
-            paint::draw_rounded_rect(self.frame, rect, self.theme.disabled_bg, self.theme.corner_radius);
+            paint::draw_rounded_rect(
+                self.frame,
+                rect,
+                self.theme.disabled_bg,
+                self.theme.corner_radius,
+            );
             paint::draw_dashed_border(
-                self.frame, rect, self.theme.disabled_border,
-                self.theme.disabled_dash_len, self.theme.disabled_dash_gap, self.theme.disabled_dash_thickness,
+                self.frame,
+                rect,
+                self.theme.disabled_border,
+                self.theme.disabled_dash_len,
+                self.theme.disabled_dash_gap,
+                self.theme.disabled_dash_thickness,
             );
             let text_x = rect.x + pad;
             let text_y = rect.y + pad;
             if input.text.is_empty() {
-                self.text.draw_ui_text(placeholder, text_x, text_y, self.theme.disabled_fg, self.frame, self.gpu, self.resources);
+                self.text.draw_ui_text(
+                    placeholder,
+                    text_x,
+                    text_y,
+                    self.theme.disabled_fg,
+                    self.frame,
+                    self.gpu,
+                    self.resources,
+                );
             } else {
                 // Draw visible lines.
                 let total_lines = line_count(&input.text);
@@ -99,7 +121,15 @@ impl<'f> Ui<'f> {
                     let ls = line_start_of_nth(&input.text, i);
                     let le = line_end(&input.text, ls);
                     let line = &input.text[ls..le];
-                    self.text.draw_ui_text(line, text_x, text_y + i as f32 * lh, self.theme.disabled_fg, self.frame, self.gpu, self.resources);
+                    self.text.draw_ui_text(
+                        line,
+                        text_x,
+                        text_y + i as f32 * lh,
+                        self.theme.disabled_fg,
+                        self.frame,
+                        self.gpu,
+                        self.resources,
+                    );
                 }
             }
             return response;
@@ -107,10 +137,26 @@ impl<'f> Ui<'f> {
 
         // ── Click — place cursor ──
         if response.clicked {
-            let scroll_y = match self.state.scroll_offsets.get_mut(&id) { Some((off, age)) => { *age = 0; off[0] } None => 0.0 };
+            let scroll_y = match self.state.scroll_offsets.get_mut(&id) {
+                Some((off, age)) => {
+                    *age = 0;
+                    off[0]
+                }
+                None => 0.0,
+            };
             let click_x = self.state.mouse.x;
             let click_y = self.state.mouse.y;
-            input.cursor = xy_to_cursor(input, &mut self.text, rect, click_x, click_y, scroll_y, font_size, pad, lh);
+            input.cursor = xy_to_cursor(
+                input,
+                &mut self.text,
+                rect,
+                click_x,
+                click_y,
+                scroll_y,
+                font_size,
+                pad,
+                lh,
+            );
             input.selection = None;
         }
 
@@ -138,7 +184,9 @@ impl<'f> Ui<'f> {
                     if let Key::Character(ch) = &event.key {
                         match ch.as_str() {
                             "c" => {
-                                if let (Some(sel_text), Some(clip)) = (input.selected_text(), &self.state.clipboard) {
+                                if let (Some(sel_text), Some(clip)) =
+                                    (input.selected_text(), &self.state.clipboard)
+                                {
                                     clip.write_text(sel_text);
                                 }
                                 continue;
@@ -170,7 +218,14 @@ impl<'f> Ui<'f> {
                         }
                     }
                 }
-                let changed = process_text_area_key(input, &event.key, ctrl, shift, &mut self.text, font_size);
+                let changed = process_text_area_key(
+                    input,
+                    &event.key,
+                    ctrl,
+                    shift,
+                    &mut self.text,
+                    font_size,
+                );
                 if changed {
                     response.changed = true;
                     self.state.reset_blink();
@@ -179,7 +234,13 @@ impl<'f> Ui<'f> {
         }
 
         // ── Scroll ──
-        let scroll_y = match self.state.scroll_offsets.get_mut(&id) { Some((off, age)) => { *age = 0; off[0] } None => 0.0 };
+        let scroll_y = match self.state.scroll_offsets.get_mut(&id) {
+            Some((off, age)) => {
+                *age = 0;
+                off[0]
+            }
+            None => 0.0,
+        };
         let content_height = line_count(&input.text) as f32 * lh;
         let inner_h = visible_height - pad * 2.0;
         let max_scroll = (content_height - inner_h).max(0.0);
@@ -223,11 +284,20 @@ impl<'f> Ui<'f> {
         }
 
         // Background.
-        paint::draw_rounded_rect(self.frame, rect, self.theme.bg_input, self.theme.corner_radius);
+        paint::draw_rounded_rect(
+            self.frame,
+            rect,
+            self.theme.bg_input,
+            self.theme.corner_radius,
+        );
 
         // Border.
-        let border_color = if response.focused { self.theme.accent } else { self.theme.border };
-        paint::draw_border(self.frame, rect, border_color);
+        let border_color = if response.focused {
+            self.theme.accent
+        } else {
+            self.theme.border
+        };
+        paint::draw_rounded_border(self.frame, rect, border_color, self.theme.corner_radius);
 
         // Set GPU clip.
         let saved_clip = self.frame.active_clip();
@@ -238,7 +308,15 @@ impl<'f> Ui<'f> {
 
         if input.text.is_empty() && !response.focused {
             // Placeholder.
-            self.text.draw_ui_text(placeholder, text_x, text_y, self.theme.fg_dim, self.frame, self.gpu, self.resources);
+            self.text.draw_ui_text(
+                placeholder,
+                text_x,
+                text_y,
+                self.theme.fg_dim,
+                self.frame,
+                self.gpu,
+                self.resources,
+            );
             self.frame.set_active_clip(saved_clip);
             return response;
         }
@@ -259,8 +337,12 @@ impl<'f> Ui<'f> {
                 let line_sel_start = sel_start.max(ls);
                 let line_sel_end = sel_end.min(le);
                 if line_sel_start < line_sel_end {
-                    let sel_x0 = self.text.measure_text(&input.text[ls..line_sel_start], font_size);
-                    let sel_x1 = self.text.measure_text(&input.text[ls..line_sel_end], font_size);
+                    let sel_x0 = self
+                        .text
+                        .measure_text(&input.text[ls..line_sel_start], font_size);
+                    let sel_x1 = self
+                        .text
+                        .measure_text(&input.text[ls..line_sel_end], font_size);
                     self.frame.push(
                         ShapeBuilder::rect(text_x + sel_x0, ly, sel_x1 - sel_x0, lh)
                             .color(self.theme.accent_dim)
@@ -270,14 +352,24 @@ impl<'f> Ui<'f> {
             }
 
             // Text.
-            self.text.draw_ui_text(line, text_x, ly, self.theme.fg, self.frame, self.gpu, self.resources);
+            self.text.draw_ui_text(
+                line,
+                text_x,
+                ly,
+                self.theme.fg,
+                self.frame,
+                self.gpu,
+                self.resources,
+            );
         }
 
         // IME preedit + Cursor.
         if response.focused {
             let cursor_line = line_of_offset(&input.text, input.cursor);
             let cursor_ls = line_start(&input.text, input.cursor);
-            let cursor_x_in_line = self.text.measure_text(&input.text[cursor_ls..input.cursor], font_size);
+            let cursor_x_in_line = self
+                .text
+                .measure_text(&input.text[cursor_ls..input.cursor], font_size);
             let cy = text_y + cursor_line as f32 * lh - offset;
             let mut cx = text_x + cursor_x_in_line;
 
@@ -292,8 +384,13 @@ impl<'f> Ui<'f> {
                 );
                 // Preedit text.
                 self.text.draw_ui_text(
-                    &self.state.ime.preedit, cx, cy, self.theme.fg_dim,
-                    self.frame, self.gpu, self.resources,
+                    &self.state.ime.preedit,
+                    cx,
+                    cy,
+                    self.theme.fg_dim,
+                    self.frame,
+                    self.gpu,
+                    self.resources,
                 );
                 cx += preedit_w;
             }
@@ -404,36 +501,80 @@ impl<'f> Ui<'f> {
         let mut response = self.widget_response(id, rect);
 
         self.push_a11y_node(crate::state::A11yNode {
-            id, role: crate::state::A11yRole::TextArea, label: placeholder.to_string(),
-            value: Some(input.text.clone()), rect, focused: response.focused, disabled: response.disabled,
-            expanded: None, selected: None, checked: None,
-            value_range: None, children: Vec::new(),
+            id,
+            role: crate::state::A11yRole::TextArea,
+            label: placeholder.to_string(),
+            value: Some(input.text.clone()),
+            rect,
+            focused: response.focused,
+            disabled: response.disabled,
+            expanded: None,
+            selected: None,
+            checked: None,
+            value_range: None,
+            children: Vec::new(),
         });
 
         if response.disabled {
-            paint::draw_rounded_rect(self.frame, rect, self.theme.disabled_bg, self.theme.corner_radius);
-            paint::draw_dashed_border(self.frame, rect, self.theme.disabled_border, self.theme.disabled_dash_len, self.theme.disabled_dash_gap, self.theme.disabled_dash_thickness);
+            paint::draw_rounded_rect(
+                self.frame,
+                rect,
+                self.theme.disabled_bg,
+                self.theme.corner_radius,
+            );
+            paint::draw_dashed_border(
+                self.frame,
+                rect,
+                self.theme.disabled_border,
+                self.theme.disabled_dash_len,
+                self.theme.disabled_dash_gap,
+                self.theme.disabled_dash_thickness,
+            );
             let text_x = rect.x + pad;
             let text_y = rect.y + pad;
             if input.text.is_empty() {
-                self.text.draw_ui_text(placeholder, text_x, text_y, self.theme.disabled_fg, self.frame, self.gpu, self.resources);
+                self.text.draw_ui_text(
+                    placeholder,
+                    text_x,
+                    text_y,
+                    self.theme.disabled_fg,
+                    self.frame,
+                    self.gpu,
+                    self.resources,
+                );
             } else {
-                let visual_lines = build_visual_lines(&input.text, &mut self.text, font_size, content_width);
+                let visual_lines =
+                    build_visual_lines(&input.text, &mut self.text, font_size, content_width);
                 for (i, vl) in visual_lines.iter().take(rows).enumerate() {
                     let line = &input.text[vl.text_start..vl.text_end];
-                    self.text.draw_ui_text(line, text_x, text_y + i as f32 * lh, self.theme.disabled_fg, self.frame, self.gpu, self.resources);
+                    self.text.draw_ui_text(
+                        line,
+                        text_x,
+                        text_y + i as f32 * lh,
+                        self.theme.disabled_fg,
+                        self.frame,
+                        self.gpu,
+                        self.resources,
+                    );
                 }
             }
             return response;
         }
 
         // Build visual lines.
-        let visual_lines = build_visual_lines(&input.text, &mut self.text, font_size, content_width);
+        let visual_lines =
+            build_visual_lines(&input.text, &mut self.text, font_size, content_width);
         let total_visual = visual_lines.len();
 
         // Click — place cursor.
         if response.clicked {
-            let scroll_y = match self.state.scroll_offsets.get_mut(&id) { Some((off, age)) => { *age = 0; off[0] } None => 0.0 };
+            let scroll_y = match self.state.scroll_offsets.get_mut(&id) {
+                Some((off, age)) => {
+                    *age = 0;
+                    off[0]
+                }
+                None => 0.0,
+            };
             let click_x = self.state.mouse.x;
             let click_y = self.state.mouse.y;
             let text_y = rect.y + pad;
@@ -442,7 +583,12 @@ impl<'f> Ui<'f> {
             let vl = &visual_lines[target_vl];
             let rel_x = click_x - (rect.x + pad);
             input.cursor = find_offset_for_x(
-                &input.text, vl.text_start, vl.text_end, rel_x, &mut self.text, font_size,
+                &input.text,
+                vl.text_start,
+                vl.text_end,
+                rel_x,
+                &mut self.text,
+                font_size,
             );
             input.selection = None;
         }
@@ -471,7 +617,9 @@ impl<'f> Ui<'f> {
                     if let Key::Character(ch) = &event.key {
                         match ch.as_str() {
                             "c" => {
-                                if let (Some(sel_text), Some(clip)) = (input.selected_text(), &self.state.clipboard) {
+                                if let (Some(sel_text), Some(clip)) =
+                                    (input.selected_text(), &self.state.clipboard)
+                                {
                                     clip.write_text(sel_text);
                                 }
                                 continue;
@@ -511,11 +659,24 @@ impl<'f> Ui<'f> {
                             0
                         } else {
                             let vl = &visual_lines[cur_vl];
-                            let visual_x = self.text.measure_text(&input.text[vl.text_start..input.cursor], font_size);
+                            let visual_x = self
+                                .text
+                                .measure_text(&input.text[vl.text_start..input.cursor], font_size);
                             let target = &visual_lines[cur_vl - 1];
-                            find_offset_for_x(&input.text, target.text_start, target.text_end, visual_x, &mut self.text, font_size)
+                            find_offset_for_x(
+                                &input.text,
+                                target.text_start,
+                                target.text_end,
+                                visual_x,
+                                &mut self.text,
+                                font_size,
+                            )
                         };
-                        if shift { input.move_to_extend(new_pos); } else { input.move_to(new_pos); }
+                        if shift {
+                            input.move_to_extend(new_pos);
+                        } else {
+                            input.move_to(new_pos);
+                        }
                         self.state.reset_blink();
                         continue;
                     }
@@ -525,31 +686,59 @@ impl<'f> Ui<'f> {
                             input.text.len()
                         } else {
                             let vl = &visual_lines[cur_vl];
-                            let visual_x = self.text.measure_text(&input.text[vl.text_start..input.cursor], font_size);
+                            let visual_x = self
+                                .text
+                                .measure_text(&input.text[vl.text_start..input.cursor], font_size);
                             let target = &visual_lines[cur_vl + 1];
-                            find_offset_for_x(&input.text, target.text_start, target.text_end, visual_x, &mut self.text, font_size)
+                            find_offset_for_x(
+                                &input.text,
+                                target.text_start,
+                                target.text_end,
+                                visual_x,
+                                &mut self.text,
+                                font_size,
+                            )
                         };
-                        if shift { input.move_to_extend(new_pos); } else { input.move_to(new_pos); }
+                        if shift {
+                            input.move_to_extend(new_pos);
+                        } else {
+                            input.move_to(new_pos);
+                        }
                         self.state.reset_blink();
                         continue;
                     }
                     Key::Named(NamedKey::Home) => {
                         let cur_vl = visual_line_of_offset(&visual_lines, input.cursor);
                         let new_pos = visual_lines[cur_vl].text_start;
-                        if shift { input.move_to_extend(new_pos); } else { input.move_to(new_pos); }
+                        if shift {
+                            input.move_to_extend(new_pos);
+                        } else {
+                            input.move_to(new_pos);
+                        }
                         self.state.reset_blink();
                         continue;
                     }
                     Key::Named(NamedKey::End) => {
                         let cur_vl = visual_line_of_offset(&visual_lines, input.cursor);
                         let new_pos = visual_lines[cur_vl].text_end;
-                        if shift { input.move_to_extend(new_pos); } else { input.move_to(new_pos); }
+                        if shift {
+                            input.move_to_extend(new_pos);
+                        } else {
+                            input.move_to(new_pos);
+                        }
                         self.state.reset_blink();
                         continue;
                     }
                     _ => {}
                 }
-                let changed = process_text_area_key(input, &event.key, ctrl, shift, &mut self.text, font_size);
+                let changed = process_text_area_key(
+                    input,
+                    &event.key,
+                    ctrl,
+                    shift,
+                    &mut self.text,
+                    font_size,
+                );
                 if changed {
                     response.changed = true;
                     self.state.reset_blink();
@@ -558,7 +747,13 @@ impl<'f> Ui<'f> {
         }
 
         // Scroll.
-        let scroll_y = match self.state.scroll_offsets.get_mut(&id) { Some((off, age)) => { *age = 0; off[0] } None => 0.0 };
+        let scroll_y = match self.state.scroll_offsets.get_mut(&id) {
+            Some((off, age)) => {
+                *age = 0;
+                off[0]
+            }
+            None => 0.0,
+        };
         let content_height = total_visual as f32 * lh;
         let inner_h = visible_height - pad * 2.0;
         let max_scroll = (content_height - inner_h).max(0.0);
@@ -597,9 +792,18 @@ impl<'f> Ui<'f> {
                 self.theme.focus_ring_expand,
             );
         }
-        paint::draw_rounded_rect(self.frame, rect, self.theme.bg_input, self.theme.corner_radius);
-        let border_color = if response.focused { self.theme.accent } else { self.theme.border };
-        paint::draw_border(self.frame, rect, border_color);
+        paint::draw_rounded_rect(
+            self.frame,
+            rect,
+            self.theme.bg_input,
+            self.theme.corner_radius,
+        );
+        let border_color = if response.focused {
+            self.theme.accent
+        } else {
+            self.theme.border
+        };
+        paint::draw_rounded_border(self.frame, rect, border_color, self.theme.corner_radius);
 
         let saved_clip = self.frame.active_clip();
         self.frame.set_active_clip(Some(rect.to_clip_array()));
@@ -608,13 +812,22 @@ impl<'f> Ui<'f> {
         let text_y = rect.y + pad;
 
         if input.text.is_empty() && !response.focused {
-            self.text.draw_ui_text(placeholder, text_x, text_y, self.theme.fg_dim, self.frame, self.gpu, self.resources);
+            self.text.draw_ui_text(
+                placeholder,
+                text_x,
+                text_y,
+                self.theme.fg_dim,
+                self.frame,
+                self.gpu,
+                self.resources,
+            );
             self.frame.set_active_clip(saved_clip);
             return response;
         }
 
         // Rebuild visual lines (text may have changed from key processing).
-        let visual_lines = build_visual_lines(&input.text, &mut self.text, font_size, content_width);
+        let visual_lines =
+            build_visual_lines(&input.text, &mut self.text, font_size, content_width);
         let total_visual = visual_lines.len();
 
         let first_visible = (offset / lh).floor() as usize;
@@ -630,8 +843,12 @@ impl<'f> Ui<'f> {
                 let line_sel_start = sel_start.max(vl.text_start);
                 let line_sel_end = sel_end.min(vl.text_end);
                 if line_sel_start < line_sel_end {
-                    let sel_x0 = self.text.measure_text(&input.text[vl.text_start..line_sel_start], font_size);
-                    let sel_x1 = self.text.measure_text(&input.text[vl.text_start..line_sel_end], font_size);
+                    let sel_x0 = self
+                        .text
+                        .measure_text(&input.text[vl.text_start..line_sel_start], font_size);
+                    let sel_x1 = self
+                        .text
+                        .measure_text(&input.text[vl.text_start..line_sel_end], font_size);
                     self.frame.push(
                         ShapeBuilder::rect(text_x + sel_x0, ly, sel_x1 - sel_x0, lh)
                             .color(self.theme.accent_dim)
@@ -640,14 +857,24 @@ impl<'f> Ui<'f> {
                 }
             }
 
-            self.text.draw_ui_text(line, text_x, ly, self.theme.fg, self.frame, self.gpu, self.resources);
+            self.text.draw_ui_text(
+                line,
+                text_x,
+                ly,
+                self.theme.fg,
+                self.frame,
+                self.gpu,
+                self.resources,
+            );
         }
 
         // IME preedit + Cursor.
         if response.focused {
             let cursor_vl_idx = visual_line_of_offset(&visual_lines, input.cursor);
             let vl = &visual_lines[cursor_vl_idx];
-            let cursor_x_in_line = self.text.measure_text(&input.text[vl.text_start..input.cursor], font_size);
+            let cursor_x_in_line = self
+                .text
+                .measure_text(&input.text[vl.text_start..input.cursor], font_size);
             let cy = text_y + cursor_vl_idx as f32 * lh - offset;
             let mut cx = text_x + cursor_x_in_line;
 
@@ -660,8 +887,13 @@ impl<'f> Ui<'f> {
                         .build(),
                 );
                 self.text.draw_ui_text(
-                    &self.state.ime.preedit, cx, cy, self.theme.fg_dim,
-                    self.frame, self.gpu, self.resources,
+                    &self.state.ime.preedit,
+                    cx,
+                    cy,
+                    self.theme.fg_dim,
+                    self.frame,
+                    self.gpu,
+                    self.resources,
                 );
                 cx += preedit_w;
             }
@@ -702,12 +934,20 @@ fn process_text_area_key(
         }
         Key::Named(NamedKey::Backspace) => {
             input.save_undo();
-            if ctrl { input.delete_word_back(); } else { input.delete_back(); }
+            if ctrl {
+                input.delete_word_back();
+            } else {
+                input.delete_back();
+            }
             true
         }
         Key::Named(NamedKey::Delete) => {
             input.save_undo();
-            if ctrl { input.delete_word_forward(); } else { input.delete_forward(); }
+            if ctrl {
+                input.delete_word_forward();
+            } else {
+                input.delete_forward();
+            }
             true
         }
         Key::Named(NamedKey::ArrowLeft) => {
@@ -740,12 +980,24 @@ fn process_text_area_key(
                 0
             } else {
                 let cur_ls = line_start(&input.text, input.cursor);
-                let visual_x = text_renderer.measure_text(&input.text[cur_ls..input.cursor], font_size);
+                let visual_x =
+                    text_renderer.measure_text(&input.text[cur_ls..input.cursor], font_size);
                 let target_ls = line_start_of_nth(&input.text, cur_line - 1);
                 let target_le = line_end(&input.text, target_ls);
-                find_offset_for_x(&input.text, target_ls, target_le, visual_x, text_renderer, font_size)
+                find_offset_for_x(
+                    &input.text,
+                    target_ls,
+                    target_le,
+                    visual_x,
+                    text_renderer,
+                    font_size,
+                )
             };
-            if shift { input.move_to_extend(new_pos); } else { input.move_to(new_pos); }
+            if shift {
+                input.move_to_extend(new_pos);
+            } else {
+                input.move_to(new_pos);
+            }
             true
         }
         Key::Named(NamedKey::ArrowDown) => {
@@ -755,22 +1007,42 @@ fn process_text_area_key(
                 input.text.len()
             } else {
                 let cur_ls = line_start(&input.text, input.cursor);
-                let visual_x = text_renderer.measure_text(&input.text[cur_ls..input.cursor], font_size);
+                let visual_x =
+                    text_renderer.measure_text(&input.text[cur_ls..input.cursor], font_size);
                 let target_ls = line_start_of_nth(&input.text, cur_line + 1);
                 let target_le = line_end(&input.text, target_ls);
-                find_offset_for_x(&input.text, target_ls, target_le, visual_x, text_renderer, font_size)
+                find_offset_for_x(
+                    &input.text,
+                    target_ls,
+                    target_le,
+                    visual_x,
+                    text_renderer,
+                    font_size,
+                )
             };
-            if shift { input.move_to_extend(new_pos); } else { input.move_to(new_pos); }
+            if shift {
+                input.move_to_extend(new_pos);
+            } else {
+                input.move_to(new_pos);
+            }
             true
         }
         Key::Named(NamedKey::Home) => {
             let ls = line_start(&input.text, input.cursor);
-            if shift { input.move_to_extend(ls); } else { input.move_to(ls); }
+            if shift {
+                input.move_to_extend(ls);
+            } else {
+                input.move_to(ls);
+            }
             true
         }
         Key::Named(NamedKey::End) => {
             let le = line_end(&input.text, input.cursor);
-            if shift { input.move_to_extend(le); } else { input.move_to(le); }
+            if shift {
+                input.move_to_extend(le);
+            } else {
+                input.move_to(le);
+            }
             true
         }
         Key::Named(NamedKey::Space) => {
@@ -783,7 +1055,11 @@ fn process_text_area_key(
             true
         }
         Key::Character(ch) if ctrl && ch.as_str() == "z" => {
-            if shift { input.redo(); } else { input.undo(); }
+            if shift {
+                input.redo();
+            } else {
+                input.undo();
+            }
             true
         }
         Key::Character(ch) if ctrl && ch.as_str() == "Z" => {
@@ -846,7 +1122,9 @@ fn xy_to_cursor(
     line_height: f32,
 ) -> usize {
     let text_y = rect.y + pad;
-    let clicked_line = ((click_y - text_y + scroll_y) / line_height).floor().max(0.0) as usize;
+    let clicked_line = ((click_y - text_y + scroll_y) / line_height)
+        .floor()
+        .max(0.0) as usize;
     let total = line_count(&input.text);
     let target_line = clicked_line.min(total.saturating_sub(1));
 

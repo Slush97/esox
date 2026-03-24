@@ -199,7 +199,9 @@ impl<'f> Ui<'f> {
             // Hover-switch: when a menu is open and mouse hovers another label.
             if menu_bar_open.is_some() {
                 for (i, lr) in label_rects.iter().enumerate() {
-                    if lr.contains(self.state.mouse.x, self.state.mouse.y) && menu_bar_open != Some(i) {
+                    if lr.contains(self.state.mouse.x, self.state.mouse.y)
+                        && menu_bar_open != Some(i)
+                    {
                         new_open = Some(i);
                         break;
                     }
@@ -253,25 +255,26 @@ impl<'f> Ui<'f> {
                 }
 
                 // Store deferred paint data.
-                let items = menu.items.iter().map(|entry| match entry {
-                    MenuEntry::Item(item) => MenuBarDeferredItem {
-                        label: item.label.clone(),
-                        shortcut: item.shortcut.clone(),
-                        enabled: item.enabled,
-                        is_separator: false,
-                    },
-                    MenuEntry::Separator => MenuBarDeferredItem {
-                        label: String::new(),
-                        shortcut: None,
-                        enabled: false,
-                        is_separator: true,
-                    },
-                }).collect();
+                let items = menu
+                    .items
+                    .iter()
+                    .map(|entry| match entry {
+                        MenuEntry::Item(item) => MenuBarDeferredItem {
+                            label: item.label.clone(),
+                            shortcut: item.shortcut.clone(),
+                            enabled: item.enabled,
+                            is_separator: false,
+                        },
+                        MenuEntry::Separator => MenuBarDeferredItem {
+                            label: String::new(),
+                            shortcut: None,
+                            enabled: false,
+                            is_separator: true,
+                        },
+                    })
+                    .collect();
 
-                self.state.menu_bar_deferred = Some(MenuBarDeferred {
-                    items,
-                    dd_rect,
-                });
+                self.state.menu_bar_deferred = Some(MenuBarDeferred { items, dd_rect });
             }
         }
 
@@ -385,7 +388,7 @@ impl<'f> Ui<'f> {
         );
 
         // Border.
-        paint::draw_border(self.frame, *dd, self.theme.border);
+        paint::draw_rounded_border(self.frame, *dd, self.theme.border, corner_r);
 
         // Items.
         let mut iy = dd.y;
@@ -400,8 +403,8 @@ impl<'f> Ui<'f> {
                 iy += sep_h;
             } else {
                 let row_rect = Rect::new(dd.x, iy, dd.w, item_h);
-                let hovered = row_rect.contains(self.state.mouse.x, self.state.mouse.y)
-                    && item.enabled;
+                let hovered =
+                    row_rect.contains(self.state.mouse.x, self.state.mouse.y) && item.enabled;
 
                 if hovered {
                     self.frame.push(

@@ -44,13 +44,7 @@ impl<'f> Ui<'f> {
 
     /// Draw a horizontal slider. Value is stored in `input.text` as a decimal string.
     /// Clicking anywhere on the track sets the value proportionally.
-    pub fn slider(
-        &mut self,
-        id: u64,
-        input: &mut InputState,
-        min: f32,
-        max: f32,
-    ) -> Response {
+    pub fn slider(&mut self, id: u64, input: &mut InputState, min: f32, max: f32) -> Response {
         let rect = self.allocate_rect_keyed(id, self.region.w, self.theme.button_height);
         self.register_widget(id, rect, WidgetKind::Slider);
 
@@ -62,10 +56,18 @@ impl<'f> Ui<'f> {
         let mut value = current.clamp(min, max);
 
         self.push_a11y_node(A11yNode {
-            id, role: A11yRole::Slider, label: String::new(),
-            value: Some(input.text.clone()), rect, focused: response.focused, disabled,
-            expanded: None, selected: None, checked: None,
-            value_range: Some((min, max, value)), children: Vec::new(),
+            id,
+            role: A11yRole::Slider,
+            label: String::new(),
+            value: Some(input.text.clone()),
+            rect,
+            focused: response.focused,
+            disabled,
+            expanded: None,
+            selected: None,
+            checked: None,
+            value_range: Some((min, max, value)),
+            children: Vec::new(),
         });
 
         // Handle click — map x to value.
@@ -137,14 +139,22 @@ impl<'f> Ui<'f> {
         }
 
         // Draw background.
-        let bg = if disabled { self.theme.disabled_bg } else { self.theme.bg_input };
+        let bg = if disabled {
+            self.theme.disabled_bg
+        } else {
+            self.theme.bg_input
+        };
         paint::draw_rounded_rect(self.frame, rect, bg, self.theme.corner_radius);
 
         // Border.
         if disabled {
             paint::draw_dashed_border(
-                self.frame, rect, self.theme.disabled_border,
-                self.theme.disabled_dash_len, self.theme.disabled_dash_gap, self.theme.disabled_dash_thickness,
+                self.frame,
+                rect,
+                self.theme.disabled_border,
+                self.theme.disabled_dash_len,
+                self.theme.disabled_dash_gap,
+                self.theme.disabled_dash_thickness,
             );
         } else {
             let border_color = if response.focused {
@@ -152,7 +162,7 @@ impl<'f> Ui<'f> {
             } else {
                 self.theme.border
             };
-            paint::draw_border(self.frame, rect, border_color);
+            paint::draw_rounded_border(self.frame, rect, border_color, self.theme.corner_radius);
         }
 
         // Track area.
@@ -175,7 +185,11 @@ impl<'f> Ui<'f> {
             ((value - min) / (max - min)).clamp(0.0, 1.0)
         };
         let filled_w = track_w * t;
-        let fill_color = if disabled { self.theme.disabled_fg } else { self.theme.accent };
+        let fill_color = if disabled {
+            self.theme.disabled_fg
+        } else {
+            self.theme.accent
+        };
         if filled_w > 0.0 {
             self.frame.push(
                 ShapeBuilder::rect(track_x, track_y, filled_w, track_h)

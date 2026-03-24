@@ -72,12 +72,8 @@ impl<'a, 'f> ContainerBuilder<'a, 'f> {
         self.ui.padding(pad, f);
         let end_y = self.ui.cursor.y;
 
-        let container_rect = Rect::new(
-            self.ui.region.x,
-            start_y,
-            self.ui.region.w,
-            end_y - start_y,
-        );
+        let container_rect =
+            Rect::new(self.ui.region.x, start_y, self.ui.region.w, end_y - start_y);
 
         self.ui.frame.replace_instance(
             placeholder_idx,
@@ -93,34 +89,17 @@ impl<'a, 'f> ContainerBuilder<'a, 'f> {
         );
 
         if let Some(border_color) = self.border_color {
-            let bw = self.border_width;
-            // Top
-            paint::draw_rounded_rect(
-                self.ui.frame,
-                Rect::new(container_rect.x, container_rect.y, container_rect.w, bw),
-                border_color,
-                0.0,
-            );
-            // Bottom
-            paint::draw_rounded_rect(
-                self.ui.frame,
-                Rect::new(container_rect.x, container_rect.y + container_rect.h - bw, container_rect.w, bw),
-                border_color,
-                0.0,
-            );
-            // Left
-            paint::draw_rounded_rect(
-                self.ui.frame,
-                Rect::new(container_rect.x, container_rect.y, bw, container_rect.h),
-                border_color,
-                0.0,
-            );
-            // Right
-            paint::draw_rounded_rect(
-                self.ui.frame,
-                Rect::new(container_rect.x + container_rect.w - bw, container_rect.y, bw, container_rect.h),
-                border_color,
-                0.0,
+            self.ui.frame.push(
+                esox_gfx::ShapeBuilder::rect(
+                    container_rect.x,
+                    container_rect.y,
+                    container_rect.w,
+                    container_rect.h,
+                )
+                .color(border_color)
+                .border_radius(esox_gfx::BorderRadius::uniform(radius))
+                .stroke(self.border_width)
+                .build(),
             );
         }
 
@@ -166,12 +145,7 @@ impl<'f> Ui<'f> {
         self.padding(pad, f);
         let end_y = self.cursor.y;
 
-        let card_rect = Rect::new(
-            self.region.x,
-            start_y,
-            self.region.w,
-            end_y - start_y,
-        );
+        let card_rect = Rect::new(self.region.x, start_y, self.region.w, end_y - start_y);
 
         // Replace placeholder with the correctly-sized background.
         self.frame.replace_instance(
@@ -191,7 +165,12 @@ impl<'f> Ui<'f> {
         );
         paint::draw_rounded_rect(
             self.frame,
-            Rect::new(card_rect.x, card_rect.y + card_rect.h - 1.0, card_rect.w, 1.0),
+            Rect::new(
+                card_rect.x,
+                card_rect.y + card_rect.h - 1.0,
+                card_rect.w,
+                1.0,
+            ),
             border_color,
             0.0,
         );
@@ -203,7 +182,12 @@ impl<'f> Ui<'f> {
         );
         paint::draw_rounded_rect(
             self.frame,
-            Rect::new(card_rect.x + card_rect.w - 1.0, card_rect.y, 1.0, card_rect.h),
+            Rect::new(
+                card_rect.x + card_rect.w - 1.0,
+                card_rect.y,
+                1.0,
+                card_rect.h,
+            ),
             border_color,
             0.0,
         );
@@ -231,12 +215,7 @@ impl<'f> Ui<'f> {
         self.padding(pad, f);
         let end_y = self.cursor.y;
 
-        let surface_rect = Rect::new(
-            self.region.x,
-            start_y,
-            self.region.w,
-            end_y - start_y,
-        );
+        let surface_rect = Rect::new(self.region.x, start_y, self.region.w, end_y - start_y);
 
         self.frame.replace_instance(
             placeholder_idx,

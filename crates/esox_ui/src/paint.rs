@@ -4,13 +4,23 @@ use esox_gfx::{BorderRadius, Color, Frame, ShapeBuilder};
 
 use crate::layout::Rect;
 
-/// Draw a 1px solid border around a rectangle.
+/// Draw a 1px solid border around a rectangle (non-rounded).
 pub fn draw_border(frame: &mut Frame, rect: Rect, color: Color) {
-    let (x, y, w, h) = (rect.x, rect.y, rect.w, rect.h);
-    frame.push(ShapeBuilder::rect(x, y, w, 1.0).color(color).build());
-    frame.push(ShapeBuilder::rect(x, y + h - 1.0, w, 1.0).color(color).build());
-    frame.push(ShapeBuilder::rect(x, y, 1.0, h).color(color).build());
-    frame.push(ShapeBuilder::rect(x + w - 1.0, y, 1.0, h).color(color).build());
+    draw_rounded_border(frame, rect, color, 0.0);
+}
+
+/// Draw a 1px solid border around a rounded rectangle.
+///
+/// Uses a stroked SDF rounded rect so the border follows the corner radius
+/// instead of drawing straight lines that poke out at the corners.
+pub fn draw_rounded_border(frame: &mut Frame, rect: Rect, color: Color, radius: f32) {
+    frame.push(
+        ShapeBuilder::rect(rect.x, rect.y, rect.w, rect.h)
+            .color(color)
+            .border_radius(BorderRadius::uniform(radius))
+            .stroke(1.0)
+            .build(),
+    );
 }
 
 /// Draw a rounded rectangle.
@@ -63,7 +73,11 @@ pub fn draw_dashed_border(
     let mut dx = x;
     while dx < x + w {
         let seg_w = dash.min(x + w - dx);
-        frame.push(ShapeBuilder::rect(dx, y, seg_w, thickness).color(color).build());
+        frame.push(
+            ShapeBuilder::rect(dx, y, seg_w, thickness)
+                .color(color)
+                .build(),
+        );
         frame.push(
             ShapeBuilder::rect(dx, y + h - thickness, seg_w, thickness)
                 .color(color)
@@ -76,7 +90,11 @@ pub fn draw_dashed_border(
     let mut dy = y;
     while dy < y + h {
         let seg_h = dash.min(y + h - dy);
-        frame.push(ShapeBuilder::rect(x, dy, thickness, seg_h).color(color).build());
+        frame.push(
+            ShapeBuilder::rect(x, dy, thickness, seg_h)
+                .color(color)
+                .build(),
+        );
         frame.push(
             ShapeBuilder::rect(x + w - thickness, dy, thickness, seg_h)
                 .color(color)

@@ -52,10 +52,18 @@ impl<'f> Ui<'f> {
         let disabled = response.disabled;
 
         self.push_a11y_node(A11yNode {
-            id, role: A11yRole::Button, label: label.to_string(),
-            value: None, rect, focused: response.focused, disabled,
-            expanded: None, selected: None, checked: None,
-            value_range: None, children: Vec::new(),
+            id,
+            role: A11yRole::Button,
+            label: label.to_string(),
+            value: None,
+            rect,
+            focused: response.focused,
+            disabled,
+            expanded: None,
+            selected: None,
+            checked: None,
+            value_range: None,
+            children: Vec::new(),
         });
 
         // Focus ring.
@@ -73,7 +81,11 @@ impl<'f> Ui<'f> {
         let bg = if disabled {
             self.theme.disabled_bg
         } else {
-            let t = self.state.hover_t(id ^ HOVER_SALT, response.hovered, self.theme.hover_duration_ms);
+            let t = self.state.hover_t(
+                id ^ HOVER_SALT,
+                response.hovered,
+                self.theme.hover_duration_ms,
+            );
             paint::lerp_color(bg_color, self.theme.accent_hover, t)
         };
         paint::draw_rounded_rect(self.frame, rect, bg, corner_radius);
@@ -81,13 +93,21 @@ impl<'f> Ui<'f> {
         // Dashed border when disabled.
         if disabled {
             paint::draw_dashed_border(
-                self.frame, rect, self.theme.disabled_border,
-                self.theme.disabled_dash_len, self.theme.disabled_dash_gap, self.theme.disabled_dash_thickness,
+                self.frame,
+                rect,
+                self.theme.disabled_border,
+                self.theme.disabled_dash_len,
+                self.theme.disabled_dash_gap,
+                self.theme.disabled_dash_thickness,
             );
         }
 
         // Centered label.
-        let text_color = if disabled { self.theme.disabled_fg } else { fg_color };
+        let text_color = if disabled {
+            self.theme.disabled_fg
+        } else {
+            fg_color
+        };
         let label_w = self.text.measure_text(label, font_size);
         self.text.draw_ui_text(
             label,
@@ -113,15 +133,27 @@ impl<'f> Ui<'f> {
         let disabled = response.disabled;
 
         self.push_a11y_node(A11yNode {
-            id, role: A11yRole::Button, label: label.to_string(),
-            value: None, rect, focused: response.focused, disabled,
-            expanded: None, selected: None, checked: None,
-            value_range: None, children: Vec::new(),
+            id,
+            role: A11yRole::Button,
+            label: label.to_string(),
+            value: None,
+            rect,
+            focused: response.focused,
+            disabled,
+            expanded: None,
+            selected: None,
+            checked: None,
+            value_range: None,
+            children: Vec::new(),
         });
 
         // Hover fill — subtle accent tint.
         if !disabled {
-            let t = self.state.hover_t(id ^ HOVER_SALT, response.hovered, self.theme.hover_duration_ms);
+            let t = self.state.hover_t(
+                id ^ HOVER_SALT,
+                response.hovered,
+                self.theme.hover_duration_ms,
+            );
             if t > 0.0 {
                 let fill = Color::new(
                     self.theme.accent.r,
@@ -136,8 +168,12 @@ impl<'f> Ui<'f> {
         // Border.
         if disabled {
             paint::draw_dashed_border(
-                self.frame, rect, self.theme.disabled_border,
-                self.theme.disabled_dash_len, self.theme.disabled_dash_gap, self.theme.disabled_dash_thickness,
+                self.frame,
+                rect,
+                self.theme.disabled_border,
+                self.theme.disabled_dash_len,
+                self.theme.disabled_dash_gap,
+                self.theme.disabled_dash_thickness,
             );
         } else {
             let border = if response.focused || response.hovered {
@@ -145,7 +181,7 @@ impl<'f> Ui<'f> {
             } else {
                 self.theme.border
             };
-            paint::draw_border(self.frame, rect, border);
+            paint::draw_rounded_border(self.frame, rect, border, self.theme.corner_radius);
         }
 
         // Label.
@@ -202,35 +238,58 @@ impl<'f> Ui<'f> {
         let disabled = response.disabled;
 
         self.push_a11y_node(A11yNode {
-            id, role: A11yRole::Button, label: label.to_string(),
-            value: None, rect, focused: response.focused, disabled,
-            expanded: None, selected: None, checked: None,
-            value_range: None, children: Vec::new(),
+            id,
+            role: A11yRole::Button,
+            label: label.to_string(),
+            value: None,
+            rect,
+            focused: response.focused,
+            disabled,
+            expanded: None,
+            selected: None,
+            checked: None,
+            value_range: None,
+            children: Vec::new(),
         });
 
         if response.focused && !disabled {
             paint::draw_focus_ring(
-                self.frame, rect, self.theme.accent_dim,
-                self.theme.corner_radius, self.theme.focus_ring_expand,
+                self.frame,
+                rect,
+                self.theme.accent_dim,
+                self.theme.corner_radius,
+                self.theme.focus_ring_expand,
             );
         }
 
         let bg = if disabled {
             self.theme.disabled_bg
         } else {
-            let t = self.state.hover_t(id ^ HOVER_SALT, response.hovered, self.theme.hover_duration_ms);
+            let t = self.state.hover_t(
+                id ^ HOVER_SALT,
+                response.hovered,
+                self.theme.hover_duration_ms,
+            );
             paint::lerp_color(bg_normal, bg_hover, t)
         };
         paint::draw_rounded_rect(self.frame, rect, bg, self.theme.corner_radius);
 
         if disabled {
             paint::draw_dashed_border(
-                self.frame, rect, self.theme.disabled_border,
-                self.theme.disabled_dash_len, self.theme.disabled_dash_gap, self.theme.disabled_dash_thickness,
+                self.frame,
+                rect,
+                self.theme.disabled_border,
+                self.theme.disabled_dash_len,
+                self.theme.disabled_dash_gap,
+                self.theme.disabled_dash_thickness,
             );
         }
 
-        let tc = if disabled { self.theme.disabled_fg } else { text_color };
+        let tc = if disabled {
+            self.theme.disabled_fg
+        } else {
+            text_color
+        };
         let label_w = self.text.measure_text(label, self.theme.font_size);
         self.text.draw_ui_text(
             label,
@@ -256,17 +315,29 @@ impl<'f> Ui<'f> {
         let disabled = response.disabled;
 
         self.push_a11y_node(A11yNode {
-            id, role: A11yRole::Button, label: label.to_string(),
-            value: None, rect, focused: response.focused, disabled,
-            expanded: None, selected: None, checked: None,
-            value_range: None, children: Vec::new(),
+            id,
+            role: A11yRole::Button,
+            label: label.to_string(),
+            value: None,
+            rect,
+            focused: response.focused,
+            disabled,
+            expanded: None,
+            selected: None,
+            checked: None,
+            value_range: None,
+            children: Vec::new(),
         });
 
         // Background.
         let bg = if disabled {
             self.theme.disabled_bg
         } else {
-            let t = self.state.hover_t(id ^ HOVER_SALT, response.hovered, self.theme.hover_duration_ms);
+            let t = self.state.hover_t(
+                id ^ HOVER_SALT,
+                response.hovered,
+                self.theme.hover_duration_ms,
+            );
             Color::new(
                 (bg_color.r + 0.08 * t).min(1.0),
                 (bg_color.g + 0.08 * t).min(1.0),
@@ -276,7 +347,11 @@ impl<'f> Ui<'f> {
         };
         paint::draw_rounded_rect(self.frame, rect, bg, self.theme.corner_radius);
 
-        let text_color = if disabled { self.theme.disabled_fg } else { self.theme.fg };
+        let text_color = if disabled {
+            self.theme.disabled_fg
+        } else {
+            self.theme.fg
+        };
         let label_w = self.text.measure_text(label, self.theme.font_size);
         self.text.draw_ui_text(
             label,

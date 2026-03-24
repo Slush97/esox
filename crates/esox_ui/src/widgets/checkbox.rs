@@ -18,14 +18,26 @@ impl<'f> Ui<'f> {
         let disabled = response.disabled;
 
         self.push_a11y_node(A11yNode {
-            id, role: A11yRole::Checkbox, label: label.to_string(),
-            value: None, rect, focused: response.focused, disabled,
-            expanded: None, selected: None, checked: Some(checked),
-            value_range: None, children: Vec::new(),
+            id,
+            role: A11yRole::Checkbox,
+            label: label.to_string(),
+            value: None,
+            rect,
+            focused: response.focused,
+            disabled,
+            expanded: None,
+            selected: None,
+            checked: Some(checked),
+            value_range: None,
+            children: Vec::new(),
         });
 
         if response.clicked {
-            input.text = if checked { "false".into() } else { "true".into() };
+            input.text = if checked {
+                "false".into()
+            } else {
+                "true".into()
+            };
             input.cursor = input.text.len();
             response.changed = true;
         }
@@ -33,7 +45,12 @@ impl<'f> Ui<'f> {
         // Box position — vertically centered.
         let box_x = rect.x;
         let box_y = rect.y + (row_h - self.theme.checkbox_size) / 2.0;
-        let box_rect = crate::layout::Rect::new(box_x, box_y, self.theme.checkbox_size, self.theme.checkbox_size);
+        let box_rect = crate::layout::Rect::new(
+            box_x,
+            box_y,
+            self.theme.checkbox_size,
+            self.theme.checkbox_size,
+        );
 
         // Focus ring.
         if response.focused && !disabled {
@@ -50,7 +67,11 @@ impl<'f> Ui<'f> {
         let bg = if disabled {
             self.theme.disabled_bg
         } else {
-            let t = self.state.hover_t(id ^ HOVER_SALT, response.hovered, self.theme.hover_duration_ms);
+            let t = self.state.hover_t(
+                id ^ HOVER_SALT,
+                response.hovered,
+                self.theme.hover_duration_ms,
+            );
             if checked {
                 paint::lerp_color(self.theme.accent, self.theme.accent_hover, t)
             } else {
@@ -62,8 +83,12 @@ impl<'f> Ui<'f> {
         // Box border.
         if disabled {
             paint::draw_dashed_border(
-                self.frame, box_rect, self.theme.disabled_border,
-                self.theme.disabled_dash_len, self.theme.disabled_dash_gap, self.theme.disabled_dash_thickness,
+                self.frame,
+                box_rect,
+                self.theme.disabled_border,
+                self.theme.disabled_dash_len,
+                self.theme.disabled_dash_gap,
+                self.theme.disabled_dash_thickness,
             );
         } else {
             let border = if checked || response.focused {
@@ -71,14 +96,18 @@ impl<'f> Ui<'f> {
             } else {
                 self.theme.border
             };
-            paint::draw_border(self.frame, box_rect, border);
+            paint::draw_rounded_border(self.frame, box_rect, border, self.theme.corner_radius);
         }
 
         // Checkmark glyph.
         if checked {
             let check = "\u{2713}";
             let check_w = self.text.measure_text(check, 12.0);
-            let check_color = if disabled { self.theme.disabled_fg } else { self.theme.fg };
+            let check_color = if disabled {
+                self.theme.disabled_fg
+            } else {
+                self.theme.fg
+            };
             self.text.draw_ui_text(
                 check,
                 box_x + (self.theme.checkbox_size - check_w) / 2.0,

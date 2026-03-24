@@ -12,12 +12,7 @@ use crate::Ui;
 
 impl<'f> Ui<'f> {
     /// Draw a select field. Returns a Response where `changed` indicates a new selection.
-    pub fn select(
-        &mut self,
-        id: u64,
-        select: &mut SelectState,
-        choices: &[&str],
-    ) -> Response {
+    pub fn select(&mut self, id: u64, select: &mut SelectState, choices: &[&str]) -> Response {
         let rect = self.allocate_rect_keyed(id, self.region.w, self.theme.button_height);
         self.register_widget(id, rect, WidgetKind::Select);
 
@@ -30,11 +25,18 @@ impl<'f> Ui<'f> {
         );
         let selected_label = choices.get(select.selected_index).copied().unwrap_or("");
         self.push_a11y_node(A11yNode {
-            id, role: A11yRole::Select, label: selected_label.to_string(),
-            value: Some(select.selected_index.to_string()), rect,
-            focused: response.focused, disabled,
-            expanded: Some(is_dropdown_open), selected: None, checked: None,
-            value_range: None, children: Vec::new(),
+            id,
+            role: A11yRole::Select,
+            label: selected_label.to_string(),
+            value: Some(select.selected_index.to_string()),
+            rect,
+            focused: response.focused,
+            disabled,
+            expanded: Some(is_dropdown_open),
+            selected: None,
+            checked: None,
+            value_range: None,
+            children: Vec::new(),
         });
 
         // Clamp selection.
@@ -49,9 +51,11 @@ impl<'f> Ui<'f> {
 
         // Handle Enter on focused select — toggle dropdown.
         if response.focused && !response.clicked && !disabled {
-            let enter_pressed = self.state.keys.iter().any(|(event, _)| {
-                event.pressed && event.key == Key::Named(NamedKey::Enter)
-            });
+            let enter_pressed = self
+                .state
+                .keys
+                .iter()
+                .any(|(event, _)| event.pressed && event.key == Key::Named(NamedKey::Enter));
             if enter_pressed {
                 self.toggle_overlay(id, rect, choices, select.selected_index);
             }
@@ -100,16 +104,17 @@ impl<'f> Ui<'f> {
 
         // ── Draw trigger ──
 
-        let value = choices
-            .get(select.selected_index)
-            .copied()
-            .unwrap_or("");
+        let value = choices.get(select.selected_index).copied().unwrap_or("");
 
         // Background.
         let bg = if disabled {
             self.theme.disabled_bg
         } else {
-            let t = self.state.hover_t(id ^ HOVER_SALT, response.hovered, self.theme.hover_duration_ms);
+            let t = self.state.hover_t(
+                id ^ HOVER_SALT,
+                response.hovered,
+                self.theme.hover_duration_ms,
+            );
             paint::lerp_color(self.theme.bg_input, self.theme.bg_raised, t)
         };
         paint::draw_rounded_rect(self.frame, rect, bg, self.theme.corner_radius);
@@ -117,8 +122,12 @@ impl<'f> Ui<'f> {
         // Border.
         if disabled {
             paint::draw_dashed_border(
-                self.frame, rect, self.theme.disabled_border,
-                self.theme.disabled_dash_len, self.theme.disabled_dash_gap, self.theme.disabled_dash_thickness,
+                self.frame,
+                rect,
+                self.theme.disabled_border,
+                self.theme.disabled_dash_len,
+                self.theme.disabled_dash_gap,
+                self.theme.disabled_dash_thickness,
             );
         } else {
             let border_color = if response.focused {
@@ -126,11 +135,15 @@ impl<'f> Ui<'f> {
             } else {
                 self.theme.border
             };
-            paint::draw_border(self.frame, rect, border_color);
+            paint::draw_rounded_border(self.frame, rect, border_color, self.theme.corner_radius);
         }
 
         let text_y = rect.y + (rect.h - self.theme.font_size) / 2.0;
-        let text_color = if disabled { self.theme.disabled_fg } else { self.theme.fg };
+        let text_color = if disabled {
+            self.theme.disabled_fg
+        } else {
+            self.theme.fg
+        };
 
         // Value text.
         self.text.draw_ui_text(
@@ -166,13 +179,7 @@ impl<'f> Ui<'f> {
         response
     }
 
-    fn toggle_overlay(
-        &mut self,
-        id: u64,
-        anchor: Rect,
-        choices: &[&str],
-        selected: usize,
-    ) {
+    fn toggle_overlay(&mut self, id: u64, anchor: Rect, choices: &[&str], selected: usize) {
         let is_open = matches!(
             &self.state.overlay,
             Some(Overlay::Dropdown { id: oid, .. }) if *oid == id
@@ -235,7 +242,11 @@ impl<'f> Ui<'f> {
         {
             let overlay = self.state.overlay.as_mut()?;
             let (choices, hovered) = match overlay {
-                Overlay::Dropdown { ref choices, ref mut hovered, .. } => (choices, hovered),
+                Overlay::Dropdown {
+                    ref choices,
+                    ref mut hovered,
+                    ..
+                } => (choices, hovered),
                 _ => unreachable!(),
             };
             {
@@ -246,11 +257,7 @@ impl<'f> Ui<'f> {
                     match &event.key {
                         Key::Named(NamedKey::ArrowUp) => {
                             let cur = hovered.unwrap_or(0);
-                            *hovered = Some(if cur == 0 {
-                                choices.len() - 1
-                            } else {
-                                cur - 1
-                            });
+                            *hovered = Some(if cur == 0 { choices.len() - 1 } else { cur - 1 });
                         }
                         Key::Named(NamedKey::ArrowDown) => {
                             let cur = hovered.unwrap_or(choices.len().saturating_sub(1));
@@ -306,10 +313,11 @@ impl<'f> Ui<'f> {
         );
 
         // Border.
-        paint::draw_border(
+        paint::draw_rounded_border(
             self.frame,
             Rect::new(dd_x, dd_y, dd_w, dd_h),
             self.theme.accent,
+            self.theme.corner_radius,
         );
 
         // Items.
@@ -417,11 +425,7 @@ impl<'f> Ui<'f> {
                 match &event.key {
                     Key::Named(NamedKey::ArrowUp) => {
                         let cur = hovered.unwrap_or(0);
-                        *hovered = Some(if cur == 0 {
-                            items.len() - 1
-                        } else {
-                            cur - 1
-                        });
+                        *hovered = Some(if cur == 0 { items.len() - 1 } else { cur - 1 });
                     }
                     Key::Named(NamedKey::ArrowDown) => {
                         let cur = hovered.unwrap_or(items.len().saturating_sub(1));
@@ -447,9 +451,7 @@ impl<'f> Ui<'f> {
             None => return selection_result,
         };
         let (items, hovered) = match overlay {
-            Overlay::ContextMenu {
-                items, hovered, ..
-            } => (items.clone(), *hovered),
+            Overlay::ContextMenu { items, hovered, .. } => (items.clone(), *hovered),
             _ => return selection_result,
         };
 
@@ -470,10 +472,11 @@ impl<'f> Ui<'f> {
         );
 
         // Border.
-        paint::draw_border(
+        paint::draw_rounded_border(
             self.frame,
             Rect::new(menu_x, menu_y, menu_w, menu_h),
             self.theme.accent,
+            self.theme.corner_radius,
         );
 
         // Items.

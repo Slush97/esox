@@ -40,12 +40,7 @@ impl<'f> Ui<'f> {
     ///
     /// Scroll wheel over the widget increments/decrements by `step`.
     /// Clicking the value text enters inline editing mode.
-    pub fn number_input(
-        &mut self,
-        id: u64,
-        value: &mut f64,
-        step: f64,
-    ) -> Response {
+    pub fn number_input(&mut self, id: u64, value: &mut f64, step: f64) -> Response {
         self.number_input_inner(id, value, step, f64::NEG_INFINITY, f64::INFINITY)
     }
 
@@ -339,22 +334,19 @@ impl<'f> Ui<'f> {
         } else {
             self.theme.border
         };
-        paint::draw_border(self.frame, rect, border_color);
+        paint::draw_rounded_border(self.frame, rect, border_color, self.theme.corner_radius);
 
         // Minus button.
         let minus_hovered = minus_rect.contains(self.state.mouse.x, self.state.mouse.y);
-        let minus_t = self.state.hover_t(id ^ HOVER_SALT, minus_hovered, self.theme.hover_duration_ms);
+        let minus_t =
+            self.state
+                .hover_t(id ^ HOVER_SALT, minus_hovered, self.theme.hover_duration_ms);
         let minus_bg = paint::lerp_color(
             self.theme.secondary_button_bg,
             self.theme.secondary_button_hover,
             minus_t,
         );
-        paint::draw_rounded_rect(
-            self.frame,
-            minus_rect,
-            minus_bg,
-            self.theme.corner_radius,
-        );
+        paint::draw_rounded_rect(self.frame, minus_rect, minus_bg, self.theme.corner_radius);
 
         let mw = self.text.measure_text("\u{2212}", self.theme.font_size);
         self.text.draw_ui_text(
@@ -370,18 +362,17 @@ impl<'f> Ui<'f> {
         // Plus button.
         let plus_hovered = plus_rect.contains(self.state.mouse.x, self.state.mouse.y);
         // Use a different salt for plus so hover anims don't collide.
-        let plus_t = self.state.hover_t(edit_id ^ HOVER_SALT, plus_hovered, self.theme.hover_duration_ms);
+        let plus_t = self.state.hover_t(
+            edit_id ^ HOVER_SALT,
+            plus_hovered,
+            self.theme.hover_duration_ms,
+        );
         let plus_bg = paint::lerp_color(
             self.theme.secondary_button_bg,
             self.theme.secondary_button_hover,
             plus_t,
         );
-        paint::draw_rounded_rect(
-            self.frame,
-            plus_rect,
-            plus_bg,
-            self.theme.corner_radius,
-        );
+        paint::draw_rounded_rect(self.frame, plus_rect, plus_bg, self.theme.corner_radius);
 
         let pw = self.text.measure_text("+", self.theme.font_size);
         self.text.draw_ui_text(
@@ -415,8 +406,9 @@ impl<'f> Ui<'f> {
                 // Blinking cursor.
                 if response.focused && self.state.cursor_blink {
                     let cursor_pos = input.cursor.min(display.len());
-                    let cursor_x_offset =
-                        self.text.measure_text(&display[..cursor_pos], self.theme.font_size);
+                    let cursor_x_offset = self
+                        .text
+                        .measure_text(&display[..cursor_pos], self.theme.font_size);
                     let cx = text_x + cursor_x_offset;
                     if cx >= value_rect.x && cx <= value_rect.x + value_rect.w {
                         self.frame.push(

@@ -39,7 +39,11 @@ impl<'f> Ui<'f> {
         });
 
         if response.clicked {
-            input.text = if checked { "false".into() } else { "true".into() };
+            input.text = if checked {
+                "false".into()
+            } else {
+                "true".into()
+            };
             input.cursor = input.text.len();
             response.changed = true;
         }
@@ -63,18 +67,17 @@ impl<'f> Ui<'f> {
 
         // Knob animation: 0.0 = off (left), 1.0 = on (right).
         let knob_anim_id = id ^ 0x70661E00;
-        let t = self.animate_bool(
-            knob_anim_id,
-            checked,
-            150.0,
-            Easing::EaseOutCubic,
-        );
+        let t = self.animate_bool(knob_anim_id, checked, 150.0, Easing::EaseOutCubic);
 
         // Track color: lerp bg_input → accent.
         let track_color = if disabled {
             self.theme.disabled_bg
         } else {
-            let hover_t = self.state.hover_t(id ^ HOVER_SALT, response.hovered, self.theme.hover_duration_ms);
+            let hover_t = self.state.hover_t(
+                id ^ HOVER_SALT,
+                response.hovered,
+                self.theme.hover_duration_ms,
+            );
             let off = paint::lerp_color(self.theme.bg_input, self.theme.bg_raised, hover_t);
             let on = paint::lerp_color(self.theme.accent, self.theme.accent_hover, hover_t);
             paint::lerp_color(off, on, t)
@@ -99,7 +102,7 @@ impl<'f> Ui<'f> {
                 self.theme.disabled_dash_thickness,
             );
         } else if !checked {
-            paint::draw_border(self.frame, track_rect, self.theme.border);
+            paint::draw_rounded_border(self.frame, track_rect, self.theme.border, track_radius);
         }
 
         // Knob.

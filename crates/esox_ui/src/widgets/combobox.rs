@@ -50,10 +50,7 @@ impl<'f> Ui<'f> {
             Some(Overlay::ComboboxDropdown { id: oid, .. }) if *oid == id
         );
 
-        let display_text = selected
-            .and_then(|i| options.get(i))
-            .copied()
-            .unwrap_or("");
+        let display_text = selected.and_then(|i| options.get(i)).copied().unwrap_or("");
 
         self.push_a11y_node(A11yNode {
             id,
@@ -155,10 +152,9 @@ impl<'f> Ui<'f> {
                         }) = self.state.overlay
                         {
                             if !filtered_indices.is_empty() {
-                                let cur = highlighted
-                                    .unwrap_or(filtered_indices.len().saturating_sub(1));
-                                *highlighted =
-                                    Some((cur + 1) % filtered_indices.len());
+                                let cur =
+                                    highlighted.unwrap_or(filtered_indices.len().saturating_sub(1));
+                                *highlighted = Some((cur + 1) % filtered_indices.len());
                             }
                         }
                         continue;
@@ -251,12 +247,10 @@ impl<'f> Ui<'f> {
                 let input = self.state.combobox_inputs.get_mut(&id).unwrap();
                 let arrow_w = self.text.measure_text("\u{25BE}", self.theme.font_size)
                     + self.theme.input_padding;
-                let inner_w =
-                    rect.w - self.theme.input_padding * 2.0 - arrow_w;
-                let cursor_x = self.text.measure_text(
-                    &input.text[..input.cursor],
-                    self.theme.font_size,
-                );
+                let inner_w = rect.w - self.theme.input_padding * 2.0 - arrow_w;
+                let cursor_x = self
+                    .text
+                    .measure_text(&input.text[..input.cursor], self.theme.font_size);
                 if cursor_x - input.scroll_offset > inner_w {
                     input.scroll_offset = cursor_x - inner_w;
                 }
@@ -310,15 +304,12 @@ impl<'f> Ui<'f> {
                     let visible_count = filtered_indices.len().min(MAX_VISIBLE_ITEMS);
                     let dd_h = visible_count as f32 * self.theme.item_height;
 
-                    if sx >= anchor.x
-                        && sx < anchor.x + anchor.w
-                        && sy >= dd_y
-                        && sy < dd_y + dd_h
+                    if sx >= anchor.x && sx < anchor.x + anchor.w && sy >= dd_y && sy < dd_y + dd_h
                     {
                         let total_h = filtered_indices.len() as f32 * self.theme.item_height;
                         let max_scroll = (total_h - dd_h).max(0.0);
-                        *scroll_offset =
-                            (*scroll_offset - delta * self.theme.scroll_speed).clamp(0.0, max_scroll);
+                        *scroll_offset = (*scroll_offset - delta * self.theme.scroll_speed)
+                            .clamp(0.0, max_scroll);
                         // Consume scroll so it doesn't propagate.
                         self.state.pending_scroll = None;
                     }
@@ -341,7 +332,11 @@ impl<'f> Ui<'f> {
 
         // Background.
         let bg = {
-            let t = self.state.hover_t(id ^ HOVER_SALT, response.hovered, self.theme.hover_duration_ms);
+            let t = self.state.hover_t(
+                id ^ HOVER_SALT,
+                response.hovered,
+                self.theme.hover_duration_ms,
+            );
             paint::lerp_color(self.theme.bg_input, self.theme.bg_raised, t)
         };
         paint::draw_rounded_rect(self.frame, rect, bg, self.theme.corner_radius);
@@ -352,7 +347,7 @@ impl<'f> Ui<'f> {
         } else {
             self.theme.border
         };
-        paint::draw_border(self.frame, rect, border_color);
+        paint::draw_rounded_border(self.frame, rect, border_color, self.theme.corner_radius);
 
         let text_y = rect.y + (rect.h - self.theme.font_size) / 2.0;
 
@@ -557,10 +552,11 @@ impl<'f> Ui<'f> {
                     .border_radius(BorderRadius::uniform(self.theme.corner_radius))
                     .build(),
             );
-            paint::draw_border(
+            paint::draw_rounded_border(
                 self.frame,
                 Rect::new(dd_x, dd_y, dd_w, dd_h),
                 self.theme.accent,
+                self.theme.corner_radius,
             );
             self.text.draw_ui_text(
                 "No matches",
@@ -613,16 +609,16 @@ impl<'f> Ui<'f> {
         );
 
         // Border.
-        paint::draw_border(
+        paint::draw_rounded_border(
             self.frame,
             Rect::new(dd_x, dd_y, dd_w, dd_h),
             self.theme.accent,
+            self.theme.corner_radius,
         );
 
         // Set clip rect for scrollable content.
         let saved_clip = self.frame.active_clip();
-        self.frame
-            .set_active_clip(Some([dd_x, dd_y, dd_w, dd_h]));
+        self.frame.set_active_clip(Some([dd_x, dd_y, dd_w, dd_h]));
 
         // Get the filter text for highlight matching.
         let filter_text = self
@@ -720,8 +716,7 @@ impl<'f> Ui<'f> {
                     // After match.
                     let after = &choice[match_end..];
                     if !after.is_empty() {
-                        let match_w =
-                            self.text.measure_text(matched, self.theme.font_size);
+                        let match_w = self.text.measure_text(matched, self.theme.font_size);
                         self.text.draw_ui_text(
                             after,
                             text_item_x + before_w + match_w,
