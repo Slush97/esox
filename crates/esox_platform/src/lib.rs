@@ -1606,14 +1606,6 @@ impl ApplicationHandler<AppUserEvent> for App {
                 if let (Some(gpu), Some(resources)) =
                     (self.gpu.as_ref(), self.render_resources.as_mut())
                 {
-                    // Skip GPU submission if the delegate reports no damage.
-                    if !self.delegate.needs_redraw() {
-                        self.perf.frames_skipped += 1;
-                        tracing::trace!("frame skipped (no damage), total skipped: {}", self.perf.frames_skipped);
-                        self.redraw_pending = false;
-                        return;
-                    }
-
                     self.perf.begin_frame();
                     self.frame.clear();
                     self.delegate.on_redraw(gpu, resources, &mut self.frame, &self.perf);
