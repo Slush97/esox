@@ -60,7 +60,10 @@ impl AtspiBridge {
             })
             .ok()?;
 
-        Some(Self { tx, _thread: thread })
+        Some(Self {
+            tx,
+            _thread: thread,
+        })
     }
 
     /// Push a new a11y tree snapshot to the bridge. Non-blocking; drops if full.

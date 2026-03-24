@@ -932,8 +932,10 @@ mod tests {
             .stroke(2.0)
             .color(Color::WHITE)
             .build();
-        assert_eq!(q.rect, [10.0, 20.0, 100.0, 50.0]);
+        // Rect is expanded by AA_PAD (1.5) on each side for SDF anti-aliasing.
+        assert_eq!(q.rect, [8.5, 18.5, 103.0, 53.0]);
         assert_eq!(q.border_radius, [8.0, 8.0, 8.0, 8.0]);
+        assert_eq!(q.sdf_params[0], 1.5); // AA padding passed to shader
         assert_eq!(q.flags[1], 2.0); // stroke_width
         assert_eq!(ShapeType::from_f32(q.flags[0]), Some(ShapeType::Rect));
     }
@@ -1041,9 +1043,11 @@ mod tests {
             border_radius: BorderRadius::uniform(4.0),
         };
         let q = primitive_to_instance(&p, 0.8, None);
-        assert_eq!(q.rect, [10.0, 20.0, 100.0, 50.0]);
+        // Rect is expanded by AA_PAD (1.5) on each side for SDF anti-aliasing.
+        assert_eq!(q.rect, [8.5, 18.5, 103.0, 53.0]);
         assert_eq!(q.color[0], 1.0);
         assert_eq!(q.border_radius, [4.0, 4.0, 4.0, 4.0]);
+        assert_eq!(q.sdf_params[0], 1.5); // AA padding passed to shader
         assert_eq!(q.flags[2], 0.8); // opacity
         assert_eq!(ShapeType::from_f32(q.flags[0]), Some(ShapeType::Rect));
         assert_eq!(q.clip_rect, [0.0; 4]); // no clip

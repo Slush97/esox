@@ -456,13 +456,17 @@ impl MegaBuffer {
         let vertex_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("esox_3d_mega_vertex"),
             size: INITIAL_VERTEX_CAPACITY as u64 * size_of::<Vertex3D>() as u64,
-            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
+            usage: wgpu::BufferUsages::VERTEX
+                | wgpu::BufferUsages::COPY_DST
+                | wgpu::BufferUsages::COPY_SRC,
             mapped_at_creation: false,
         });
         let index_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("esox_3d_mega_index"),
             size: INITIAL_INDEX_CAPACITY as u64 * 4,
-            usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
+            usage: wgpu::BufferUsages::INDEX
+                | wgpu::BufferUsages::COPY_DST
+                | wgpu::BufferUsages::COPY_SRC,
             mapped_at_creation: false,
         });
 
@@ -498,7 +502,9 @@ impl MegaBuffer {
             let new_buffer = device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("esox_3d_mega_vertex"),
                 size: new_cap as u64 * size_of::<Vertex3D>() as u64,
-                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
+                usage: wgpu::BufferUsages::VERTEX
+                    | wgpu::BufferUsages::COPY_DST
+                    | wgpu::BufferUsages::COPY_SRC,
                 mapped_at_creation: false,
             });
             if self.vertex_used > 0 {
@@ -523,7 +529,9 @@ impl MegaBuffer {
             let new_buffer = device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("esox_3d_mega_index"),
                 size: new_cap as u64 * 4,
-                usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
+                usage: wgpu::BufferUsages::INDEX
+                    | wgpu::BufferUsages::COPY_DST
+                    | wgpu::BufferUsages::COPY_SRC,
                 mapped_at_creation: false,
             });
             if self.index_used > 0 {

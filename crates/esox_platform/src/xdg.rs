@@ -74,7 +74,10 @@ mod tests {
         // SAFETY: test-only, single-threaded test runner.
         unsafe { std::env::set_var("XDG_CONFIG_HOME", "/tmp/xdg_test_config") };
         let dirs = AppDirs::new("myapp");
-        assert_eq!(dirs.config_dir(), PathBuf::from("/tmp/xdg_test_config/myapp"));
+        assert_eq!(
+            dirs.config_dir(),
+            PathBuf::from("/tmp/xdg_test_config/myapp")
+        );
         unsafe { std::env::remove_var("XDG_CONFIG_HOME") };
     }
 
@@ -97,7 +100,10 @@ mod tests {
     fn runtime_dir_returns_path_when_set() {
         unsafe { std::env::set_var("XDG_RUNTIME_DIR", "/run/user/1000") };
         let dirs = AppDirs::new("myapp");
-        assert_eq!(dirs.runtime_dir(), Some(PathBuf::from("/run/user/1000/myapp")));
+        assert_eq!(
+            dirs.runtime_dir(),
+            Some(PathBuf::from("/run/user/1000/myapp"))
+        );
         unsafe { std::env::remove_var("XDG_RUNTIME_DIR") };
     }
 }

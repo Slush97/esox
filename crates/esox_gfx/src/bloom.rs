@@ -91,8 +91,10 @@ impl BloomPass {
 
         let mips = Self::create_mip_chain(device, scene_width, scene_height, format);
 
-        let down_params_buffers = Self::create_params_buffers(device, mips.len(), "bloom_down_params");
-        let up_params_buffers = Self::create_params_buffers(device, mips.len().saturating_sub(1), "bloom_up_params");
+        let down_params_buffers =
+            Self::create_params_buffers(device, mips.len(), "bloom_down_params");
+        let up_params_buffers =
+            Self::create_params_buffers(device, mips.len().saturating_sub(1), "bloom_up_params");
 
         let down_bind_groups = Self::create_down_bind_groups(
             device,
@@ -139,8 +141,13 @@ impl BloomPass {
         self.scene_width = scene_width;
         self.scene_height = scene_height;
         self.mips = Self::create_mip_chain(device, scene_width, scene_height, self.format);
-        self.down_params_buffers = Self::create_params_buffers(device, self.mips.len(), "bloom_down_params");
-        self.up_params_buffers = Self::create_params_buffers(device, self.mips.len().saturating_sub(1), "bloom_up_params");
+        self.down_params_buffers =
+            Self::create_params_buffers(device, self.mips.len(), "bloom_down_params");
+        self.up_params_buffers = Self::create_params_buffers(
+            device,
+            self.mips.len().saturating_sub(1),
+            "bloom_up_params",
+        );
         self.down_bind_groups = Self::create_down_bind_groups(
             device,
             &self.bind_group_layout,
@@ -357,7 +364,11 @@ impl BloomPass {
     }
 
     /// Create per-pass params buffers.
-    fn create_params_buffers(device: &wgpu::Device, count: usize, label: &str) -> Vec<wgpu::Buffer> {
+    fn create_params_buffers(
+        device: &wgpu::Device,
+        count: usize,
+        label: &str,
+    ) -> Vec<wgpu::Buffer> {
         (0..count)
             .map(|i| {
                 device.create_buffer(&wgpu::BufferDescriptor {

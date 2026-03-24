@@ -240,11 +240,21 @@ pub struct Spacing {
 
 impl Spacing {
     pub fn all(v: f32) -> Self {
-        Self { top: v, right: v, bottom: v, left: v }
+        Self {
+            top: v,
+            right: v,
+            bottom: v,
+            left: v,
+        }
     }
 
     pub fn symmetric(horizontal: f32, vertical: f32) -> Self {
-        Self { top: vertical, right: horizontal, bottom: vertical, left: horizontal }
+        Self {
+            top: vertical,
+            right: horizontal,
+            bottom: vertical,
+            left: horizontal,
+        }
     }
 
     pub fn horizontal(&self) -> f32 {
@@ -315,10 +325,10 @@ mod tests {
     #[test]
     fn rect_contains_outside() {
         let r = Rect::new(10.0, 20.0, 100.0, 50.0);
-        assert!(!r.contains(5.0, 25.0));   // left of rect
-        assert!(!r.contains(50.0, 15.0));  // above rect
+        assert!(!r.contains(5.0, 25.0)); // left of rect
+        assert!(!r.contains(50.0, 15.0)); // above rect
         assert!(!r.contains(200.0, 40.0)); // right of rect
-        assert!(!r.contains(50.0, 80.0));  // below rect
+        assert!(!r.contains(50.0, 80.0)); // below rect
     }
 
     // ── Rect::intersect ──

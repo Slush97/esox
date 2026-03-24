@@ -117,8 +117,8 @@ impl AnimationPlayer {
                     transform.position = Vec3::new(value[0], value[1], value[2]);
                 }
                 AnimProperty::Rotation => {
-                    transform.rotation = Quat::from_xyzw(value[0], value[1], value[2], value[3])
-                        .normalize();
+                    transform.rotation =
+                        Quat::from_xyzw(value[0], value[1], value[2], value[3]).normalize();
                 }
                 AnimProperty::Scale => {
                     transform.scale = Vec3::new(value[0], value[1], value[2]);
@@ -140,8 +140,7 @@ impl AnimationPlayer {
             } else {
                 local
             };
-            self.skinning_matrices[i] =
-                self.world_matrices[i] * self.inverse_bind_matrices[i];
+            self.skinning_matrices[i] = self.world_matrices[i] * self.inverse_bind_matrices[i];
         }
     }
 
@@ -291,8 +290,10 @@ fn sample_channel(channel: &AnimChannel, time: f32) -> [f32; 4] {
 
 #[cfg(test)]
 mod tests {
+    use super::super::gltf_loader::{
+        AnimChannel, AnimProperty, AnimationClip, GltfSkin, Interpolation,
+    };
     use super::*;
-    use super::super::gltf_loader::{AnimChannel, AnimProperty, AnimationClip, GltfSkin, Interpolation};
 
     fn make_test_skin(joint_count: usize) -> GltfSkin {
         GltfSkin {
@@ -489,11 +490,7 @@ mod tests {
 
         // Child: world = translate(2,0,0) (parent + own)
         let child_pos = player.skinning_matrices()[1].col(3).truncate();
-        assert!(
-            (child_pos.x - 2.0).abs() < 1e-5,
-            "child x={}",
-            child_pos.x
-        );
+        assert!((child_pos.x - 2.0).abs() < 1e-5, "child x={}", child_pos.x);
 
         // Grandchild: world = translate(3,0,0)
         let gc_pos = player.skinning_matrices()[2].col(3).truncate();

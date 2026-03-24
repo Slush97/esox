@@ -178,16 +178,40 @@ impl Frustum {
 
             // p-vertex: corner most along the plane normal
             let p = Vec3::new(
-                if normal.x >= 0.0 { aabb.max.x } else { aabb.min.x },
-                if normal.y >= 0.0 { aabb.max.y } else { aabb.min.y },
-                if normal.z >= 0.0 { aabb.max.z } else { aabb.min.z },
+                if normal.x >= 0.0 {
+                    aabb.max.x
+                } else {
+                    aabb.min.x
+                },
+                if normal.y >= 0.0 {
+                    aabb.max.y
+                } else {
+                    aabb.min.y
+                },
+                if normal.z >= 0.0 {
+                    aabb.max.z
+                } else {
+                    aabb.min.z
+                },
             );
 
             // n-vertex: opposite corner
             let n = Vec3::new(
-                if normal.x >= 0.0 { aabb.min.x } else { aabb.max.x },
-                if normal.y >= 0.0 { aabb.min.y } else { aabb.max.y },
-                if normal.z >= 0.0 { aabb.min.z } else { aabb.max.z },
+                if normal.x >= 0.0 {
+                    aabb.min.x
+                } else {
+                    aabb.max.x
+                },
+                if normal.y >= 0.0 {
+                    aabb.min.y
+                } else {
+                    aabb.max.y
+                },
+                if normal.z >= 0.0 {
+                    aabb.min.z
+                } else {
+                    aabb.max.z
+                },
             );
 
             // If p-vertex is outside, the entire box is outside.
@@ -212,9 +236,21 @@ impl Frustum {
             let normal = Vec3::new(plane.x, plane.y, plane.z);
 
             let p = Vec3::new(
-                if normal.x >= 0.0 { aabb.max.x } else { aabb.min.x },
-                if normal.y >= 0.0 { aabb.max.y } else { aabb.min.y },
-                if normal.z >= 0.0 { aabb.max.z } else { aabb.min.z },
+                if normal.x >= 0.0 {
+                    aabb.max.x
+                } else {
+                    aabb.min.x
+                },
+                if normal.y >= 0.0 {
+                    aabb.max.y
+                } else {
+                    aabb.min.y
+                },
+                if normal.z >= 0.0 {
+                    aabb.max.z
+                } else {
+                    aabb.min.z
+                },
             );
 
             if normal.dot(p) + plane.w < 0.0 {
@@ -267,7 +303,11 @@ mod tests {
     fn aabb_center_and_half_extents() {
         let aabb = Aabb::new(Vec3::new(-2.0, -1.0, 0.0), Vec3::new(4.0, 3.0, 6.0));
         assert!(approx_eq(aabb.center(), Vec3::new(1.0, 1.0, 3.0), 1e-6));
-        assert!(approx_eq(aabb.half_extents(), Vec3::new(3.0, 2.0, 3.0), 1e-6));
+        assert!(approx_eq(
+            aabb.half_extents(),
+            Vec3::new(3.0, 2.0, 3.0),
+            1e-6
+        ));
     }
 
     #[test]
@@ -394,11 +434,7 @@ mod tests {
     // ── Frustum tests ──
 
     fn test_frustum() -> Frustum {
-        let view = Mat4::look_at_rh(
-            Vec3::new(0.0, 0.0, 5.0),
-            Vec3::ZERO,
-            Vec3::Y,
-        );
+        let view = Mat4::look_at_rh(Vec3::new(0.0, 0.0, 5.0), Vec3::ZERO, Vec3::Y);
         let proj = Mat4::perspective_rh(FRAC_PI_4, 1.0, 0.1, 100.0);
         Frustum::from_view_projection(&(proj * view))
     }

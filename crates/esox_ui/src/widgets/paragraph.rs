@@ -16,7 +16,9 @@ impl<'f> Ui<'f> {
         let line_spacing = self.theme.line_spacing;
         let line_height = self.text.line_height(size);
 
-        let (_, measured_h) = self.text.measure_text_wrapped(text, size, max_width, line_spacing);
+        let (_, measured_h) = self
+            .text
+            .measure_text_wrapped(text, size, max_width, line_spacing);
         let total_height = measured_h + self.theme.label_pad_y;
         let rect = self.allocate_rect_keyed(id, max_width, total_height);
 

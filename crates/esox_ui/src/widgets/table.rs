@@ -81,11 +81,23 @@ impl<'f> Ui<'f> {
 
         // Resolve column widths.
         let total_w = self.region.w - scrollbar_w;
-        let col_widths = resolve_column_widths(columns, total_w, &mut self.text, font_size, pad, &state.column_widths);
+        let col_widths = resolve_column_widths(
+            columns,
+            total_w,
+            self.text,
+            font_size,
+            pad,
+            &state.column_widths,
+        );
 
         // Full table rect for focus ring.
         let visible_height = visible_rows as f32 * item_h;
-        let table_rect = Rect::new(self.cursor.x, self.cursor.y, self.region.w, header_h + visible_height);
+        let table_rect = Rect::new(
+            self.cursor.x,
+            self.cursor.y,
+            self.region.w,
+            header_h + visible_height,
+        );
 
         // Register table for focus/keyboard.
         self.register_widget(id, table_rect, WidgetKind::Button);
@@ -166,12 +178,14 @@ impl<'f> Ui<'f> {
                 let handle_rect = Rect::new(handle_x, header_rect.y, resize_handle_w, header_h);
                 let handle_id = fnv1a_mix(fnv1a_mix(id, 0xBE51_2E00), i as u64);
 
-                self.state.hit_rects.push((handle_rect, handle_id, WidgetKind::ColumnResize));
+                self.state
+                    .hit_rects
+                    .push((handle_rect, handle_id, WidgetKind::ColumnResize));
 
                 // Visual: 1px line at column border.
                 let border_x = hx + col_w - 0.5;
                 let handle_hovered = handle_rect.contains(self.state.mouse.x, self.state.mouse.y);
-                let is_dragging = state.resize_drag.map_or(false, |(c, _, _)| c == i);
+                let is_dragging = state.resize_drag.is_some_and(|(c, _, _)| c == i);
                 if handle_hovered || is_dragging {
                     self.frame.push(
                         ShapeBuilder::rect(border_x, header_rect.y, 1.0, header_h)
@@ -199,7 +213,8 @@ impl<'f> Ui<'f> {
 
             // Header click for sorting (only if not resize handle click).
             if col.sortable && state.resize_drag.is_none() {
-                let header_click_rect = Rect::new(hx, header_rect.y, col_w - resize_handle_w, header_h);
+                let header_click_rect =
+                    Rect::new(hx, header_rect.y, col_w - resize_handle_w, header_h);
                 if let Some((cx, cy, ref mut consumed)) = self.state.mouse.pending_click {
                     if !*consumed && header_click_rect.contains(cx, cy) {
                         // Three-state cycle: None -> Ascending -> Descending -> None.
@@ -221,16 +236,23 @@ impl<'f> Ui<'f> {
 
         // Header bottom border.
         self.frame.push(
-            ShapeBuilder::rect(header_rect.x, header_rect.y + header_h - 1.0, header_rect.w, 1.0)
-                .color(self.theme.border)
-                .build(),
+            ShapeBuilder::rect(
+                header_rect.x,
+                header_rect.y + header_h - 1.0,
+                header_rect.w,
+                1.0,
+            )
+            .color(self.theme.border)
+            .build(),
         );
 
         // Body via virtual scroll.
         let mut vs_state = VirtualScrollState::new(row_count);
 
-        let mut response = Response::default();
-        response.changed = sort_changed;
+        let mut response = Response {
+            changed: sort_changed,
+            ..Default::default()
+        };
 
         // Keyboard navigation.
         let modifiers = self.state.modifiers;
@@ -335,7 +357,12 @@ impl<'f> Ui<'f> {
             if row_resp.hovered && !is_selected {
                 ui.frame.push(
                     ShapeBuilder::rect(row_rect.x, row_rect.y, row_rect.w, row_rect.h)
-                        .color(esox_gfx::Color::new(ui.theme.fg.r, ui.theme.fg.g, ui.theme.fg.b, 0.03))
+                        .color(esox_gfx::Color::new(
+                            ui.theme.fg.r,
+                            ui.theme.fg.g,
+                            ui.theme.fg.b,
+                            0.03,
+                        ))
                         .build(),
                 );
             }
@@ -345,7 +372,11 @@ impl<'f> Ui<'f> {
                 if ctrl && shift {
                     // Ctrl+Shift+click: add range to existing selection.
                     if let Some(anchor) = state.anchor_row {
-                        let (from, to) = if anchor <= row { (anchor, row) } else { (row, anchor) };
+                        let (from, to) = if anchor <= row {
+                            (anchor, row)
+                        } else {
+                            (row, anchor)
+                        };
                         for r in from..=to {
                             state.selected_rows.insert(r);
                         }
@@ -362,7 +393,11 @@ impl<'f> Ui<'f> {
                     // Shift+click: range from anchor.
                     state.selected_rows.clear();
                     if let Some(anchor) = state.anchor_row {
-                        let (from, to) = if anchor <= row { (anchor, row) } else { (row, anchor) };
+                        let (from, to) = if anchor <= row {
+                            (anchor, row)
+                        } else {
+                            (row, anchor)
+                        };
                         for r in from..=to {
                             state.selected_rows.insert(r);
                         }
@@ -381,11 +416,14 @@ impl<'f> Ui<'f> {
             let saved_cursor = ui.cursor;
             let saved_region = ui.region;
             let mut cx = row_rect.x;
-            for col in 0..col_widths_clone.len() {
-                ui.cursor = Vec2 { x: cx + pad, y: row_rect.y + (item_h - ui.theme.font_size) / 2.0 };
-                ui.region = Rect::new(cx, row_rect.y, col_widths_clone[col], item_h);
+            for (col, &col_w) in col_widths_clone.iter().enumerate() {
+                ui.cursor = Vec2 {
+                    x: cx + pad,
+                    y: row_rect.y + (item_h - ui.theme.font_size) / 2.0,
+                };
+                ui.region = Rect::new(cx, row_rect.y, col_w, item_h);
                 draw_cell(ui, row, col);
-                cx += col_widths_clone[col];
+                cx += col_w;
             }
             ui.cursor = saved_cursor;
             ui.region = saved_region;
@@ -406,7 +444,11 @@ fn single_select(state: &mut TableState, row: usize) {
 fn extend_selection(state: &mut TableState, row: usize) {
     if let Some(anchor) = state.anchor_row {
         state.selected_rows.clear();
-        let (from, to) = if anchor <= row { (anchor, row) } else { (row, anchor) };
+        let (from, to) = if anchor <= row {
+            (anchor, row)
+        } else {
+            (row, anchor)
+        };
         for r in from..=to {
             state.selected_rows.insert(r);
         }

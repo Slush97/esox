@@ -185,10 +185,16 @@ impl Frame {
             let w = instance.rect[2];
             let h = instance.rect[3];
             let tile_size = crate::damage::TILE_SIZE;
-            let col_start = (x.max(0.0) as u32 / tile_size).min(self.tile_cols.saturating_sub(1) as u32) as u16;
-            let col_end = (((x + w).ceil() as u32 + tile_size - 1) / tile_size).min(self.tile_cols as u32) as u16;
-            let row_start = (y.max(0.0) as u32 / tile_size).min(self.tile_rows.saturating_sub(1) as u32) as u16;
-            let row_end = (((y + h).ceil() as u32 + tile_size - 1) / tile_size).min(self.tile_rows as u32) as u16;
+            let col_start =
+                (x.max(0.0) as u32 / tile_size).min(self.tile_cols.saturating_sub(1) as u32) as u16;
+            let col_end = ((x + w).ceil() as u32)
+                .div_ceil(tile_size)
+                .min(self.tile_cols as u32) as u16;
+            let row_start =
+                (y.max(0.0) as u32 / tile_size).min(self.tile_rows.saturating_sub(1) as u32) as u16;
+            let row_end = ((y + h).ceil() as u32)
+                .div_ceil(tile_size)
+                .min(self.tile_rows as u32) as u16;
             for row in row_start..row_end {
                 for col in col_start..col_end {
                     let idx = row as usize * self.tile_cols as usize + col as usize;
@@ -440,8 +446,9 @@ impl Frame {
     /// within each range, forcing batch breaks at phase boundaries. Each
     /// batch is tagged with its render phase for pipeline remapping.
     ///
-    /// When multi-phase is off, performs a single linear scan (legacy path)
-    /// with all batches tagged as `OpaqueBackground` (no remapping occurs).
+    /// When multi-phase is off, performs a single linear scan with all batches
+    /// tagged as `Decoration` so they use the alpha-blended pipeline (needed
+    /// for anti-aliased rounded corners and other SDF shapes).
     pub fn build_batches(&mut self) {
         self.batches.clear();
         let count = self.instances.len();
@@ -461,7 +468,7 @@ impl Frame {
                 self.build_batches_for_range(start, end, phase);
             }
         } else {
-            self.build_batches_for_range(0, count, RenderPhase::OpaqueBackground);
+            self.build_batches_for_range(0, count, RenderPhase::Decoration);
         }
     }
 
@@ -802,7 +809,14 @@ impl FrameEncoder {
             let down_id = crate::bloom::PIPELINE_BLOOM_DOWNSAMPLE;
             let up_id = crate::bloom::PIPELINE_BLOOM_UPSAMPLE;
             if let (Some(down), Some(up)) = (registry.get(down_id), registry.get(up_id)) {
-                bloom.encode(&mut encoder, &gpu.queue, &down.pipeline, &up.pipeline, 0.0, 0.0);
+                bloom.encode(
+                    &mut encoder,
+                    &gpu.queue,
+                    &down.pipeline,
+                    &up.pipeline,
+                    0.0,
+                    0.0,
+                );
             }
         }
 
@@ -938,18 +952,16 @@ impl FrameEncoder {
             // Depth attachment must match the color attachment's sample count.
             // When MSAA is skipped (Load path), drop the multisampled depth too.
             let depth_attachment = if use_msaa {
-                depth_view.map(|view| {
-                    wgpu::RenderPassDepthStencilAttachment {
-                        view,
-                        depth_ops: Some(wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(1.0),
-                            store: wgpu::StoreOp::Store,
-                        }),
-                        stencil_ops: Some(wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(0),
-                            store: wgpu::StoreOp::Store,
-                        }),
-                    }
+                depth_view.map(|view| wgpu::RenderPassDepthStencilAttachment {
+                    view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.0),
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(0),
+                        store: wgpu::StoreOp::Store,
+                    }),
                 })
             } else {
                 None
@@ -1038,7 +1050,14 @@ impl FrameEncoder {
             let down_id = crate::bloom::PIPELINE_BLOOM_DOWNSAMPLE;
             let up_id = crate::bloom::PIPELINE_BLOOM_UPSAMPLE;
             if let (Some(down), Some(up)) = (registry.get(down_id), registry.get(up_id)) {
-                bloom.encode(&mut encoder, &gpu.queue, &down.pipeline, &up.pipeline, 0.0, 0.0);
+                bloom.encode(
+                    &mut encoder,
+                    &gpu.queue,
+                    &down.pipeline,
+                    &up.pipeline,
+                    0.0,
+                    0.0,
+                );
             }
         }
 

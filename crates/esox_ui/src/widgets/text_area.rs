@@ -147,15 +147,7 @@ impl<'f> Ui<'f> {
             let click_x = self.state.mouse.x;
             let click_y = self.state.mouse.y;
             input.cursor = xy_to_cursor(
-                input,
-                &mut self.text,
-                rect,
-                click_x,
-                click_y,
-                scroll_y,
-                font_size,
-                pad,
-                lh,
+                input, self.text, rect, click_x, click_y, scroll_y, font_size, pad, lh,
             );
             input.selection = None;
         }
@@ -218,14 +210,8 @@ impl<'f> Ui<'f> {
                         }
                     }
                 }
-                let changed = process_text_area_key(
-                    input,
-                    &event.key,
-                    ctrl,
-                    shift,
-                    &mut self.text,
-                    font_size,
-                );
+                let changed =
+                    process_text_area_key(input, &event.key, ctrl, shift, self.text, font_size);
                 if changed {
                     response.changed = true;
                     self.state.reset_blink();
@@ -438,10 +424,9 @@ fn build_visual_lines(
         return visual_lines;
     }
 
-    let mut logical_line = 0;
     let mut pos = 0;
 
-    for line in text.split('\n') {
+    for (logical_line, line) in text.split('\n').enumerate() {
         let line_start = pos;
         let line_end = pos + line.len();
 
@@ -463,7 +448,6 @@ fn build_visual_lines(
         }
 
         pos = line_end + 1; // skip '\n'
-        logical_line += 1;
     }
 
     visual_lines
@@ -472,10 +456,8 @@ fn build_visual_lines(
 /// Find which visual line contains a byte offset.
 fn visual_line_of_offset(visual_lines: &[VisualLine], offset: usize) -> usize {
     for (i, vl) in visual_lines.iter().enumerate() {
-        if offset <= vl.text_end {
-            if offset >= vl.text_start {
-                return i;
-            }
+        if offset <= vl.text_end && offset >= vl.text_start {
+            return i;
         }
     }
     visual_lines.len().saturating_sub(1)
@@ -544,7 +526,7 @@ impl<'f> Ui<'f> {
                 );
             } else {
                 let visual_lines =
-                    build_visual_lines(&input.text, &mut self.text, font_size, content_width);
+                    build_visual_lines(&input.text, self.text, font_size, content_width);
                 for (i, vl) in visual_lines.iter().take(rows).enumerate() {
                     let line = &input.text[vl.text_start..vl.text_end];
                     self.text.draw_ui_text(
@@ -562,8 +544,7 @@ impl<'f> Ui<'f> {
         }
 
         // Build visual lines.
-        let visual_lines =
-            build_visual_lines(&input.text, &mut self.text, font_size, content_width);
+        let visual_lines = build_visual_lines(&input.text, self.text, font_size, content_width);
         let total_visual = visual_lines.len();
 
         // Click — place cursor.
@@ -587,7 +568,7 @@ impl<'f> Ui<'f> {
                 vl.text_start,
                 vl.text_end,
                 rel_x,
-                &mut self.text,
+                self.text,
                 font_size,
             );
             input.selection = None;
@@ -668,7 +649,7 @@ impl<'f> Ui<'f> {
                                 target.text_start,
                                 target.text_end,
                                 visual_x,
-                                &mut self.text,
+                                self.text,
                                 font_size,
                             )
                         };
@@ -695,7 +676,7 @@ impl<'f> Ui<'f> {
                                 target.text_start,
                                 target.text_end,
                                 visual_x,
-                                &mut self.text,
+                                self.text,
                                 font_size,
                             )
                         };
@@ -731,14 +712,8 @@ impl<'f> Ui<'f> {
                     }
                     _ => {}
                 }
-                let changed = process_text_area_key(
-                    input,
-                    &event.key,
-                    ctrl,
-                    shift,
-                    &mut self.text,
-                    font_size,
-                );
+                let changed =
+                    process_text_area_key(input, &event.key, ctrl, shift, self.text, font_size);
                 if changed {
                     response.changed = true;
                     self.state.reset_blink();
@@ -826,15 +801,18 @@ impl<'f> Ui<'f> {
         }
 
         // Rebuild visual lines (text may have changed from key processing).
-        let visual_lines =
-            build_visual_lines(&input.text, &mut self.text, font_size, content_width);
+        let visual_lines = build_visual_lines(&input.text, self.text, font_size, content_width);
         let total_visual = visual_lines.len();
 
         let first_visible = (offset / lh).floor() as usize;
         let last_visible = ((offset + inner_h) / lh).ceil() as usize;
 
-        for i in first_visible..last_visible.min(total_visual) {
-            let vl = &visual_lines[i];
+        for (i, vl) in visual_lines
+            .iter()
+            .enumerate()
+            .take(last_visible.min(total_visual))
+            .skip(first_visible)
+        {
             let line = &input.text[vl.text_start..vl.text_end];
             let ly = text_y + i as f32 * lh - offset;
 
@@ -1110,6 +1088,8 @@ fn find_offset_for_x(
 }
 
 /// Map a click (x, y) to a cursor byte position in the text area.
+// Layout helper — parameter count reflects distinct coordinate inputs.
+#[allow(clippy::too_many_arguments)]
 fn xy_to_cursor(
     input: &InputState,
     text_renderer: &mut crate::text::TextRenderer,

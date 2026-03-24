@@ -32,12 +32,7 @@ impl Vertex3D {
     }
 
     /// Create a vertex with explicit color.
-    pub fn with_color(
-        position: [f32; 3],
-        normal: [f32; 3],
-        uv: [f32; 2],
-        color: [f32; 4],
-    ) -> Self {
+    pub fn with_color(position: [f32; 3], normal: [f32; 3], uv: [f32; 2], color: [f32; 4]) -> Self {
         Self {
             position,
             normal,

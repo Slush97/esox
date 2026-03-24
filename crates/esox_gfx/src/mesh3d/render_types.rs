@@ -106,7 +106,7 @@ pub(super) fn instance_translation(staging: &[InstanceData], offset: u32) -> gla
 
 #[cfg(test)]
 mod tests {
-    use super::super::material::{CullMode3D};
+    use super::super::material::CullMode3D;
     use super::*;
 
     #[test]
@@ -144,9 +144,11 @@ mod tests {
         cmds.sort_by(|a, b| {
             let key_a = &keys[a.material.0 as usize];
             let key_b = &keys[b.material.0 as usize];
-            pipeline_key_sort_tuple(key_a, a.material.0, a.mesh.0).cmp(
-                &pipeline_key_sort_tuple(key_b, b.material.0, b.mesh.0),
-            )
+            pipeline_key_sort_tuple(key_a, a.material.0, a.mesh.0).cmp(&pipeline_key_sort_tuple(
+                key_b,
+                b.material.0,
+                b.mesh.0,
+            ))
         });
 
         assert_eq!(cmds[0].material.0, 0); // Lit

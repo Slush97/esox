@@ -15,10 +15,18 @@ impl<'f> Ui<'f> {
         let fg = self.resolve_fg();
         let rect = self.allocate_rect(self.region.w, font_size + self.theme.label_pad_y);
         self.push_a11y_node(A11yNode {
-            id: crate::id::fnv1a_runtime(text), role: A11yRole::Label,
-            label: text.to_string(), value: None, rect, focused: false,
-            disabled: false, expanded: None, selected: None, checked: None,
-            value_range: None, children: Vec::new(),
+            id: crate::id::fnv1a_runtime(text),
+            role: A11yRole::Label,
+            label: text.to_string(),
+            value: None,
+            rect,
+            focused: false,
+            disabled: false,
+            expanded: None,
+            selected: None,
+            checked: None,
+            value_range: None,
+            children: Vec::new(),
         });
         if (font_size - self.theme.font_size).abs() < 0.01 {
             self.text.draw_ui_text(
@@ -124,7 +132,9 @@ impl<'f> Ui<'f> {
         let max_width = self.region.w;
         let line_height = self.text.line_height(size);
         let line_spacing = self.theme.line_spacing;
-        let (_, measured_h) = self.text.measure_text_wrapped(text, size, max_width, line_spacing);
+        let (_, measured_h) = self
+            .text
+            .measure_text_wrapped(text, size, max_width, line_spacing);
         let total_height = measured_h + self.theme.label_pad_y;
         let rect = self.allocate_rect(max_width, total_height);
 
@@ -200,8 +210,15 @@ impl<'f> Ui<'f> {
             let color = span.color.unwrap_or(fg);
             let style: u8 = if span.bold { 1 } else { 0 };
             let advance = self.text.draw_text_styled(
-                span.text, pen_x, rect.y, size, color, style,
-                self.frame, self.gpu, self.resources,
+                span.text,
+                pen_x,
+                rect.y,
+                size,
+                color,
+                style,
+                self.frame,
+                self.gpu,
+                self.resources,
             );
             pen_x += advance;
         }
@@ -279,8 +296,7 @@ impl<'f> Ui<'f> {
             let mut pen_x = rect.x;
             let pen_y = rect.y + line_idx as f32 * line_height;
 
-            for word_idx in line.start..line.end {
-                let word = &words[word_idx];
+            for (word_idx, word) in words.iter().enumerate().take(line.end).skip(line.start) {
                 if word_idx > line.start {
                     pen_x += space_width;
                 }
@@ -288,8 +304,15 @@ impl<'f> Ui<'f> {
                 let color = word.color.unwrap_or(fg);
                 let style: u8 = if word.bold { 1 } else { 0 };
                 let advance = self.text.draw_text_styled(
-                    word.text, pen_x, pen_y, size, color, style,
-                    self.frame, self.gpu, self.resources,
+                    word.text,
+                    pen_x,
+                    pen_y,
+                    size,
+                    color,
+                    style,
+                    self.frame,
+                    self.gpu,
+                    self.resources,
                 );
                 pen_x += advance;
             }

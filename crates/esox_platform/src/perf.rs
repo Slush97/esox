@@ -43,7 +43,6 @@ pub struct PerfMonitor {
     prev_cpu_time: Instant,
 
     // ── Session-level tracking ──
-
     /// All CPU frame times for the entire session (for histogram / full stats).
     all_cpu_times: Vec<f64>,
     /// All wall-clock intervals for the entire session.
@@ -61,7 +60,6 @@ pub struct PerfMonitor {
     cpu_sample_count: u64,
 
     // ── Public stats (rolling window) ──
-
     /// Actual frames per second (wall-clock, accounting for vsync waits).
     pub fps: f32,
     /// Average CPU frame time in milliseconds (time spent rendering, not waiting).
@@ -201,8 +199,12 @@ impl PerfMonitor {
             let mut min = f64::MAX;
             let mut max = f64::MIN;
             for &t in &self.cpu_frame_times {
-                if t < min { min = t; }
-                if t > max { max = t; }
+                if t < min {
+                    min = t;
+                }
+                if t > max {
+                    max = t;
+                }
             }
             self.cpu_time_min_ms = min as f32;
             self.cpu_time_max_ms = max as f32;
@@ -218,7 +220,11 @@ impl PerfMonitor {
         if wn > 0 {
             let wall_sum: f64 = self.wall_intervals.iter().sum();
             let wall_avg_ms = wall_sum / wn as f64;
-            self.fps = if wall_avg_ms > 0.0 { 1000.0 / wall_avg_ms as f32 } else { 0.0 };
+            self.fps = if wall_avg_ms > 0.0 {
+                1000.0 / wall_avg_ms as f32
+            } else {
+                0.0
+            };
         }
     }
 
@@ -271,18 +277,40 @@ impl PerfMonitor {
         let mut buf = String::with_capacity(4096);
 
         // ── Header ──
-        writeln!(buf, "╔══════════════════════════════════════════════════════════╗").unwrap();
-        writeln!(buf, "║              esox performance report                    ║").unwrap();
-        writeln!(buf, "╚══════════════════════════════════════════════════════════╝").unwrap();
+        writeln!(
+            buf,
+            "╔══════════════════════════════════════════════════════════╗"
+        )
+        .unwrap();
+        writeln!(
+            buf,
+            "║              esox performance report                    ║"
+        )
+        .unwrap();
+        writeln!(
+            buf,
+            "╚══════════════════════════════════════════════════════════╝"
+        )
+        .unwrap();
         writeln!(buf).unwrap();
 
         // ── Session overview ──
         writeln!(buf, "SESSION").unwrap();
-        writeln!(buf, "  duration:       {:.1}s", session_duration.as_secs_f64()).unwrap();
+        writeln!(
+            buf,
+            "  duration:       {:.1}s",
+            session_duration.as_secs_f64()
+        )
+        .unwrap();
         writeln!(buf, "  total frames:   {}", total).unwrap();
         writeln!(buf, "  frames skipped: {}", self.frames_skipped).unwrap();
         if session_duration.as_secs_f64() > 0.0 {
-            writeln!(buf, "  actual FPS:     {:.1}", total as f64 / session_duration.as_secs_f64()).unwrap();
+            writeln!(
+                buf,
+                "  actual FPS:     {:.1}",
+                total as f64 / session_duration.as_secs_f64()
+            )
+            .unwrap();
         }
         writeln!(buf).unwrap();
 
@@ -306,7 +334,11 @@ impl PerfMonitor {
         let cpu_p99 = percentile(&sorted_cpu, 0.99);
         let cpu_p999 = percentile(&sorted_cpu, 0.999);
 
-        let cpu_variance: f64 = sorted_cpu.iter().map(|&t| (t - cpu_avg).powi(2)).sum::<f64>() / total as f64;
+        let cpu_variance: f64 = sorted_cpu
+            .iter()
+            .map(|&t| (t - cpu_avg).powi(2))
+            .sum::<f64>()
+            / total as f64;
         let cpu_stdev = cpu_variance.sqrt();
 
         writeln!(buf, "CPU FRAME TIME (ms) — time spent rendering each frame").unwrap();
@@ -325,7 +357,8 @@ impl PerfMonitor {
         if !self.all_wall_intervals.is_empty() {
             let wn = self.all_wall_intervals.len();
             let mut sorted_wall = self.all_wall_intervals.clone();
-            sorted_wall.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+            sorted_wall
+                .sort_unstable_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
             let wall_sum: f64 = sorted_wall.iter().sum();
             let wall_avg = wall_sum / wn as f64;
             let wall_min = sorted_wall[0];
@@ -333,12 +366,41 @@ impl PerfMonitor {
             let wall_median = sorted_wall[wn / 2];
             let wall_p99 = percentile(&sorted_wall, 0.99);
 
-            writeln!(buf, "WALL-CLOCK FRAME INTERVAL (ms) — actual time between frames").unwrap();
-            writeln!(buf, "  avg:            {wall_avg:.3}  ({:.1} FPS)", 1000.0 / wall_avg).unwrap();
-            writeln!(buf, "  min:            {wall_min:.3}  ({:.1} FPS)", 1000.0 / wall_min).unwrap();
-            writeln!(buf, "  max:            {wall_max:.3}  ({:.1} FPS)", 1000.0 / wall_max).unwrap();
-            writeln!(buf, "  median:         {wall_median:.3}  ({:.1} FPS)", 1000.0 / wall_median).unwrap();
-            writeln!(buf, "  p99:            {wall_p99:.3}  ({:.1} FPS)", 1000.0 / wall_p99).unwrap();
+            writeln!(
+                buf,
+                "WALL-CLOCK FRAME INTERVAL (ms) — actual time between frames"
+            )
+            .unwrap();
+            writeln!(
+                buf,
+                "  avg:            {wall_avg:.3}  ({:.1} FPS)",
+                1000.0 / wall_avg
+            )
+            .unwrap();
+            writeln!(
+                buf,
+                "  min:            {wall_min:.3}  ({:.1} FPS)",
+                1000.0 / wall_min
+            )
+            .unwrap();
+            writeln!(
+                buf,
+                "  max:            {wall_max:.3}  ({:.1} FPS)",
+                1000.0 / wall_max
+            )
+            .unwrap();
+            writeln!(
+                buf,
+                "  median:         {wall_median:.3}  ({:.1} FPS)",
+                1000.0 / wall_median
+            )
+            .unwrap();
+            writeln!(
+                buf,
+                "  p99:            {wall_p99:.3}  ({:.1} FPS)",
+                1000.0 / wall_p99
+            )
+            .unwrap();
             writeln!(buf).unwrap();
         }
 
@@ -372,7 +434,13 @@ impl PerfMonitor {
         if !smaps.is_empty() {
             writeln!(buf, "MEMORY BREAKDOWN (from /proc/self/smaps_rollup)").unwrap();
             for (key, kb) in &smaps {
-                writeln!(buf, "  {:<18}{:.1} MB", format!("{key}:"), *kb as f32 / 1024.0).unwrap();
+                writeln!(
+                    buf,
+                    "  {:<18}{:.1} MB",
+                    format!("{key}:"),
+                    *kb as f32 / 1024.0
+                )
+                .unwrap();
             }
             writeln!(buf).unwrap();
         }
@@ -381,7 +449,7 @@ impl PerfMonitor {
         let top_maps = read_top_mappings(20);
         if !top_maps.is_empty() {
             writeln!(buf, "TOP MEMORY MAPPINGS BY RSS").unwrap();
-            writeln!(buf, "  {:>8}  {:>8}  {}", "RSS(kB)", "PSS(kB)", "mapping").unwrap();
+            writeln!(buf, "  {:>8}  {:>8}  mapping", "RSS(kB)", "PSS(kB)").unwrap();
             writeln!(buf, "  {:─>8}  {:─>8}  {:─>40}", "", "", "").unwrap();
             for (rss, pss, name) in &top_maps {
                 writeln!(buf, "  {:>8}  {:>8}  {}", rss, pss, name).unwrap();
@@ -392,13 +460,13 @@ impl PerfMonitor {
         // ── Histogram (CPU frame time) ──
         writeln!(buf, "CPU FRAME TIME HISTOGRAM").unwrap();
         let buckets: &[(f64, &str)] = &[
-            (0.5,   "  < 0.5ms "),
-            (1.0,   "  0.5-1ms "),
-            (2.0,   "  1-2ms   "),
-            (4.0,   "  2-4ms   "),
-            (8.0,   "  4-8ms   "),
-            (16.0,  "  8-16ms  "),
-            (33.3,  "  16-33ms "),
+            (0.5, "  < 0.5ms "),
+            (1.0, "  0.5-1ms "),
+            (2.0, "  1-2ms   "),
+            (4.0, "  2-4ms   "),
+            (8.0, "  4-8ms   "),
+            (16.0, "  8-16ms  "),
+            (33.3, "  16-33ms "),
             (f64::MAX, "  33ms+   "),
         ];
         let mut bucket_counts = vec![0u64; buckets.len()];
@@ -427,15 +495,38 @@ impl PerfMonitor {
 
         // ── Time series ──
         if !self.snapshots.is_empty() {
-            writeln!(buf, "TIME SERIES (sampled every {:.0}ms)", self.sample_interval.as_millis()).unwrap();
-            writeln!(buf, "  {:>8}  {:>6}  {:>8}  {:>8}  {:>8}  {:>6}  {:>5}  {:>5}",
-                "time(s)", "FPS", "cpu(ms)", "p99(ms)", "RSS(MB)", "CPU%", "inst", "batch").unwrap();
-            writeln!(buf, "  {:─>8}  {:─>6}  {:─>8}  {:─>8}  {:─>8}  {:─>6}  {:─>5}  {:─>5}",
-                "", "", "", "", "", "", "", "").unwrap();
+            writeln!(
+                buf,
+                "TIME SERIES (sampled every {:.0}ms)",
+                self.sample_interval.as_millis()
+            )
+            .unwrap();
+            writeln!(
+                buf,
+                "  {:>8}  {:>6}  {:>8}  {:>8}  {:>8}  {:>6}  {:>5}  {:>5}",
+                "time(s)", "FPS", "cpu(ms)", "p99(ms)", "RSS(MB)", "CPU%", "inst", "batch"
+            )
+            .unwrap();
+            writeln!(
+                buf,
+                "  {:─>8}  {:─>6}  {:─>8}  {:─>8}  {:─>8}  {:─>6}  {:─>5}  {:─>5}",
+                "", "", "", "", "", "", "", ""
+            )
+            .unwrap();
             for s in &self.snapshots {
-                writeln!(buf, "  {:>8.1}  {:>6.0}  {:>8.3}  {:>8.3}  {:>8.1}  {:>6.1}  {:>5}  {:>5}",
-                    s.elapsed_s, s.fps, s.cpu_time_avg_ms, s.cpu_time_p99_ms,
-                    s.rss_mb, s.cpu_percent, s.instance_count, s.batch_count).unwrap();
+                writeln!(
+                    buf,
+                    "  {:>8.1}  {:>6.0}  {:>8.3}  {:>8.3}  {:>8.1}  {:>6.1}  {:>5}  {:>5}",
+                    s.elapsed_s,
+                    s.fps,
+                    s.cpu_time_avg_ms,
+                    s.cpu_time_p99_ms,
+                    s.rss_mb,
+                    s.cpu_percent,
+                    s.instance_count,
+                    s.batch_count
+                )
+                .unwrap();
             }
         }
 
@@ -481,17 +572,22 @@ fn read_smaps_rollup() -> Vec<(String, u64)> {
         return Vec::new();
     };
     let keys = [
-        "Rss", "Pss", "Shared_Clean", "Shared_Dirty",
-        "Private_Clean", "Private_Dirty", "Swap",
+        "Rss",
+        "Pss",
+        "Shared_Clean",
+        "Shared_Dirty",
+        "Private_Clean",
+        "Private_Dirty",
+        "Swap",
     ];
     let mut result = Vec::new();
     for line in smaps.lines() {
         for &key in &keys {
-            if let Some(rest) = line.strip_prefix(key) {
-                if let Some(rest) = rest.strip_prefix(':') {
-                    let kb = parse_kb(rest);
-                    result.push((key.to_string(), kb));
-                }
+            if let Some(rest) = line.strip_prefix(key)
+                && let Some(rest) = rest.strip_prefix(':')
+            {
+                let kb = parse_kb(rest);
+                result.push((key.to_string(), kb));
             }
         }
     }
@@ -565,7 +661,8 @@ fn read_top_mappings(n: usize) -> Vec<(u64, u64, String)> {
     }
 
     // Merge by name (aggregate RSS/PSS for same library).
-    let mut merged: std::collections::HashMap<String, (u64, u64)> = std::collections::HashMap::new();
+    let mut merged: std::collections::HashMap<String, (u64, u64)> =
+        std::collections::HashMap::new();
     for m in mappings {
         let entry = merged.entry(m.name).or_insert((0, 0));
         entry.0 += m.rss;
@@ -588,7 +685,10 @@ fn read_top_mappings(_n: usize) -> Vec<(u64, u64, String)> {
 
 #[cfg(target_os = "linux")]
 fn parse_kb(s: &str) -> u64 {
-    s.trim().split_whitespace().next().and_then(|v| v.parse().ok()).unwrap_or(0)
+    s.split_whitespace()
+        .next()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0)
 }
 
 #[cfg(target_os = "linux")]

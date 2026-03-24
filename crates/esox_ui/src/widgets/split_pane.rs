@@ -22,7 +22,6 @@ use crate::Ui;
 
 use esox_gfx::ShapeBuilder;
 
-
 impl<'f> Ui<'f> {
     /// Horizontal split pane: left | right with a draggable vertical divider.
     ///
@@ -84,16 +83,36 @@ impl<'f> Ui<'f> {
             let left_w = available * ratio;
             let right_w = available - left_w;
             let lr = Rect::new(origin_x, origin_y, left_w, total_h);
-            let dr = Rect::new(origin_x + left_w, origin_y, self.theme.split_pane_divider, total_h);
-            let rr = Rect::new(origin_x + left_w + self.theme.split_pane_divider, origin_y, right_w, total_h);
+            let dr = Rect::new(
+                origin_x + left_w,
+                origin_y,
+                self.theme.split_pane_divider,
+                total_h,
+            );
+            let rr = Rect::new(
+                origin_x + left_w + self.theme.split_pane_divider,
+                origin_y,
+                right_w,
+                total_h,
+            );
             (lr, dr, rr)
         } else {
             let available = total_h - self.theme.split_pane_divider;
             let top_h = available * ratio;
             let bottom_h = available - top_h;
             let tr = Rect::new(origin_x, origin_y, total_w, top_h);
-            let dr = Rect::new(origin_x, origin_y + top_h, total_w, self.theme.split_pane_divider);
-            let br = Rect::new(origin_x, origin_y + top_h + self.theme.split_pane_divider, total_w, bottom_h);
+            let dr = Rect::new(
+                origin_x,
+                origin_y + top_h,
+                total_w,
+                self.theme.split_pane_divider,
+            );
+            let br = Rect::new(
+                origin_x,
+                origin_y + top_h + self.theme.split_pane_divider,
+                total_w,
+                bottom_h,
+            );
             (tr, dr, br)
         };
 
@@ -122,14 +141,16 @@ impl<'f> Ui<'f> {
                 let new_ratio = if horizontal {
                     let available = total_w - self.theme.split_pane_divider;
                     if available > 0.0 {
-                        (self.state.mouse.x - origin_x - self.theme.split_pane_divider / 2.0) / available
+                        (self.state.mouse.x - origin_x - self.theme.split_pane_divider / 2.0)
+                            / available
                     } else {
                         ratio
                     }
                 } else {
                     let available = total_h - self.theme.split_pane_divider;
                     if available > 0.0 {
-                        (self.state.mouse.y - origin_y - self.theme.split_pane_divider / 2.0) / available
+                        (self.state.mouse.y - origin_y - self.theme.split_pane_divider / 2.0)
+                            / available
                     } else {
                         ratio
                     }
@@ -145,7 +166,7 @@ impl<'f> Ui<'f> {
         let is_dragging = self
             .state
             .split_drag
-            .map_or(false, |(drag_id, _)| drag_id == id);
+            .is_some_and(|(drag_id, _)| drag_id == id);
 
         let divider_color = if is_dragging {
             self.theme.accent
@@ -156,9 +177,14 @@ impl<'f> Ui<'f> {
         };
 
         self.frame.push(
-            ShapeBuilder::rect(divider_rect.x, divider_rect.y, divider_rect.w, divider_rect.h)
-                .color(divider_color)
-                .build(),
+            ShapeBuilder::rect(
+                divider_rect.x,
+                divider_rect.y,
+                divider_rect.w,
+                divider_rect.h,
+            )
+            .color(divider_color)
+            .build(),
         );
 
         // --- Draw first panel (left / top) ---
@@ -223,10 +249,6 @@ impl<'f> Ui<'f> {
         self.spacing = saved_spacing;
 
         // Advance cursor past the entire split pane.
-        if horizontal {
-            self.cursor.y += total_h + self.spacing;
-        } else {
-            self.cursor.y += total_h + self.spacing;
-        }
+        self.cursor.y += total_h + self.spacing;
     }
 }

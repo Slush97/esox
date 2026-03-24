@@ -26,10 +26,15 @@ pub struct ScreenshotCapture {
 
 impl ScreenshotCapture {
     /// Create a new screenshot capture buffer sized for the given surface.
-    pub fn new(device: &wgpu::Device, width: u32, height: u32, format: wgpu::TextureFormat) -> Self {
+    pub fn new(
+        device: &wgpu::Device,
+        width: u32,
+        height: u32,
+        format: wgpu::TextureFormat,
+    ) -> Self {
         let bytes_per_pixel = bytes_per_pixel(format);
         let unpadded = width * bytes_per_pixel;
-        let padded_bytes_per_row = (unpadded + COPY_ALIGN - 1) / COPY_ALIGN * COPY_ALIGN;
+        let padded_bytes_per_row = unpadded.div_ceil(COPY_ALIGN) * COPY_ALIGN;
         let buffer_size = (padded_bytes_per_row * height) as u64;
 
         let buffer = device.create_buffer(&wgpu::BufferDescriptor {
@@ -53,11 +58,7 @@ impl ScreenshotCapture {
     ///
     /// Call this on the command encoder *after* all render passes but
     /// *before* `encoder.finish()`.
-    pub fn encode_copy(
-        &self,
-        encoder: &mut wgpu::CommandEncoder,
-        surface_texture: &wgpu::Texture,
-    ) {
+    pub fn encode_copy(&self, encoder: &mut wgpu::CommandEncoder, surface_texture: &wgpu::Texture) {
         encoder.copy_texture_to_buffer(
             wgpu::TexelCopyTextureInfo {
                 texture: surface_texture,

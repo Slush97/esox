@@ -230,39 +230,39 @@ impl Theme {
     pub fn dark() -> Self {
         Self {
             // Neutral charcoal steps — no color tint so the accent pops cleanly.
-            bg_base:    Color::new(0.047, 0.047, 0.050, 1.0), // #0c0c0d
+            bg_base: Color::new(0.047, 0.047, 0.050, 1.0), // #0c0c0d
             bg_surface: Color::new(0.082, 0.082, 0.086, 1.0), // #151516 sidebar/panels
-            bg_raised:  Color::new(0.122, 0.122, 0.127, 1.0), // #1f1f20 cards/hover
-            bg_input:   Color::new(0.165, 0.165, 0.170, 1.0), // #2a2a2b input fields
+            bg_raised: Color::new(0.122, 0.122, 0.127, 1.0), // #1f1f20 cards/hover
+            bg_input: Color::new(0.165, 0.165, 0.170, 1.0), // #2a2a2b input fields
 
-            fg:       Color::new(0.900, 0.900, 0.900, 1.0), // #e6e6e6
+            fg: Color::new(0.900, 0.900, 0.900, 1.0), // #e6e6e6
             fg_muted: Color::new(0.530, 0.530, 0.530, 1.0), // #878787 secondary text
-            fg_dim:   Color::new(0.360, 0.360, 0.360, 1.0), // #5c5c5c muted labels
+            fg_dim: Color::new(0.360, 0.360, 0.360, 1.0), // #5c5c5c muted labels
             fg_label: Color::new(0.720, 0.720, 0.720, 1.0), // #b8b8b8 form labels
 
             // Blue accent — clean, not purple-shifted.
-            accent:       Color::new(0.306, 0.533, 0.957, 1.0), // #4e88f4
-            accent_dim:   Color::new(0.306, 0.533, 0.957, 0.18),
+            accent: Color::new(0.306, 0.533, 0.957, 1.0), // #4e88f4
+            accent_dim: Color::new(0.306, 0.533, 0.957, 0.18),
             accent_hover: Color::new(0.431, 0.627, 0.973, 1.0), // #6ea0f8
 
             green: Color::new(0.243, 0.812, 0.416, 1.0), // #3ecf6a
             amber: Color::new(0.961, 0.737, 0.133, 1.0), // #f5bc22
-            red:   Color::new(0.941, 0.376, 0.376, 1.0), // #f06060
+            red: Color::new(0.941, 0.376, 0.376, 1.0),   // #f06060
 
-            border:          Color::new(0.200, 0.200, 0.205, 1.0), // #333334
+            border: Color::new(0.200, 0.200, 0.205, 1.0), // #333334
             green_button_bg: Color::new(0.082, 0.380, 0.196, 1.0), // #156132
-            secondary_button_bg:    Color::new(0.160, 0.160, 0.165, 1.0), // #292929
+            secondary_button_bg: Color::new(0.160, 0.160, 0.165, 1.0), // #292929
             secondary_button_hover: Color::new(0.200, 0.200, 0.205, 1.0), // #333334
-            danger_button_bg:       Color::new(0.400, 0.100, 0.100, 1.0), // #661a1a
-            danger_button_hover:    Color::new(0.500, 0.130, 0.130, 1.0), // #802121
+            danger_button_bg: Color::new(0.400, 0.100, 0.100, 1.0), // #661a1a
+            danger_button_hover: Color::new(0.500, 0.130, 0.130, 1.0), // #802121
 
             shadow: Color::new(0.0, 0.0, 0.0, 0.50),
-            toast_error_bg:   Color::new(0.337, 0.078, 0.078, 1.0), // #561414
+            toast_error_bg: Color::new(0.337, 0.078, 0.078, 1.0), // #561414
             toast_success_bg: Color::new(0.063, 0.255, 0.122, 1.0), // #10411f
 
-            disabled_fg:     Color::new(0.30, 0.30, 0.30, 1.0),
+            disabled_fg: Color::new(0.30, 0.30, 0.30, 1.0),
             disabled_border: Color::new(0.16, 0.16, 0.165, 1.0),
-            disabled_bg:     Color::new(0.10, 0.10, 0.105, 1.0),
+            disabled_bg: Color::new(0.10, 0.10, 0.105, 1.0),
 
             tooltip_bg: Color::new(0.85, 0.85, 0.85, 0.95),
             tooltip_fg: Color::new(0.10, 0.10, 0.10, 1.0),
@@ -271,7 +271,7 @@ impl Theme {
 
             modal_backdrop: Color::new(0.0, 0.0, 0.0, 0.5),
 
-            toast_info_bg:    Color::new(0.106, 0.165, 0.310, 1.0), // dark blue
+            toast_info_bg: Color::new(0.106, 0.165, 0.310, 1.0), // dark blue
             toast_warning_bg: Color::new(0.310, 0.240, 0.078, 1.0), // dark amber
 
             ..Self::layout_defaults()
@@ -281,38 +281,38 @@ impl Theme {
     /// Light theme.
     pub fn light() -> Self {
         Self {
-            bg_base:    Color::new(0.980, 0.980, 0.980, 1.0), // #fafafa
+            bg_base: Color::new(0.980, 0.980, 0.980, 1.0), // #fafafa
             bg_surface: Color::new(0.941, 0.941, 0.945, 1.0), // #f0f0f1 sidebar/panels
-            bg_raised:  Color::new(0.894, 0.894, 0.902, 1.0), // #e4e4e6 hover
-            bg_input:   Color::new(1.000, 1.000, 1.000, 1.0), // #ffffff inputs
+            bg_raised: Color::new(0.894, 0.894, 0.902, 1.0), // #e4e4e6 hover
+            bg_input: Color::new(1.000, 1.000, 1.000, 1.0), // #ffffff inputs
 
-            fg:       Color::new(0.067, 0.067, 0.094, 1.0), // #111118
+            fg: Color::new(0.067, 0.067, 0.094, 1.0), // #111118
             fg_muted: Color::new(0.376, 0.376, 0.420, 1.0), // #60606b
-            fg_dim:   Color::new(0.565, 0.565, 0.627, 1.0), // #9090a0
+            fg_dim: Color::new(0.565, 0.565, 0.627, 1.0), // #9090a0
             fg_label: Color::new(0.220, 0.220, 0.271, 1.0), // #383845
 
-            accent:       Color::new(0.200, 0.471, 0.941, 1.0), // #3378f0
-            accent_dim:   Color::new(0.200, 0.471, 0.941, 0.15),
+            accent: Color::new(0.200, 0.471, 0.941, 1.0), // #3378f0
+            accent_dim: Color::new(0.200, 0.471, 0.941, 0.15),
             accent_hover: Color::new(0.376, 0.557, 0.961, 1.0), // #608ef5
 
             green: Color::new(0.094, 0.631, 0.247, 1.0), // #18a13f
             amber: Color::new(0.737, 0.482, 0.020, 1.0), // #bc7b05
-            red:   Color::new(0.780, 0.141, 0.141, 1.0), // #c72424
+            red: Color::new(0.780, 0.141, 0.141, 1.0),   // #c72424
 
-            border:          Color::new(0.800, 0.800, 0.820, 1.0), // #ccccd1
+            border: Color::new(0.800, 0.800, 0.820, 1.0), // #ccccd1
             green_button_bg: Color::new(0.820, 0.945, 0.839, 1.0), // #d1f1d6
-            secondary_button_bg:    Color::new(0.900, 0.900, 0.910, 1.0), // #e6e6e8
+            secondary_button_bg: Color::new(0.900, 0.900, 0.910, 1.0), // #e6e6e8
             secondary_button_hover: Color::new(0.850, 0.850, 0.865, 1.0), // #d9d9dd
-            danger_button_bg:       Color::new(0.880, 0.200, 0.200, 1.0), // #e13333
-            danger_button_hover:    Color::new(0.800, 0.160, 0.160, 1.0), // #cc2929
+            danger_button_bg: Color::new(0.880, 0.200, 0.200, 1.0), // #e13333
+            danger_button_hover: Color::new(0.800, 0.160, 0.160, 1.0), // #cc2929
 
             shadow: Color::new(0.0, 0.0, 0.0, 0.12),
-            toast_error_bg:   Color::new(0.996, 0.886, 0.886, 1.0), // #fee2e2
+            toast_error_bg: Color::new(0.996, 0.886, 0.886, 1.0), // #fee2e2
             toast_success_bg: Color::new(0.863, 0.961, 0.882, 1.0), // #dcf5e1
 
-            disabled_fg:     Color::new(0.70, 0.70, 0.72, 1.0),
+            disabled_fg: Color::new(0.70, 0.70, 0.72, 1.0),
             disabled_border: Color::new(0.82, 0.82, 0.84, 1.0),
-            disabled_bg:     Color::new(0.92, 0.92, 0.93, 1.0),
+            disabled_bg: Color::new(0.92, 0.92, 0.93, 1.0),
 
             tooltip_bg: Color::new(0.15, 0.15, 0.18, 0.95),
             tooltip_fg: Color::new(0.92, 0.92, 0.92, 1.0),
@@ -321,7 +321,7 @@ impl Theme {
 
             modal_backdrop: Color::new(0.0, 0.0, 0.0, 0.3),
 
-            toast_info_bg:    Color::new(0.886, 0.918, 0.996, 1.0), // light blue
+            toast_info_bg: Color::new(0.886, 0.918, 0.996, 1.0), // light blue
             toast_warning_bg: Color::new(0.996, 0.957, 0.886, 1.0), // light amber
 
             ..Self::layout_defaults()
@@ -338,38 +338,38 @@ impl Theme {
         let red = Color::new(1.0, 0.0, 0.0, 1.0);
 
         Self {
-            bg_base:    black,
+            bg_base: black,
             bg_surface: black,
-            bg_raised:  Color::new(0.15, 0.15, 0.15, 1.0),
-            bg_input:   black,
+            bg_raised: Color::new(0.15, 0.15, 0.15, 1.0),
+            bg_input: black,
 
-            fg:       white,
+            fg: white,
             fg_muted: white,
-            fg_dim:   Color::new(0.8, 0.8, 0.8, 1.0),
+            fg_dim: Color::new(0.8, 0.8, 0.8, 1.0),
             fg_label: white,
 
-            accent:       yellow,
-            accent_dim:   Color::new(1.0, 1.0, 0.0, 0.3),
+            accent: yellow,
+            accent_dim: Color::new(1.0, 1.0, 0.0, 0.3),
             accent_hover: cyan,
 
             green,
             amber: yellow,
             red,
 
-            border:          white,
+            border: white,
             green_button_bg: green,
-            secondary_button_bg:    Color::new(0.25, 0.25, 0.25, 1.0),
+            secondary_button_bg: Color::new(0.25, 0.25, 0.25, 1.0),
             secondary_button_hover: Color::new(0.35, 0.35, 0.35, 1.0),
-            danger_button_bg:       red,
-            danger_button_hover:    Color::new(0.8, 0.0, 0.0, 1.0),
+            danger_button_bg: red,
+            danger_button_hover: Color::new(0.8, 0.0, 0.0, 1.0),
 
             shadow: Color::new(0.0, 0.0, 0.0, 1.0),
-            toast_error_bg:   Color::new(0.4, 0.0, 0.0, 1.0),
+            toast_error_bg: Color::new(0.4, 0.0, 0.0, 1.0),
             toast_success_bg: Color::new(0.0, 0.3, 0.0, 1.0),
 
-            disabled_fg:     Color::new(0.5, 0.5, 0.5, 1.0),
+            disabled_fg: Color::new(0.5, 0.5, 0.5, 1.0),
             disabled_border: Color::new(0.5, 0.5, 0.5, 1.0),
-            disabled_bg:     Color::new(0.1, 0.1, 0.1, 1.0),
+            disabled_bg: Color::new(0.1, 0.1, 0.1, 1.0),
 
             tooltip_bg: white,
             tooltip_fg: black,
@@ -378,7 +378,7 @@ impl Theme {
 
             modal_backdrop: Color::new(0.0, 0.0, 0.0, 0.85),
 
-            toast_info_bg:    Color::new(0.0, 0.0, 0.4, 1.0),
+            toast_info_bg: Color::new(0.0, 0.0, 0.4, 1.0),
             toast_warning_bg: Color::new(0.4, 0.3, 0.0, 1.0),
 
             // Larger sizes for readability.
@@ -490,37 +490,41 @@ impl Theme {
         let snap = if t >= 0.5 { b } else { a };
 
         Theme {
-            bg_base:      lerp_color(a.bg_base, b.bg_base, t),
-            bg_surface:   lerp_color(a.bg_surface, b.bg_surface, t),
-            bg_raised:    lerp_color(a.bg_raised, b.bg_raised, t),
-            bg_input:     lerp_color(a.bg_input, b.bg_input, t),
-            fg:           lerp_color(a.fg, b.fg, t),
-            fg_muted:     lerp_color(a.fg_muted, b.fg_muted, t),
-            fg_dim:       lerp_color(a.fg_dim, b.fg_dim, t),
-            fg_label:     lerp_color(a.fg_label, b.fg_label, t),
-            accent:       lerp_color(a.accent, b.accent, t),
-            accent_dim:   lerp_color(a.accent_dim, b.accent_dim, t),
+            bg_base: lerp_color(a.bg_base, b.bg_base, t),
+            bg_surface: lerp_color(a.bg_surface, b.bg_surface, t),
+            bg_raised: lerp_color(a.bg_raised, b.bg_raised, t),
+            bg_input: lerp_color(a.bg_input, b.bg_input, t),
+            fg: lerp_color(a.fg, b.fg, t),
+            fg_muted: lerp_color(a.fg_muted, b.fg_muted, t),
+            fg_dim: lerp_color(a.fg_dim, b.fg_dim, t),
+            fg_label: lerp_color(a.fg_label, b.fg_label, t),
+            accent: lerp_color(a.accent, b.accent, t),
+            accent_dim: lerp_color(a.accent_dim, b.accent_dim, t),
             accent_hover: lerp_color(a.accent_hover, b.accent_hover, t),
-            green:        lerp_color(a.green, b.green, t),
-            amber:        lerp_color(a.amber, b.amber, t),
-            red:          lerp_color(a.red, b.red, t),
-            border:       lerp_color(a.border, b.border, t),
+            green: lerp_color(a.green, b.green, t),
+            amber: lerp_color(a.amber, b.amber, t),
+            red: lerp_color(a.red, b.red, t),
+            border: lerp_color(a.border, b.border, t),
             green_button_bg: lerp_color(a.green_button_bg, b.green_button_bg, t),
             secondary_button_bg: lerp_color(a.secondary_button_bg, b.secondary_button_bg, t),
-            secondary_button_hover: lerp_color(a.secondary_button_hover, b.secondary_button_hover, t),
+            secondary_button_hover: lerp_color(
+                a.secondary_button_hover,
+                b.secondary_button_hover,
+                t,
+            ),
             danger_button_bg: lerp_color(a.danger_button_bg, b.danger_button_bg, t),
             danger_button_hover: lerp_color(a.danger_button_hover, b.danger_button_hover, t),
-            shadow:       lerp_color(a.shadow, b.shadow, t),
-            toast_error_bg:   lerp_color(a.toast_error_bg, b.toast_error_bg, t),
+            shadow: lerp_color(a.shadow, b.shadow, t),
+            toast_error_bg: lerp_color(a.toast_error_bg, b.toast_error_bg, t),
             toast_success_bg: lerp_color(a.toast_success_bg, b.toast_success_bg, t),
-            disabled_fg:     lerp_color(a.disabled_fg, b.disabled_fg, t),
+            disabled_fg: lerp_color(a.disabled_fg, b.disabled_fg, t),
             disabled_border: lerp_color(a.disabled_border, b.disabled_border, t),
-            disabled_bg:     lerp_color(a.disabled_bg, b.disabled_bg, t),
-            tooltip_bg:      lerp_color(a.tooltip_bg, b.tooltip_bg, t),
-            tooltip_fg:      lerp_color(a.tooltip_fg, b.tooltip_fg, t),
-            table_zebra_bg:  lerp_color(a.table_zebra_bg, b.table_zebra_bg, t),
-            modal_backdrop:  lerp_color(a.modal_backdrop, b.modal_backdrop, t),
-            toast_info_bg:    lerp_color(a.toast_info_bg, b.toast_info_bg, t),
+            disabled_bg: lerp_color(a.disabled_bg, b.disabled_bg, t),
+            tooltip_bg: lerp_color(a.tooltip_bg, b.tooltip_bg, t),
+            tooltip_fg: lerp_color(a.tooltip_fg, b.tooltip_fg, t),
+            table_zebra_bg: lerp_color(a.table_zebra_bg, b.table_zebra_bg, t),
+            modal_backdrop: lerp_color(a.modal_backdrop, b.modal_backdrop, t),
+            toast_info_bg: lerp_color(a.toast_info_bg, b.toast_info_bg, t),
             toast_warning_bg: lerp_color(a.toast_warning_bg, b.toast_warning_bg, t),
 
             // Layout constants snap.
@@ -808,31 +812,89 @@ impl ThemeBuilder {
     }
 
     pub fn from_dark() -> Self {
-        Self { base: Theme::dark() }
+        Self {
+            base: Theme::dark(),
+        }
     }
 
     pub fn from_light() -> Self {
-        Self { base: Theme::light() }
+        Self {
+            base: Theme::light(),
+        }
     }
 
-    pub fn bg_base(mut self, c: Color) -> Self { self.base.bg_base = c; self }
-    pub fn bg_surface(mut self, c: Color) -> Self { self.base.bg_surface = c; self }
-    pub fn bg_raised(mut self, c: Color) -> Self { self.base.bg_raised = c; self }
-    pub fn bg_input(mut self, c: Color) -> Self { self.base.bg_input = c; self }
-    pub fn fg(mut self, c: Color) -> Self { self.base.fg = c; self }
-    pub fn fg_muted(mut self, c: Color) -> Self { self.base.fg_muted = c; self }
-    pub fn fg_dim(mut self, c: Color) -> Self { self.base.fg_dim = c; self }
-    pub fn fg_label(mut self, c: Color) -> Self { self.base.fg_label = c; self }
-    pub fn accent(mut self, c: Color) -> Self { self.base.accent = c; self }
-    pub fn accent_dim(mut self, c: Color) -> Self { self.base.accent_dim = c; self }
-    pub fn accent_hover(mut self, c: Color) -> Self { self.base.accent_hover = c; self }
-    pub fn green(mut self, c: Color) -> Self { self.base.green = c; self }
-    pub fn amber(mut self, c: Color) -> Self { self.base.amber = c; self }
-    pub fn red(mut self, c: Color) -> Self { self.base.red = c; self }
-    pub fn border(mut self, c: Color) -> Self { self.base.border = c; self }
-    pub fn font_size(mut self, s: f32) -> Self { self.base.font_size = s; self }
-    pub fn corner_radius(mut self, r: f32) -> Self { self.base.corner_radius = r; self }
-    pub fn padding(mut self, p: f32) -> Self { self.base.padding = p; self }
+    pub fn bg_base(mut self, c: Color) -> Self {
+        self.base.bg_base = c;
+        self
+    }
+    pub fn bg_surface(mut self, c: Color) -> Self {
+        self.base.bg_surface = c;
+        self
+    }
+    pub fn bg_raised(mut self, c: Color) -> Self {
+        self.base.bg_raised = c;
+        self
+    }
+    pub fn bg_input(mut self, c: Color) -> Self {
+        self.base.bg_input = c;
+        self
+    }
+    pub fn fg(mut self, c: Color) -> Self {
+        self.base.fg = c;
+        self
+    }
+    pub fn fg_muted(mut self, c: Color) -> Self {
+        self.base.fg_muted = c;
+        self
+    }
+    pub fn fg_dim(mut self, c: Color) -> Self {
+        self.base.fg_dim = c;
+        self
+    }
+    pub fn fg_label(mut self, c: Color) -> Self {
+        self.base.fg_label = c;
+        self
+    }
+    pub fn accent(mut self, c: Color) -> Self {
+        self.base.accent = c;
+        self
+    }
+    pub fn accent_dim(mut self, c: Color) -> Self {
+        self.base.accent_dim = c;
+        self
+    }
+    pub fn accent_hover(mut self, c: Color) -> Self {
+        self.base.accent_hover = c;
+        self
+    }
+    pub fn green(mut self, c: Color) -> Self {
+        self.base.green = c;
+        self
+    }
+    pub fn amber(mut self, c: Color) -> Self {
+        self.base.amber = c;
+        self
+    }
+    pub fn red(mut self, c: Color) -> Self {
+        self.base.red = c;
+        self
+    }
+    pub fn border(mut self, c: Color) -> Self {
+        self.base.border = c;
+        self
+    }
+    pub fn font_size(mut self, s: f32) -> Self {
+        self.base.font_size = s;
+        self
+    }
+    pub fn corner_radius(mut self, r: f32) -> Self {
+        self.base.corner_radius = r;
+        self
+    }
+    pub fn padding(mut self, p: f32) -> Self {
+        self.base.padding = p;
+        self
+    }
 
     /// Derive accent, accent_dim, and accent_hover from an HSL hue (0-360 degrees).
     pub fn accent_from_hue(mut self, hue_deg: f32) -> Self {

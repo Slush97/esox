@@ -27,24 +27,28 @@ impl DepthResolvePass {
         msaa_depth_view: &wgpu::TextureView,
         sample_count: u32,
     ) -> Self {
-        let bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("esox_depth_resolve_bg_layout"),
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Depth,
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: true,
-                    },
-                    count: None,
-                }],
-            });
+        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("esox_depth_resolve_bg_layout"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Depth,
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: true,
+                },
+                count: None,
+            }],
+        });
 
         let bind_group = Self::create_bind_group(device, &bind_group_layout, msaa_depth_view);
 
-        let pipeline = Self::create_pipeline(device, &bind_group_layout, DEPTH_RESOLVE_SHADER, sample_count);
+        let pipeline = Self::create_pipeline(
+            device,
+            &bind_group_layout,
+            DEPTH_RESOLVE_SHADER,
+            sample_count,
+        );
 
         Self {
             pipeline,
@@ -60,20 +64,13 @@ impl DepthResolvePass {
         device: &wgpu::Device,
         msaa_depth_view: &wgpu::TextureView,
     ) {
-        self.bind_group =
-            Self::create_bind_group(device, &self.bind_group_layout, msaa_depth_view);
+        self.bind_group = Self::create_bind_group(device, &self.bind_group_layout, msaa_depth_view);
     }
 
     /// Rebuild the pipeline with new shader source (for hot-reload).
     #[cfg(feature = "hot-reload")]
-    pub fn rebuild_pipeline(
-        &mut self,
-        device: &wgpu::Device,
-        src: &str,
-        sample_count: u32,
-    ) {
-        self.pipeline =
-            Self::create_pipeline(device, &self.bind_group_layout, src, sample_count);
+    pub fn rebuild_pipeline(&mut self, device: &wgpu::Device, src: &str, sample_count: u32) {
+        self.pipeline = Self::create_pipeline(device, &self.bind_group_layout, src, sample_count);
         self.sample_count = sample_count;
     }
 
@@ -127,12 +124,11 @@ impl DepthResolvePass {
             source: wgpu::ShaderSource::Wgsl(shader_src.into()),
         });
 
-        let pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("esox_depth_resolve_pipeline_layout"),
-                bind_group_layouts: &[bind_group_layout],
-                immediate_size: 0,
-            });
+        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("esox_depth_resolve_pipeline_layout"),
+            bind_group_layouts: &[bind_group_layout],
+            immediate_size: 0,
+        });
 
         let constants = [("SAMPLE_COUNT", sample_count as f64)];
 

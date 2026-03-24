@@ -47,7 +47,11 @@ impl<'f> Ui<'f> {
         }
 
         // Color: accent, lerp to accent_hover on hover.
-        let hover_t = self.state.hover_t(id ^ HOVER_SALT, response.hovered, self.theme.hover_duration_ms);
+        let hover_t = self.state.hover_t(
+            id ^ HOVER_SALT,
+            response.hovered,
+            self.theme.hover_duration_ms,
+        );
         let color = paint::lerp_color(self.theme.accent, self.theme.accent_hover, hover_t);
 
         // Draw text.

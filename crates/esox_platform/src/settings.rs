@@ -50,9 +50,8 @@ impl WindowState {
     pub fn save(&self, dirs: &AppDirs) -> std::io::Result<()> {
         let dir = dirs.config_dir();
         std::fs::create_dir_all(&dir)?;
-        let content = toml::to_string_pretty(self).map_err(|e| {
-            std::io::Error::new(std::io::ErrorKind::Other, e)
-        })?;
+        let content = toml::to_string_pretty(self)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
         std::fs::write(dir.join("window.toml"), content)
     }
 }
@@ -65,18 +64,24 @@ pub fn load_settings<T: for<'de> Deserialize<'de>>(dirs: &AppDirs, filename: &st
 }
 
 /// Save an app-specific settings file to `<config_dir>/<filename>`.
-pub fn save_settings<T: Serialize>(dirs: &AppDirs, filename: &str, value: &T) -> std::io::Result<()> {
+pub fn save_settings<T: Serialize>(
+    dirs: &AppDirs,
+    filename: &str,
+    value: &T,
+) -> std::io::Result<()> {
     let dir = dirs.config_dir();
     std::fs::create_dir_all(&dir)?;
-    let content = toml::to_string_pretty(value).map_err(|e| {
-        std::io::Error::new(std::io::ErrorKind::Other, e)
-    })?;
+    let content = toml::to_string_pretty(value)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
     std::fs::write(dir.join(filename), content)
 }
 
 /// Resolve the settings config path for an app. Returns `None` if no app_name is set.
 pub fn settings_path(config: &crate::config::PlatformConfig) -> Option<PathBuf> {
-    config.app_name.as_ref().map(|name| AppDirs::new(name).config_dir())
+    config
+        .app_name
+        .as_ref()
+        .map(|name| AppDirs::new(name).config_dir())
 }
 
 #[cfg(test)]

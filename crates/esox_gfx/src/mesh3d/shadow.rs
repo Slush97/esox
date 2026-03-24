@@ -8,10 +8,10 @@
 use glam::{Mat4, Vec3, Vec4};
 use wgpu::util::DeviceExt;
 
-use crate::pipeline::GpuContext;
 use super::camera::Camera;
 use super::instance::instance_buffer_layout;
 use super::vertex::vertex_buffer_layout;
+use crate::pipeline::GpuContext;
 
 // ── Constants ──
 
@@ -202,13 +202,13 @@ fn compute_cascade_matrix(
     // NDC corners of the unit cube in clip space.
     let ndc_corners: [[f32; 3]; 8] = [
         [-1.0, -1.0, 0.0],
-        [ 1.0, -1.0, 0.0],
-        [-1.0,  1.0, 0.0],
-        [ 1.0,  1.0, 0.0],
+        [1.0, -1.0, 0.0],
+        [-1.0, 1.0, 0.0],
+        [1.0, 1.0, 0.0],
         [-1.0, -1.0, 1.0],
-        [ 1.0, -1.0, 1.0],
-        [-1.0,  1.0, 1.0],
-        [ 1.0,  1.0, 1.0],
+        [1.0, -1.0, 1.0],
+        [-1.0, 1.0, 1.0],
+        [1.0, 1.0, 1.0],
     ];
 
     // Unproject to world space.
@@ -277,7 +277,14 @@ pub fn compute_cascade_matrices(
     for i in 0..cascade_count {
         let near_split = splits[i];
         let far_split = splits[i + 1];
-        matrices.push(compute_cascade_matrix(camera, aspect, near_split, far_split, light_dir, light_distance));
+        matrices.push(compute_cascade_matrix(
+            camera,
+            aspect,
+            near_split,
+            far_split,
+            light_dir,
+            light_distance,
+        ));
     }
 
     matrices
@@ -392,7 +399,10 @@ impl ShadowState {
         {
             let clear_textures: &[(&wgpu::Texture, u32)] = &[
                 (&fallback_shadow_depth_texture, MAX_SHADOW_CASCADES as u32),
-                (&fallback_point_shadow_texture, (MAX_SHADOW_POINT_LIGHTS * 6) as u32),
+                (
+                    &fallback_point_shadow_texture,
+                    (MAX_SHADOW_POINT_LIGHTS * 6) as u32,
+                ),
                 (&fallback_spot_shadow_texture, MAX_SHADOW_SPOT_LIGHTS as u32),
             ];
             let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -493,8 +503,7 @@ impl ShadowPass {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Depth32Float,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                | wgpu::TextureUsages::TEXTURE_BINDING,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
             view_formats: &[],
         });
 
@@ -526,9 +535,7 @@ impl ShadowPass {
                 ty: wgpu::BindingType::Buffer {
                     ty: wgpu::BufferBindingType::Uniform,
                     has_dynamic_offset: false,
-                    min_binding_size: wgpu::BufferSize::new(
-                        size_of::<CascadeUniforms>() as u64,
-                    ),
+                    min_binding_size: wgpu::BufferSize::new(size_of::<CascadeUniforms>() as u64),
                 },
                 count: None,
             }],
@@ -682,15 +689,13 @@ impl ShadowPass {
         light_dir: [f32; 3],
         aspect: f32,
     ) -> ShadowUniforms {
-        let count = self
-            .config
-            .cascade_count
-            .clamp(2, MAX_SHADOW_CASCADES);
+        let count = self.config.cascade_count.clamp(2, MAX_SHADOW_CASCADES);
 
         let shadow_far = self.config.shadow_distance.min(camera.far);
         let splits = compute_cascade_splits(camera.near, shadow_far, count, 0.5);
         let light = Vec3::from(light_dir);
-        let matrices = compute_cascade_matrices(camera, aspect, light, &splits, self.config.light_distance);
+        let matrices =
+            compute_cascade_matrices(camera, aspect, light, &splits, self.config.light_distance);
 
         // Upload per-cascade light-VP matrices.
         let mut light_vp = [[[0.0f32; 4]; 4]; MAX_SHADOW_CASCADES];
@@ -788,11 +793,7 @@ pub fn spot_light_vp(position: Vec3, direction: Vec3, outer_angle: f32, range: f
 
     let dir = direction.normalize();
     // Choose an up vector that isn't parallel to direction.
-    let up = if dir.y.abs() > 0.99 {
-        Vec3::Z
-    } else {
-        Vec3::Y
-    };
+    let up = if dir.y.abs() > 0.99 { Vec3::Z } else { Vec3::Y };
     let view = Mat4::look_at_rh(position, position + dir, up);
     proj * view
 }
@@ -1084,7 +1085,10 @@ impl super::renderer::Renderer3D {
                 // Render depth from light's perspective for each cascade.
                 // Use pre-cull draw data so shadow casters outside the camera
                 // frustum still cast visible shadows into the view.
-                let cascade_count = shadow_pass.config.cascade_count.clamp(2, MAX_SHADOW_CASCADES);
+                let cascade_count = shadow_pass
+                    .config
+                    .cascade_count
+                    .clamp(2, MAX_SHADOW_CASCADES);
                 for cascade in 0..cascade_count {
                     let mut pass = shadow_pass.begin_cascade_pass(encoder, cascade);
 
@@ -1147,7 +1151,8 @@ impl super::renderer::Renderer3D {
             };
 
             let shadow_cfg = self
-                .shadow_state.shadow_pass
+                .shadow_state
+                .shadow_pass
                 .as_ref()
                 .map(|sp| sp.config)
                 .unwrap_or_default();
@@ -1155,7 +1160,10 @@ impl super::renderer::Renderer3D {
             // Point light shadows.
             if let Some(point_pass) = &self.shadow_state.point_shadow_pass {
                 // Sort shadow-casters first (to_uniforms already did this).
-                let sorted_points: Vec<_> = self.light_env.point_lights.iter()
+                let sorted_points: Vec<_> = self
+                    .light_env
+                    .point_lights
+                    .iter()
                     .filter(|pl| pl.cast_shadows)
                     .take(MAX_SHADOW_POINT_LIGHTS)
                     .collect();
@@ -1198,7 +1206,10 @@ impl super::renderer::Renderer3D {
 
             // Spot light shadows.
             if let Some(spot_pass) = &self.shadow_state.spot_shadow_pass {
-                let sorted_spots: Vec<_> = self.light_env.spot_lights.iter()
+                let sorted_spots: Vec<_> = self
+                    .light_env
+                    .spot_lights
+                    .iter()
                     .filter(|sl| sl.cast_shadows)
                     .take(MAX_SHADOW_SPOT_LIGHTS)
                     .collect();

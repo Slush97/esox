@@ -176,7 +176,15 @@ impl Scene {
             }
         }
 
-        while let Some((id, parent_abs_x, parent_abs_y, parent_clip, parent_opacity, parent_z_order)) = stack.pop() {
+        while let Some((
+            id,
+            parent_abs_x,
+            parent_abs_y,
+            parent_clip,
+            parent_opacity,
+            parent_z_order,
+        )) = stack.pop()
+        {
             let Some(node) = self.get(id) else { continue };
 
             let abs_x = parent_abs_x + node.offset.0;
@@ -188,14 +196,12 @@ impl Scene {
             let clip = match (parent_clip, node.clip) {
                 (None, None) => None,
                 (Some(c), None) => Some(c),
-                (None, Some(local)) => {
-                    Some(Rect {
-                        x: abs_x + local.x,
-                        y: abs_y + local.y,
-                        width: local.width,
-                        height: local.height,
-                    })
-                }
+                (None, Some(local)) => Some(Rect {
+                    x: abs_x + local.x,
+                    y: abs_y + local.y,
+                    width: local.width,
+                    height: local.height,
+                }),
                 (Some(parent), Some(local)) => {
                     let abs_local = Rect {
                         x: abs_x + local.x,

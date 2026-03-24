@@ -166,7 +166,9 @@ impl PortalHandle {
         interactive: bool,
     ) -> tokio::sync::oneshot::Receiver<Result<PathBuf, PortalError>> {
         let (reply, rx) = tokio::sync::oneshot::channel();
-        let _ = self.tx.send(PortalRequest::Screenshot { interactive, reply });
+        let _ = self
+            .tx
+            .send(PortalRequest::Screenshot { interactive, reply });
         rx
     }
 }
@@ -199,7 +201,12 @@ pub fn start_portal_bridge(proxy: EventLoopProxy<AppUserEvent>) -> PortalHandle 
 async fn portal_loop(rx: mpsc::Receiver<PortalRequest>) {
     while let Ok(req) = rx.recv() {
         match req {
-            PortalRequest::OpenFile { title, filters, multiple, reply } => {
+            PortalRequest::OpenFile {
+                title,
+                filters,
+                multiple,
+                reply,
+            } => {
                 let result = handle_open_file(&title, &filters, multiple).await;
                 let _ = reply.send(result);
             }
@@ -207,11 +214,20 @@ async fn portal_loop(rx: mpsc::Receiver<PortalRequest>) {
                 let result = handle_open_directory(&title).await;
                 let _ = reply.send(result);
             }
-            PortalRequest::SaveFile { title, filters, suggested_name, reply } => {
+            PortalRequest::SaveFile {
+                title,
+                filters,
+                suggested_name,
+                reply,
+            } => {
                 let result = handle_save_file(&title, &filters, suggested_name.as_deref()).await;
                 let _ = reply.send(result);
             }
-            PortalRequest::Notify { summary, body, reply } => {
+            PortalRequest::Notify {
+                summary,
+                body,
+                reply,
+            } => {
                 let result = handle_notify(&summary, &body).await;
                 let _ = reply.send(result);
             }
@@ -298,17 +314,23 @@ async fn handle_save_file(
     let response = request.send().await.map_err(portal_err)?;
     let response = response.response().map_err(portal_err)?;
 
-    Ok(response.uris().first().and_then(|uri| uri.to_file_path().ok()))
+    Ok(response
+        .uris()
+        .first()
+        .and_then(|uri| uri.to_file_path().ok()))
 }
 
 async fn handle_notify(summary: &str, body: &str) -> Result<(), PortalError> {
     use ashpd::desktop::notification::{NotificationProxy, Priority};
 
     let proxy = NotificationProxy::new().await.map_err(portal_err)?;
-    let id = format!("esox-{}", std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis());
+    let id = format!(
+        "esox-{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis()
+    );
 
     let notification = ashpd::desktop::notification::Notification::default()
         .title(summary)
@@ -328,10 +350,7 @@ async fn handle_read_settings() -> Result<SystemSettings, PortalError> {
 
     let settings = Settings::new().await.map_err(portal_err)?;
 
-    let color_scheme = match settings
-        .color_scheme()
-        .await
-    {
+    let color_scheme = match settings.color_scheme().await {
         Ok(ashpd::desktop::settings::ColorScheme::PreferDark) => ColorScheme::Dark,
         Ok(ashpd::desktop::settings::ColorScheme::PreferLight) => ColorScheme::Light,
         _ => ColorScheme::NoPreference,

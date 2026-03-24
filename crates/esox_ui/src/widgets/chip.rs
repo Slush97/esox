@@ -66,7 +66,11 @@ impl<'f> Ui<'f> {
         let bg = if response.disabled {
             self.theme.disabled_bg
         } else {
-            let t = self.state.hover_t(id ^ HOVER_SALT, response.hovered, self.theme.hover_duration_ms);
+            let t = self.state.hover_t(
+                id ^ HOVER_SALT,
+                response.hovered,
+                self.theme.hover_duration_ms,
+            );
             paint::lerp_color(color, self.theme.accent_hover, t)
         };
         paint::draw_rounded_rect(self.frame, rect, bg, radius);

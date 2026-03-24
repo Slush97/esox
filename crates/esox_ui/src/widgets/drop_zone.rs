@@ -65,8 +65,7 @@ impl<'f> Ui<'f> {
         } else {
             let line_h = self.theme.font_size + 6.0;
             let max_lines = ((rect.h - self.theme.label_pad_y * 4.0) / line_h) as usize;
-            let start_y =
-                rect.y + (rect.h - (files.len().min(max_lines) as f32 * line_h)) / 2.0;
+            let start_y = rect.y + (rect.h - (files.len().min(max_lines) as f32 * line_h)) / 2.0;
 
             for (i, path) in files.iter().take(max_lines).enumerate() {
                 let name = path

@@ -1,10 +1,13 @@
 //! Embedded shader source strings for the 3D renderer.
 
-use std::collections::HashMap;
 use super::material::MaterialType;
 use super::shader_library::ShaderLibrary;
+use std::collections::HashMap;
 
-pub(crate) fn compile_shader_modules(device: &wgpu::Device, library: &ShaderLibrary) -> HashMap<MaterialType, wgpu::ShaderModule> {
+pub(crate) fn compile_shader_modules(
+    device: &wgpu::Device,
+    library: &ShaderLibrary,
+) -> HashMap<MaterialType, wgpu::ShaderModule> {
     let mut modules = HashMap::new();
 
     let unlit_src = library.compose_material_shader(MaterialType::Unlit);

@@ -42,7 +42,9 @@ impl<'f> Ui<'f> {
             }
             None => 0.0,
         };
-        self.state.prev_max_scroll.insert(id, ([max_scroll, 0.0], 0));
+        self.state
+            .prev_max_scroll
+            .insert(id, ([max_scroll, 0.0], 0));
 
         // Handle scroll_to.
         if let Some(target) = state.scroll_to.take() {
@@ -109,8 +111,7 @@ impl<'f> Ui<'f> {
             }
             None => container_clip,
         };
-        self.frame
-            .set_active_clip(Some(gpu_clip.to_clip_array()));
+        self.frame.set_active_clip(Some(gpu_clip.to_clip_array()));
         self.hit_clip = Some(match saved_hit_clip {
             Some(prev) => container_clip.intersect(&prev).unwrap_or(container_clip),
             None => container_clip,
@@ -139,7 +140,7 @@ impl<'f> Ui<'f> {
         if content_height > visible_height {
             draw_scrollbar(
                 self.frame,
-                &mut self.state,
+                self.state,
                 self.theme,
                 id,
                 container,
@@ -148,7 +149,9 @@ impl<'f> Ui<'f> {
                 &mut offset,
             );
             // Re-store the potentially updated offset.
-            self.state.scroll_offsets.insert(id, ([offset.clamp(0.0, max_scroll), 0.0], 0));
+            self.state
+                .scroll_offsets
+                .insert(id, ([offset.clamp(0.0, max_scroll), 0.0], 0));
         }
 
         let hovered = container.contains(self.state.mouse.x, self.state.mouse.y);
@@ -164,6 +167,8 @@ impl<'f> Ui<'f> {
 }
 
 /// Shared scrollbar drawing logic used by scrollable and virtual_scroll.
+// Scrollbar geometry requires distinct layout/state parameters.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn draw_scrollbar(
     frame: &mut esox_gfx::Frame,
     state: &mut crate::state::UiState,
@@ -202,7 +207,7 @@ pub(crate) fn draw_scrollbar(
     let thumb_hover_id = id.wrapping_mul(0x517cc1b727220a95);
     let t = state.hover_t(
         thumb_hover_id,
-        thumb_hovered || state.scrollbar_drag.map_or(false, |(did, _)| did == id),
+        thumb_hovered || state.scrollbar_drag.is_some_and(|(did, _)| did == id),
         theme.hover_duration_ms,
     );
     let thumb_color = paint::lerp_color(theme.fg_dim, theme.fg_muted, t);

@@ -29,7 +29,14 @@ impl Texture3D {
         height: u32,
         data: &[u8],
     ) -> Option<Self> {
-        Self::upload_inner(device, queue, width, height, data, wgpu::TextureFormat::Rgba8UnormSrgb)
+        Self::upload_inner(
+            device,
+            queue,
+            width,
+            height,
+            data,
+            wgpu::TextureFormat::Rgba8UnormSrgb,
+        )
     }
 
     /// Upload RGBA8 data to a new GPU texture (linear format — for data textures like
@@ -43,7 +50,14 @@ impl Texture3D {
         height: u32,
         data: &[u8],
     ) -> Option<Self> {
-        Self::upload_inner(device, queue, width, height, data, wgpu::TextureFormat::Rgba8Unorm)
+        Self::upload_inner(
+            device,
+            queue,
+            width,
+            height,
+            data,
+            wgpu::TextureFormat::Rgba8Unorm,
+        )
     }
 
     fn upload_inner(

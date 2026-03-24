@@ -4,8 +4,8 @@
 use esox_gfx::{Frame, GpuContext, RenderResources};
 use esox_platform::{AppDelegate, Clipboard, MouseInputEvent};
 use esox_ui::{
-    id, ClipboardProvider, FlexItem, FlexWrap, Rect, StyleState, TextRenderer, Theme,
-    TruncationMode, UiState, WidgetStyle, WidthClass,
+    ClipboardProvider, FlexItem, FlexWrap, Rect, StyleState, TextRenderer, Theme, TruncationMode,
+    UiState, WidgetStyle, WidthClass, id,
 };
 
 struct PlatformClipboard;
@@ -55,7 +55,15 @@ impl AppDelegate for App {
     ) {
         let text = self.text.as_mut().unwrap();
         let viewport = Rect::new(0.0, 0.0, self.viewport.0 as f32, self.viewport.1 as f32);
-        let mut ui = esox_ui::Ui::begin(frame, gpu, resources, text, &mut self.ui_state, &self.theme, viewport);
+        let mut ui = esox_ui::Ui::begin(
+            frame,
+            gpu,
+            resources,
+            text,
+            &mut self.ui_state,
+            &self.theme,
+            viewport,
+        );
 
         let scroll_h = self.viewport.1 as f32;
         ui.scrollable(id!("page"), scroll_h, |ui| {
@@ -202,8 +210,10 @@ impl AppDelegate for App {
         match event {
             MouseInputEvent::Moved { x, y } => {
                 self.ui_state.process_mouse_move(
-                    x as f32, y as f32,
-                    self.theme.item_height, self.theme.dropdown_gap,
+                    x as f32,
+                    y as f32,
+                    self.theme.item_height,
+                    self.theme.dropdown_gap,
                 );
             }
             MouseInputEvent::Press { x, y, button: 0 } => {
@@ -232,7 +242,9 @@ impl AppDelegate for App {
     fn on_ime_enabled(&mut self, enabled: bool) {
         self.ui_state.on_ime_enabled(enabled);
     }
-    fn on_copy(&mut self) -> Option<String> { None }
+    fn on_copy(&mut self) -> Option<String> {
+        None
+    }
 
     fn on_scale_changed(&mut self, scale_factor: f64, _gpu: &GpuContext) {
         let factor = scale_factor as f32;

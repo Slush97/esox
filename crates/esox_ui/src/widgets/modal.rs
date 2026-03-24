@@ -45,18 +45,30 @@ impl<'f> Ui<'f> {
         }
 
         self.push_a11y_node(crate::state::A11yNode {
-            id, role: crate::state::A11yRole::Dialog, label: title.to_string(),
-            value: None, rect: self.region, focused: false, disabled: false,
-            expanded: None, selected: None, checked: None,
-            value_range: None, children: Vec::new(),
+            id,
+            role: crate::state::A11yRole::Dialog,
+            label: title.to_string(),
+            value: None,
+            rect: self.region,
+            focused: false,
+            disabled: false,
+            expanded: None,
+            selected: None,
+            checked: None,
+            value_range: None,
+            children: Vec::new(),
         });
 
         let anim_id = fnv1a_mix(id, MODAL_ANIM_SALT);
         let duration = self.theme.modal_fade_duration_ms;
-        let opacity = self.state.anim_t(anim_id, 1.0, duration, Easing::EaseOutCubic);
+        let opacity = self
+            .state
+            .anim_t(anim_id, 1.0, duration, Easing::EaseOutCubic);
 
         let vp = self.region;
-        let modal_w = width.clamp(self.theme.modal_min_width, self.theme.modal_max_width).min(vp.w - self.theme.modal_margin * 2.0);
+        let modal_w = width
+            .clamp(self.theme.modal_min_width, self.theme.modal_max_width)
+            .min(vp.w - self.theme.modal_margin * 2.0);
         let title_h = self.theme.modal_title_height;
         let pad = self.theme.modal_padding;
         let corner = self.theme.modal_corner_radius;
@@ -145,7 +157,11 @@ impl<'f> Ui<'f> {
         self.register_widget(close_id, close_rect, WidgetKind::Button);
         let close_resp = self.widget_response(close_id, close_rect);
 
-        let close_hover_t = self.state.hover_t(close_id ^ HOVER_SALT, close_resp.hovered, self.theme.hover_duration_ms);
+        let close_hover_t = self.state.hover_t(
+            close_id ^ HOVER_SALT,
+            close_resp.hovered,
+            self.theme.hover_duration_ms,
+        );
         let close_color = paint::lerp_color(self.theme.fg_muted, self.theme.red, close_hover_t);
         let x_text = "\u{2715}";
         let x_w = self.text.measure_text(x_text, self.theme.font_size);
@@ -163,11 +179,19 @@ impl<'f> Ui<'f> {
         }
 
         // Set hit_clip to modal rect for focus trap.
-        let content_rect = Rect::new(modal_x + pad, modal_y_start + title_h + pad, modal_w - pad * 2.0, max_h - title_h - pad * 2.0);
+        let content_rect = Rect::new(
+            modal_x + pad,
+            modal_y_start + title_h + pad,
+            modal_w - pad * 2.0,
+            max_h - title_h - pad * 2.0,
+        );
         self.hit_clip = Some(Rect::new(modal_x, modal_y_start, modal_w, max_h));
 
         // Set cursor for content.
-        self.cursor = crate::layout::Vec2 { x: content_rect.x, y: content_rect.y };
+        self.cursor = crate::layout::Vec2 {
+            x: content_rect.x,
+            y: content_rect.y,
+        };
         self.region = content_rect;
 
         // Run content closure.

@@ -4,9 +4,9 @@ use esox_gfx::{Frame, GpuContext, RenderResources};
 use esox_platform::config::{PlatformConfig, WindowConfig};
 use esox_platform::{AppDelegate, Clipboard, MouseInputEvent};
 use esox_ui::{
-    fnv1a_mix, id, ClipboardProvider, ColumnWidth, FieldStatus, ImageCache, ImageHandle,
-    InputState, ModalAction, Rect, RichText, SelectState, TabState, TableColumn, TableState,
-    TextRenderer, Theme, TreeState, UiState, VirtualScrollState,
+    ClipboardProvider, ColumnWidth, FieldStatus, ImageCache, ImageHandle, InputState, ModalAction,
+    Rect, RichText, SelectState, TabState, TableColumn, TableState, TextRenderer, Theme, TreeState,
+    UiState, VirtualScrollState, fnv1a_mix, id,
 };
 
 /// Clipboard provider backed by the platform clipboard.
@@ -158,7 +158,15 @@ impl AppDelegate for DemoApp {
 
         let text = self.text.as_mut().unwrap();
         let vp = Rect::new(0.0, 0.0, self.viewport.0 as f32, self.viewport.1 as f32);
-        let mut ui = esox_ui::Ui::begin(frame, gpu, resources, text, &mut self.ui_state, &self.theme, vp);
+        let mut ui = esox_ui::Ui::begin(
+            frame,
+            gpu,
+            resources,
+            text,
+            &mut self.ui_state,
+            &self.theme,
+            vp,
+        );
 
         let scroll_h = self.viewport.1 as f32;
         ui.scrollable(id!("page_scroll"), scroll_h, |ui| {
@@ -500,7 +508,9 @@ impl AppDelegate for DemoApp {
         let mut max_w = 0.0f32;
         for line in stats.lines() {
             let w = text.measure_text(line, 12.0);
-            if w > max_w { max_w = w; }
+            if w > max_w {
+                max_w = w;
+            }
         }
         let overlay_w = max_w + 16.0;
         let overlay_x = self.viewport.0 as f32 - overlay_w - 4.0;
@@ -581,7 +591,9 @@ impl AppDelegate for DemoApp {
     fn on_ime_enabled(&mut self, enabled: bool) {
         self.ui_state.on_ime_enabled(enabled);
     }
-    fn on_copy(&mut self) -> Option<String> { None }
+    fn on_copy(&mut self) -> Option<String> {
+        None
+    }
 
     fn needs_redraw(&self) -> bool {
         self.ui_state.needs_redraw()

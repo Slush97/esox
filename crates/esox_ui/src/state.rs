@@ -375,7 +375,11 @@ impl InputState {
     /// Save current state to undo history. Call before mutations.
     pub fn save_undo(&mut self) {
         // Only push if text differs from last entry.
-        let dominated = self.undo_history.entries.back().is_some_and(|e| e.text == self.text);
+        let dominated = self
+            .undo_history
+            .entries
+            .back()
+            .is_some_and(|e| e.text == self.text);
         if !dominated {
             self.undo_history.push(&self.text, self.cursor);
         }
@@ -1095,13 +1099,7 @@ impl UiState {
 
     /// Update mouse position. `item_height` and `dropdown_gap` are used for
     /// hover tracking within any open dropdown overlay.
-    pub fn process_mouse_move(
-        &mut self,
-        x: f32,
-        y: f32,
-        item_height: f32,
-        dropdown_gap: f32,
-    ) {
+    pub fn process_mouse_move(&mut self, x: f32, y: f32, item_height: f32, dropdown_gap: f32) {
         // Flag mouse movement for targeted hover damage in begin_frame().
         if (self.mouse.x - x).abs() > 0.5 || (self.mouse.y - y).abs() > 0.5 {
             self.mouse_moved = true;
@@ -1118,10 +1116,7 @@ impl UiState {
                 ..
             }) => {
                 let dd_y = anchor.y + anchor.h + dropdown_gap;
-                if x >= anchor.x
-                    && x < anchor.x + anchor.w
-                    && y >= dd_y
-                {
+                if x >= anchor.x && x < anchor.x + anchor.w && y >= dd_y {
                     let idx = ((y - dd_y) / item_height) as usize;
                     if idx < choices.len() {
                         *hovered = Some(idx);
@@ -1166,11 +1161,7 @@ impl UiState {
                 let visible_count = filtered_indices.len().min(max_visible);
                 let dd_y = anchor.y + anchor.h + dropdown_gap;
                 let dd_h = visible_count as f32 * item_height;
-                if x >= anchor.x
-                    && x < anchor.x + anchor.w
-                    && y >= dd_y
-                    && y < dd_y + dd_h
-                {
+                if x >= anchor.x && x < anchor.x + anchor.w && y >= dd_y && y < dd_y + dd_h {
                     let idx = ((y - dd_y + *scroll_offset) / item_height) as usize;
                     if idx < filtered_indices.len() {
                         *highlighted = Some(idx);
@@ -1247,7 +1238,9 @@ impl UiState {
             if rect.contains(x, y) {
                 return match kind {
                     WidgetKind::TextInput => esox_input::CursorIcon::Text,
-                    WidgetKind::ColumnResize | WidgetKind::ResizeEW => esox_input::CursorIcon::ColResize,
+                    WidgetKind::ColumnResize | WidgetKind::ResizeEW => {
+                        esox_input::CursorIcon::ColResize
+                    }
                     WidgetKind::ResizeNS => esox_input::CursorIcon::RowResize,
                     WidgetKind::Grab => esox_input::CursorIcon::Grab,
                     WidgetKind::Grabbing => esox_input::CursorIcon::Grabbing,
@@ -1276,7 +1269,7 @@ impl UiState {
     /// Whether the UI needs continuous redraw (cursor blink, overlay, tooltip delay, active animations, etc.).
     pub fn needs_continuous_redraw(&self) -> bool {
         self.overlay.is_some()
-            || self.focused.map_or(false, |id| self.is_text_widget(id))
+            || self.focused.is_some_and(|id| self.is_text_widget(id))
             || self.hover_anims.values().any(|a| !a.is_settled())
             || self.anims.values().any(|a| !a.is_settled())
             || self.scrollbar_drag.is_some()
@@ -1293,8 +1286,7 @@ impl UiState {
     /// This is a frame-skip check: returns `false` when nothing changed
     /// since the last frame, allowing the platform to skip GPU submission.
     pub fn needs_redraw(&self) -> bool {
-        self.damage.is_full_invalidation()
-            || self.damage.regions().map_or(false, |r| !r.is_empty())
+        self.damage.is_full_invalidation() || self.damage.regions().is_some_and(|r| !r.is_empty())
     }
 
     /// Get or update a hover animation, returning the current interpolation value.
@@ -1322,15 +1314,13 @@ impl UiState {
     /// Get or create a general-purpose animation. Returns current value.
     /// Restarts from current value when target changes.
     pub fn anim_t(&mut self, id: u64, target: f32, duration_ms: f32, easing: Easing) -> f32 {
-        let anim = self.anims.entry(id).or_insert_with(|| {
-            Anim {
-                from: target,
-                to: target,
-                start: Instant::now(),
-                duration_ms,
-                easing,
-                queried: true,
-            }
+        let anim = self.anims.entry(id).or_insert_with(|| Anim {
+            from: target,
+            to: target,
+            start: Instant::now(),
+            duration_ms,
+            easing,
+            queried: true,
         });
         anim.queried = true;
         if (anim.to - target).abs() > 0.001 {
@@ -1345,7 +1335,7 @@ impl UiState {
 
     /// Whether a given animation is currently active (not settled).
     pub fn anim_active(&self, id: u64) -> bool {
-        self.anims.get(&id).map_or(false, |a| !a.is_settled())
+        self.anims.get(&id).is_some_and(|a| !a.is_settled())
     }
 
     /// Advance focus to the next widget in the focus chain.
@@ -1387,19 +1377,26 @@ impl UiState {
 
         // Damage detection: hover/focus changes, active animations, scroll velocity.
         if self.mouse_moved {
-            let current_hovered = self.hit_rects.iter().rev()
+            let current_hovered = self
+                .hit_rects
+                .iter()
+                .rev()
                 .find(|(r, _, _)| r.contains(self.mouse.x, self.mouse.y))
                 .map(|(_, id, _)| *id);
             if current_hovered != self.prev_hovered {
                 // Add damage for old and new hovered widget rects.
                 if let Some(old_id) = self.prev_hovered {
-                    if let Some((r, _, _)) = self.hit_rects.iter().find(|(_, id, _)| *id == old_id) {
-                        self.damage.add(esox_gfx::DamageRect::new(r.x, r.y, r.w, r.h));
+                    if let Some((r, _, _)) = self.hit_rects.iter().find(|(_, id, _)| *id == old_id)
+                    {
+                        self.damage
+                            .add(esox_gfx::DamageRect::new(r.x, r.y, r.w, r.h));
                     }
                 }
                 if let Some(new_id) = current_hovered {
-                    if let Some((r, _, _)) = self.hit_rects.iter().find(|(_, id, _)| *id == new_id) {
-                        self.damage.add(esox_gfx::DamageRect::new(r.x, r.y, r.w, r.h));
+                    if let Some((r, _, _)) = self.hit_rects.iter().find(|(_, id, _)| *id == new_id)
+                    {
+                        self.damage
+                            .add(esox_gfx::DamageRect::new(r.x, r.y, r.w, r.h));
                     }
                 }
             }
@@ -1414,7 +1411,8 @@ impl UiState {
             for (id, anim) in &self.hover_anims {
                 if !anim.is_settled() {
                     if let Some(r) = self.anim_rects.get(id) {
-                        self.damage.add(esox_gfx::DamageRect::new(r.x, r.y, r.w, r.h));
+                        self.damage
+                            .add(esox_gfx::DamageRect::new(r.x, r.y, r.w, r.h));
                     } else {
                         any_missing = true;
                     }
@@ -1423,7 +1421,8 @@ impl UiState {
             for (id, anim) in &self.anims {
                 if !anim.is_settled() {
                     if let Some(r) = self.anim_rects.get(id) {
-                        self.damage.add(esox_gfx::DamageRect::new(r.x, r.y, r.w, r.h));
+                        self.damage
+                            .add(esox_gfx::DamageRect::new(r.x, r.y, r.w, r.h));
                     } else {
                         any_missing = true;
                     }
@@ -1434,7 +1433,9 @@ impl UiState {
             }
             self.anim_rects.clear();
         }
-        if self.overlay.is_some() || !self.modal_stack.is_empty() || !self.toasts.toasts.is_empty()
+        if self.overlay.is_some()
+            || !self.modal_stack.is_empty()
+            || !self.toasts.toasts.is_empty()
             || self.menu_bar_open.is_some()
         {
             self.damage.invalidate_all();
@@ -1452,8 +1453,12 @@ impl UiState {
                 // Friction is applied per-frame; 0.92 is the default.
                 vel[0] *= 0.92;
                 vel[1] *= 0.92;
-                if vel[0].abs() < 0.5 { vel[0] = 0.0; }
-                if vel[1].abs() < 0.5 { vel[1] = 0.0; }
+                if vel[0].abs() < 0.5 {
+                    vel[0] = 0.0;
+                }
+                if vel[1].abs() < 0.5 {
+                    vel[1] = 0.0;
+                }
             }
             any_active
         });
@@ -1479,8 +1484,7 @@ impl UiState {
             }
             if let Some(shift) = tab_action {
                 self.keys.retain(|(event, _)| {
-                    !(event.pressed
-                        && matches!(event.key, Key::Named(NamedKey::Tab)))
+                    !(event.pressed && matches!(event.key, Key::Named(NamedKey::Tab)))
                 });
                 if shift {
                     self.focus_prev();
@@ -1558,7 +1562,10 @@ impl UiState {
             *age <= 300
         });
         // Save hover/focus state for next frame's damage detection.
-        self.prev_hovered = self.hit_rects.iter().rev()
+        self.prev_hovered = self
+            .hit_rects
+            .iter()
+            .rev()
             .find(|(r, _, _)| r.contains(self.mouse.x, self.mouse.y))
             .map(|(_, id, _)| *id);
         self.prev_focused = self.focused;

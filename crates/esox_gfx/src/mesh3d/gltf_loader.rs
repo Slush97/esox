@@ -213,12 +213,7 @@ impl GltfScene {
                 let transform = convert_transform(&node);
                 let mesh_indices = node
                     .mesh()
-                    .map(|m| {
-                        mesh_index_map
-                            .get(m.index())
-                            .cloned()
-                            .unwrap_or_default()
-                    })
+                    .map(|m| mesh_index_map.get(m.index()).cloned().unwrap_or_default())
                     .unwrap_or_default();
                 let skin_index = node.skin().map(|s| s.index());
                 let children: Vec<usize> = node.children().map(|c| c.index()).collect();
@@ -343,10 +338,7 @@ fn convert_image_to_rgba8(img: &gltf::image::Data) -> (Vec<u8>, u32, u32) {
 
 // ── Material conversion ──
 
-fn convert_material(
-    mat: &gltf::Material<'_>,
-    image_srgb: &mut [bool],
-) -> MaterialDescriptor {
+fn convert_material(mat: &gltf::Material<'_>, image_srgb: &mut [bool]) -> MaterialDescriptor {
     let pbr = mat.pbr_metallic_roughness();
     let base_color = pbr.base_color_factor();
 
@@ -383,9 +375,7 @@ fn convert_material(
     let emissive = mat.emissive_factor();
 
     let blend_mode = match mat.alpha_mode() {
-        gltf::material::AlphaMode::Opaque | gltf::material::AlphaMode::Mask => {
-            BlendMode3D::Opaque
-        }
+        gltf::material::AlphaMode::Opaque | gltf::material::AlphaMode::Mask => BlendMode3D::Opaque,
         gltf::material::AlphaMode::Blend => BlendMode3D::AlphaBlend,
     };
 
@@ -456,7 +446,10 @@ fn convert_primitive(
             normal: normals[i],
             uv: uvs[i],
             color: colors[i],
-            tangent: tangents.as_ref().map(|t| t[i]).unwrap_or([0.0, 0.0, 0.0, 1.0]),
+            tangent: tangents
+                .as_ref()
+                .map(|t| t[i])
+                .unwrap_or([0.0, 0.0, 0.0, 1.0]),
         });
     }
 
@@ -571,10 +564,8 @@ fn convert_skin(
     let joints: Vec<gltf::Node<'_>> = skin.joints().collect();
     let joint_count = joints.len();
 
-    let joint_names: Vec<Option<String>> = joints
-        .iter()
-        .map(|j| j.name().map(String::from))
-        .collect();
+    let joint_names: Vec<Option<String>> =
+        joints.iter().map(|j| j.name().map(String::from)).collect();
 
     // Build parent index map: for each joint, find its parent in the joint list.
     let parent_indices: Vec<i32> = joints
@@ -600,7 +591,8 @@ fn convert_skin(
         .unwrap_or_else(|| vec![Mat4::IDENTITY; joint_count]);
 
     // Capture bind-pose local transforms from the glTF node tree.
-    let bind_pose_transforms: Vec<Transform> = joints.iter().map(|j| convert_transform(j)).collect();
+    let bind_pose_transforms: Vec<Transform> =
+        joints.iter().map(|j| convert_transform(j)).collect();
 
     GltfSkin {
         joint_names,
@@ -660,7 +652,10 @@ fn convert_animation(
         };
 
         let reader = channel.reader(|buf| Some(&buffers[buf.index()]));
-        let times: Vec<f32> = reader.read_inputs().map(|iter| iter.collect()).unwrap_or_default();
+        let times: Vec<f32> = reader
+            .read_inputs()
+            .map(|iter| iter.collect())
+            .unwrap_or_default();
         if let Some(&last) = times.last() {
             duration = duration.max(last);
         }
@@ -751,8 +746,7 @@ impl super::renderer::Renderer3D {
                 remapped.normal_texture = remap_texture_handle(desc.normal_texture, &textures);
                 remapped.metallic_roughness_texture =
                     remap_texture_handle(desc.metallic_roughness_texture, &textures);
-                remapped.emissive_texture =
-                    remap_texture_handle(desc.emissive_texture, &textures);
+                remapped.emissive_texture = remap_texture_handle(desc.emissive_texture, &textures);
                 self.create_material(gpu, &remapped)
             })
             .collect();
@@ -776,8 +770,7 @@ impl super::renderer::Renderer3D {
             match (&mesh.skin_data, mesh_skin_map.get(&i)) {
                 (Some(sd), Some(&skin_idx)) => {
                     let joint_count = scene.skins[skin_idx].joint_count as u32;
-                    let (handle, si) =
-                        self.upload_skinned_mesh(gpu, &mesh.data, sd, joint_count);
+                    let (handle, si) = self.upload_skinned_mesh(gpu, &mesh.data, sd, joint_count);
                     mesh_handles.push(handle);
                     skinned_mesh_indices.push(Some(si));
                 }
@@ -898,7 +891,11 @@ mod tests {
 
     #[test]
     fn remap_texture_handle_works() {
-        let uploaded = vec![Some(TextureHandle(10)), Some(TextureHandle(11)), Some(TextureHandle(12))];
+        let uploaded = vec![
+            Some(TextureHandle(10)),
+            Some(TextureHandle(11)),
+            Some(TextureHandle(12)),
+        ];
         assert_eq!(
             remap_texture_handle(Some(TextureHandle(0)), &uploaded),
             Some(TextureHandle(10))

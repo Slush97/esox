@@ -8,6 +8,7 @@ use crate::pipeline::GpuContext;
 use super::bounds::{Aabb, Frustum};
 use super::bvh::Bvh;
 use super::camera::Camera;
+use super::depth_resolve::DepthResolvePass;
 use super::ibl::IblState;
 use super::instance::InstanceData;
 use super::light::{LightEnvironment, LightUniforms};
@@ -16,24 +17,21 @@ use super::material::{
     PipelineKey, create_pipeline, create_pipeline_with_shader,
 };
 use super::mesh::{MegaBuffer, Mesh, MeshData, MeshHandle, MeshRegion};
-use super::depth_resolve::DepthResolvePass;
+use super::shader_library::ShaderLibrary;
 #[cfg(feature = "hot-reload")]
 use super::shader_library::ShaderSlot;
-use super::shader_library::ShaderLibrary;
 use super::shadow::{ShadowConfig, ShadowPass, ShadowState, ShadowUniforms};
-use super::skinning::{SkinningPipeline, SkinnedMesh};
+use super::skinning::{SkinnedMesh, SkinningPipeline};
 use super::ssao::SsaoPass;
 use super::texture::{Texture3D, TextureHandle};
 
-use super::render_types::{
-    Uniforms, DrawCmd, BatchStats3D,
-    INITIAL_INSTANCE_CAPACITY, MAX_INSTANCES,
-    SKINNED_MESH_BIT, INDIRECT_ARGS_SIZE, INITIAL_INDIRECT_CAPACITY,
-    pipeline_key_sort_tuple, instance_translation,
-};
 use super::postprocess::{
-    PostProcess3DConfig, PostProcess3D,
-    create_depth_texture, create_hdr_texture,
+    PostProcess3D, PostProcess3DConfig, create_depth_texture, create_hdr_texture,
+};
+use super::render_types::{
+    BatchStats3D, DrawCmd, INDIRECT_ARGS_SIZE, INITIAL_INDIRECT_CAPACITY,
+    INITIAL_INSTANCE_CAPACITY, MAX_INSTANCES, SKINNED_MESH_BIT, Uniforms, instance_translation,
+    pipeline_key_sort_tuple,
 };
 use super::shaders_embedded::{SHADER_PREAMBLE, compile_shader_modules};
 
@@ -183,7 +181,7 @@ impl Renderer3D {
                             ty: wgpu::BufferBindingType::Uniform,
                             has_dynamic_offset: false,
                             min_binding_size: wgpu::BufferSize::new(
-                                size_of::<ShadowUniforms>() as u64,
+                                size_of::<ShadowUniforms>() as u64
                             ),
                         },
                         count: None,
@@ -213,9 +211,10 @@ impl Renderer3D {
                         ty: wgpu::BindingType::Buffer {
                             ty: wgpu::BufferBindingType::Uniform,
                             has_dynamic_offset: false,
-                            min_binding_size: wgpu::BufferSize::new(
-                                size_of::<super::shadow::OmniShadowUniforms>() as u64,
-                            ),
+                            min_binding_size: wgpu::BufferSize::new(size_of::<
+                                super::shadow::OmniShadowUniforms,
+                            >()
+                                as u64),
                         },
                         count: None,
                     },
@@ -475,7 +474,9 @@ impl Renderer3D {
                 },
                 wgpu::BindGroupEntry {
                     binding: 2,
-                    resource: wgpu::BindingResource::TextureView(&shadow_state.fallback_shadow_depth_view),
+                    resource: wgpu::BindingResource::TextureView(
+                        &shadow_state.fallback_shadow_depth_view,
+                    ),
                 },
                 wgpu::BindGroupEntry {
                     binding: 3,
@@ -487,11 +488,15 @@ impl Renderer3D {
                 },
                 wgpu::BindGroupEntry {
                     binding: 5,
-                    resource: wgpu::BindingResource::TextureView(&shadow_state.fallback_point_shadow_view),
+                    resource: wgpu::BindingResource::TextureView(
+                        &shadow_state.fallback_point_shadow_view,
+                    ),
                 },
                 wgpu::BindGroupEntry {
                     binding: 6,
-                    resource: wgpu::BindingResource::TextureView(&shadow_state.fallback_spot_shadow_view),
+                    resource: wgpu::BindingResource::TextureView(
+                        &shadow_state.fallback_spot_shadow_view,
+                    ),
                 },
             ],
         });
@@ -525,8 +530,8 @@ impl Renderer3D {
 
         // ── Shader library + modules ──
 
-        let shader_dir = option_env!("CARGO_MANIFEST_DIR")
-            .map(|d| PathBuf::from(d).join("shaders"));
+        let shader_dir =
+            option_env!("CARGO_MANIFEST_DIR").map(|d| PathBuf::from(d).join("shaders"));
         let shader_library = ShaderLibrary::new(shader_dir);
         let shader_modules = compile_shader_modules(device, &shader_library);
 
@@ -534,15 +539,26 @@ impl Renderer3D {
 
         let mut pipeline_cache = HashMap::new();
         let format = gpu.config.format;
-        for &mat_type in &[MaterialType::Unlit, MaterialType::Lit, MaterialType::PBR, MaterialType::Toon] {
+        for &mat_type in &[
+            MaterialType::Unlit,
+            MaterialType::Lit,
+            MaterialType::PBR,
+            MaterialType::Toon,
+        ] {
             let key = PipelineKey {
                 material_type: mat_type,
                 blend_mode: BlendMode3D::Opaque,
                 cull_mode: super::material::CullMode3D::Back,
                 depth_write: true,
             };
-            let pipeline =
-                create_pipeline(device, format, &pipeline_layout, &shader_modules, &key, gpu.sample_count);
+            let pipeline = create_pipeline(
+                device,
+                format,
+                &pipeline_layout,
+                &shader_modules,
+                &key,
+                gpu.sample_count,
+            );
             pipeline_cache.insert(key, pipeline);
         }
 
@@ -623,8 +639,12 @@ impl Renderer3D {
 
         // ── Depth texture ──
 
-        let (depth_texture, depth_view) =
-            create_depth_texture(device, gpu.config.width, gpu.config.height, gpu.sample_count);
+        let (depth_texture, depth_view) = create_depth_texture(
+            device,
+            gpu.config.width,
+            gpu.config.height,
+            gpu.sample_count,
+        );
         // Separate 1x depth for sampling by SSAO when MSAA is active.
         let (depth_sample_texture, depth_sample_view) = if gpu.sample_count > 1 {
             let (t, v) = create_depth_texture(device, gpu.config.width, gpu.config.height, 1);
@@ -716,7 +736,9 @@ impl Renderer3D {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("esox_3d_mega_upload"),
             });
-        let region = self.mega_buffer.append(&gpu.device, &gpu.queue, &mut encoder, data, aabb);
+        let region = self
+            .mega_buffer
+            .append(&gpu.device, &gpu.queue, &mut encoder, data, aabb);
         gpu.queue.submit(std::iter::once(encoder.finish()));
         let handle = MeshHandle(self.mesh_regions.len() as u32);
         self.mesh_regions.push(region);
@@ -850,11 +872,16 @@ impl Renderer3D {
     ) -> wgpu::BindGroup {
         let albedo_view = self.resolve_texture_view(desc.texture, &self.fallback_albedo);
         let normal_view = self.resolve_texture_view(desc.normal_texture, &self.fallback_normal);
-        let mr_view =
-            self.resolve_texture_view(desc.metallic_roughness_texture, &self.fallback_mr);
-        let emissive_view =
-            self.resolve_texture_view(desc.emissive_texture, &self.fallback_albedo);
-        self.create_material_bind_group(device, buffer, albedo_view, normal_view, mr_view, emissive_view)
+        let mr_view = self.resolve_texture_view(desc.metallic_roughness_texture, &self.fallback_mr);
+        let emissive_view = self.resolve_texture_view(desc.emissive_texture, &self.fallback_albedo);
+        self.create_material_bind_group(
+            device,
+            buffer,
+            albedo_view,
+            normal_view,
+            mr_view,
+            emissive_view,
+        )
     }
 
     /// Create a material from a descriptor and return a handle.
@@ -1055,7 +1082,11 @@ impl Renderer3D {
 
         for slot in &changed {
             match slot {
-                ShaderSlot::Preamble | ShaderSlot::FsUnlit | ShaderSlot::FsLit | ShaderSlot::FsPbr | ShaderSlot::FsToon => {
+                ShaderSlot::Preamble
+                | ShaderSlot::FsUnlit
+                | ShaderSlot::FsLit
+                | ShaderSlot::FsPbr
+                | ShaderSlot::FsToon => {
                     rebuild_materials = true;
                 }
                 ShaderSlot::Composite => rebuild_composite = true,
@@ -1085,35 +1116,36 @@ impl Renderer3D {
                     bind_group_layouts: &[&pp.composite_bind_group_layout],
                     immediate_size: 0,
                 });
-                pp.composite_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                    label: Some("esox_3d_composite_pipeline"),
-                    layout: Some(&layout),
-                    vertex: wgpu::VertexState {
-                        module: &shader,
-                        entry_point: Some("vs_main"),
-                        buffers: &[],
-                        compilation_options: wgpu::PipelineCompilationOptions::default(),
-                    },
-                    fragment: Some(wgpu::FragmentState {
-                        module: &shader,
-                        entry_point: Some("fs_main"),
-                        targets: &[Some(wgpu::ColorTargetState {
-                            format: gpu.config.format,
-                            blend: None,
-                            write_mask: wgpu::ColorWrites::ALL,
-                        })],
-                        compilation_options: wgpu::PipelineCompilationOptions::default(),
-                    }),
-                    primitive: wgpu::PrimitiveState {
-                        topology: wgpu::PrimitiveTopology::TriangleList,
-                        cull_mode: None,
-                        ..Default::default()
-                    },
-                    depth_stencil: None,
-                    multisample: wgpu::MultisampleState::default(),
-                    multiview_mask: None,
-                    cache: None,
-                });
+                pp.composite_pipeline =
+                    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                        label: Some("esox_3d_composite_pipeline"),
+                        layout: Some(&layout),
+                        vertex: wgpu::VertexState {
+                            module: &shader,
+                            entry_point: Some("vs_main"),
+                            buffers: &[],
+                            compilation_options: wgpu::PipelineCompilationOptions::default(),
+                        },
+                        fragment: Some(wgpu::FragmentState {
+                            module: &shader,
+                            entry_point: Some("fs_main"),
+                            targets: &[Some(wgpu::ColorTargetState {
+                                format: gpu.config.format,
+                                blend: None,
+                                write_mask: wgpu::ColorWrites::ALL,
+                            })],
+                            compilation_options: wgpu::PipelineCompilationOptions::default(),
+                        }),
+                        primitive: wgpu::PrimitiveState {
+                            topology: wgpu::PrimitiveTopology::TriangleList,
+                            cull_mode: None,
+                            ..Default::default()
+                        },
+                        depth_stencil: None,
+                        multisample: wgpu::MultisampleState::default(),
+                        multiview_mask: None,
+                        cache: None,
+                    });
                 tracing::info!("Rebuilt composite pipeline");
             }
         }
@@ -1156,12 +1188,16 @@ impl Renderer3D {
                 let down_src = self.shader_library.get(ShaderSlot::BloomDownsample);
                 let up_src = self.shader_library.get(ShaderSlot::BloomUpsample);
                 let bloom_bgl = pp.bloom_pass.bind_group_layout();
-                let bloom_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                    label: Some("esox_3d_bloom_pipeline_layout"),
-                    bind_group_layouts: &[bloom_bgl],
-                    immediate_size: 0,
-                });
-                let create_bloom = |src: &str, label: &str, blend: Option<wgpu::BlendState>| -> wgpu::RenderPipeline {
+                let bloom_pipeline_layout =
+                    device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                        label: Some("esox_3d_bloom_pipeline_layout"),
+                        bind_group_layouts: &[bloom_bgl],
+                        immediate_size: 0,
+                    });
+                let create_bloom = |src: &str,
+                                    label: &str,
+                                    blend: Option<wgpu::BlendState>|
+                 -> wgpu::RenderPipeline {
                     let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
                         label: Some(label),
                         source: wgpu::ShaderSource::Wgsl(src.into()),
@@ -1197,14 +1233,18 @@ impl Renderer3D {
                     })
                 };
                 pp.bloom_down_pipeline = create_bloom(down_src, "esox_3d_bloom_down", None);
-                pp.bloom_up_pipeline = create_bloom(up_src, "esox_3d_bloom_up", Some(wgpu::BlendState {
-                    color: wgpu::BlendComponent {
-                        src_factor: wgpu::BlendFactor::One,
-                        dst_factor: wgpu::BlendFactor::One,
-                        operation: wgpu::BlendOperation::Add,
-                    },
-                    alpha: wgpu::BlendComponent::OVER,
-                }));
+                pp.bloom_up_pipeline = create_bloom(
+                    up_src,
+                    "esox_3d_bloom_up",
+                    Some(wgpu::BlendState {
+                        color: wgpu::BlendComponent {
+                            src_factor: wgpu::BlendFactor::One,
+                            dst_factor: wgpu::BlendFactor::One,
+                            operation: wgpu::BlendOperation::Add,
+                        },
+                        alpha: wgpu::BlendComponent::OVER,
+                    }),
+                );
                 tracing::info!("Rebuilt bloom pipelines");
             }
         }
@@ -1251,17 +1291,20 @@ impl Renderer3D {
     /// Rebuild the scene bind group (Group 0) — called when shadow passes change.
     fn rebuild_scene_bind_group(&mut self, device: &wgpu::Device) {
         let csm_view = self
-            .shadow_state.shadow_pass
+            .shadow_state
+            .shadow_pass
             .as_ref()
             .map(|sp| &sp.depth_view)
             .unwrap_or(&self.shadow_state.fallback_shadow_depth_view);
         let point_view = self
-            .shadow_state.point_shadow_pass
+            .shadow_state
+            .point_shadow_pass
             .as_ref()
             .map(|p| &p.depth_view)
             .unwrap_or(&self.shadow_state.fallback_point_shadow_view);
         let spot_view = self
-            .shadow_state.spot_shadow_pass
+            .shadow_state
+            .spot_shadow_pass
             .as_ref()
             .map(|s| &s.depth_view)
             .unwrap_or(&self.shadow_state.fallback_spot_shadow_view);
@@ -1288,7 +1331,10 @@ impl Renderer3D {
                 },
                 wgpu::BindGroupEntry {
                     binding: 4,
-                    resource: self.shadow_state.omni_shadow_uniform_buffer.as_entire_binding(),
+                    resource: self
+                        .shadow_state
+                        .omni_shadow_uniform_buffer
+                        .as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
                     binding: 5,
@@ -1319,10 +1365,12 @@ impl Renderer3D {
         // The shadow pass pipeline shares the same bind group layout as the CSM pass.
         // We need to get the layout from either the existing shadow pass or create one.
         let shadow_pass = self
-            .shadow_state.shadow_pass
+            .shadow_state
+            .shadow_pass
             .get_or_insert_with(|| ShadowPass::new(&gpu.device));
         let layout = &shadow_pass.bind_group_layout;
-        self.shadow_state.point_shadow_pass = Some(super::shadow::PointShadowPass::new(&gpu.device, layout));
+        self.shadow_state.point_shadow_pass =
+            Some(super::shadow::PointShadowPass::new(&gpu.device, layout));
         self.rebuild_scene_bind_group(&gpu.device);
     }
 
@@ -1332,10 +1380,12 @@ impl Renderer3D {
             return;
         }
         let shadow_pass = self
-            .shadow_state.shadow_pass
+            .shadow_state
+            .shadow_pass
             .get_or_insert_with(|| ShadowPass::new(&gpu.device));
         let layout = &shadow_pass.bind_group_layout;
-        self.shadow_state.spot_shadow_pass = Some(super::shadow::SpotShadowPass::new(&gpu.device, layout));
+        self.shadow_state.spot_shadow_pass =
+            Some(super::shadow::SpotShadowPass::new(&gpu.device, layout));
         self.rebuild_scene_bind_group(&gpu.device);
     }
 
@@ -1511,9 +1561,31 @@ impl Renderer3D {
                 label: Some("esox_3d_encoder"),
             });
 
-        self.encode_shadow_passes(gpu, &mut encoder, camera, viewport_width, viewport_height, &shadow_opaque_cmds);
-        self.encode_scene_pass(gpu, &mut encoder, target, &ordered, opaque_count, &mut stats, clear_color);
-        self.encode_postprocess_chain(gpu, &mut encoder, target, camera, viewport_width, viewport_height);
+        self.encode_shadow_passes(
+            gpu,
+            &mut encoder,
+            camera,
+            viewport_width,
+            viewport_height,
+            &shadow_opaque_cmds,
+        );
+        self.encode_scene_pass(
+            gpu,
+            &mut encoder,
+            target,
+            &ordered,
+            opaque_count,
+            &mut stats,
+            clear_color,
+        );
+        self.encode_postprocess_chain(
+            gpu,
+            &mut encoder,
+            target,
+            camera,
+            viewport_width,
+            viewport_height,
+        );
 
         self.draw_cmds.clear();
         self.instance_staging.clear();
@@ -1527,16 +1599,24 @@ impl Renderer3D {
     fn resize_if_needed(&mut self, gpu: &GpuContext, viewport_width: u32, viewport_height: u32) {
         // Ensure depth texture matches viewport.
         if viewport_width != self.depth_width || viewport_height != self.depth_height {
-            let (tex, view) = create_depth_texture(&gpu.device, viewport_width, viewport_height, self.sample_count);
+            let (tex, view) = create_depth_texture(
+                &gpu.device,
+                viewport_width,
+                viewport_height,
+                self.sample_count,
+            );
             self.depth_texture = tex;
             self.depth_view = view;
             if self.sample_count > 1 {
-                let (st, sv) = create_depth_texture(&gpu.device, viewport_width, viewport_height, 1);
+                let (st, sv) =
+                    create_depth_texture(&gpu.device, viewport_width, viewport_height, 1);
                 self.depth_sample_texture = Some(st);
                 self.depth_sample_view = sv;
             } else {
                 self.depth_sample_texture = None;
-                self.depth_sample_view = self.depth_texture.create_view(&wgpu::TextureViewDescriptor::default());
+                self.depth_sample_view = self
+                    .depth_texture
+                    .create_view(&wgpu::TextureViewDescriptor::default());
             }
             self.depth_width = viewport_width;
             self.depth_height = viewport_height;
@@ -1555,14 +1635,23 @@ impl Renderer3D {
         // Resize offscreen HDR target if needed.
         if let Some(pp) = &mut self.postprocess {
             if viewport_width != pp.width || viewport_height != pp.height {
-                let (tex, cv, sv, msaa_tex, msaa_v) =
-                    create_hdr_texture(&gpu.device, viewport_width, viewport_height, self.sample_count);
+                let (tex, cv, sv, msaa_tex, msaa_v) = create_hdr_texture(
+                    &gpu.device,
+                    viewport_width,
+                    viewport_height,
+                    self.sample_count,
+                );
                 pp.color_texture = tex;
                 pp.color_view = cv;
                 pp.sample_view = sv;
                 pp.msaa_color_texture = msaa_tex;
                 pp.msaa_color_view = msaa_v;
-                pp.bloom_pass.resize(&gpu.device, viewport_width, viewport_height, &pp.sample_view);
+                pp.bloom_pass.resize(
+                    &gpu.device,
+                    viewport_width,
+                    viewport_height,
+                    &pp.sample_view,
+                );
                 pp.width = viewport_width;
                 pp.height = viewport_height;
             }
@@ -1664,7 +1753,10 @@ impl Renderer3D {
                 if mat_idx >= self.materials.len() {
                     return false;
                 }
-                matches!(self.materials[mat_idx].pipeline_key.blend_mode, BlendMode3D::Opaque)
+                matches!(
+                    self.materials[mat_idx].pipeline_key.blend_mode,
+                    BlendMode3D::Opaque
+                )
             })
             .map(|cmd| (cmd.mesh.0, cmd.instance_offset, cmd.instance_count))
             .collect()
@@ -1681,16 +1773,15 @@ impl Renderer3D {
                 let mesh_idx = cmd.mesh.0 as usize;
                 if (cmd.mesh.0 & SKINNED_MESH_BIT) != 0 || mesh_idx >= self.mesh_regions.len() {
                     // Skinned or invalid — use a huge AABB (never culled).
-                    self.world_aabbs_scratch.push(Aabb::new(
-                        glam::Vec3::splat(-1e10),
-                        glam::Vec3::splat(1e10),
-                    ));
+                    self.world_aabbs_scratch
+                        .push(Aabb::new(glam::Vec3::splat(-1e10), glam::Vec3::splat(1e10)));
                     continue;
                 }
                 let region = &self.mesh_regions[mesh_idx];
                 let inst = &self.instance_staging[cmd.instance_offset as usize];
                 let model = glam::Mat4::from_cols_array_2d(&inst.model);
-                self.world_aabbs_scratch.push(region.aabb.transformed(&model));
+                self.world_aabbs_scratch
+                    .push(region.aabb.transformed(&model));
             }
 
             let bvh = Bvh::build(&self.world_aabbs_scratch);
@@ -1754,9 +1845,11 @@ impl Renderer3D {
             let cb = &draw_cmds[b];
             let key_a = &materials[ca.material.0 as usize].pipeline_key;
             let key_b = &materials[cb.material.0 as usize].pipeline_key;
-            pipeline_key_sort_tuple(key_a, ca.material.0, ca.mesh.0).cmp(
-                &pipeline_key_sort_tuple(key_b, cb.material.0, cb.mesh.0),
-            )
+            pipeline_key_sort_tuple(key_a, ca.material.0, ca.mesh.0).cmp(&pipeline_key_sort_tuple(
+                key_b,
+                cb.material.0,
+                cb.mesh.0,
+            ))
         });
 
         // Sort transparent back-to-front by centroid distance to camera.
@@ -1800,16 +1893,18 @@ impl Renderer3D {
         // Determine scene color target: offscreen HDR or direct to surface.
         // When MSAA is active, render into the multisampled texture and resolve
         // into the 1x texture that post-processing will sample from.
-        let (scene_color_target, scene_resolve_target): (&wgpu::TextureView, Option<&wgpu::TextureView>) =
-            if let Some(pp) = &self.postprocess {
-                if let Some(msaa_view) = &pp.msaa_color_view {
-                    (msaa_view, Some(&pp.color_view))
-                } else {
-                    (&pp.color_view, None)
-                }
+        let (scene_color_target, scene_resolve_target): (
+            &wgpu::TextureView,
+            Option<&wgpu::TextureView>,
+        ) = if let Some(pp) = &self.postprocess {
+            if let Some(msaa_view) = &pp.msaa_color_view {
+                (msaa_view, Some(&pp.color_view))
             } else {
-                (target, None)
-            };
+                (&pp.color_view, None)
+            }
+        } else {
+            (target, None)
+        };
 
         // MSAA requires StoreOp::Discard on the multisampled attachment (the
         // resolved data lives in the resolve target).
@@ -1869,13 +1964,15 @@ impl Renderer3D {
                 if needed > self.indirect_capacity {
                     let new_cap = (needed as u64)
                         .next_power_of_two()
-                        .max(INITIAL_INDIRECT_CAPACITY as u64) as u32;
-                    self.indirect_buffer = Some(gpu.device.create_buffer(&wgpu::BufferDescriptor {
-                        label: Some("esox_3d_indirect"),
-                        size: new_cap as u64 * INDIRECT_ARGS_SIZE,
-                        usage: wgpu::BufferUsages::INDIRECT | wgpu::BufferUsages::COPY_DST,
-                        mapped_at_creation: false,
-                    }));
+                        .max(INITIAL_INDIRECT_CAPACITY as u64)
+                        as u32;
+                    self.indirect_buffer =
+                        Some(gpu.device.create_buffer(&wgpu::BufferDescriptor {
+                            label: Some("esox_3d_indirect"),
+                            size: new_cap as u64 * INDIRECT_ARGS_SIZE,
+                            usage: wgpu::BufferUsages::INDIRECT | wgpu::BufferUsages::COPY_DST,
+                            mapped_at_creation: false,
+                        }));
                     self.indirect_capacity = new_cap;
                 }
 
@@ -1908,7 +2005,12 @@ impl Renderer3D {
                         let mesh_idx = cmd.mesh.0 as usize;
                         if mesh_idx < self.mesh_regions.len() {
                             let r = &self.mesh_regions[mesh_idx];
-                            (r.index_count, r.index_offset, r.vertex_offset as i32, u32::MAX)
+                            (
+                                r.index_count,
+                                r.index_offset,
+                                r.vertex_offset as i32,
+                                u32::MAX,
+                            )
                         } else {
                             continue;
                         }
@@ -1937,11 +2039,8 @@ impl Renderer3D {
 
                 // Upload indirect args.
                 if !indirect_args.is_empty() {
-                    gpu.queue.write_buffer(
-                        indirect_buf,
-                        0,
-                        bytemuck::cast_slice(&indirect_args),
-                    );
+                    gpu.queue
+                        .write_buffer(indirect_buf, 0, bytemuck::cast_slice(&indirect_args));
                 }
 
                 // Issue one multi_draw_indexed_indirect per group, rebinding buffers for skinned meshes.
@@ -2162,10 +2261,7 @@ impl Renderer3D {
                         pass.set_vertex_buffer(1, pool.instance_output.slice(..));
 
                         // Indirect draw: instance_count was set by finalize_main.
-                        pass.draw_indexed_indirect(
-                            &pool.indirect_args_buffer,
-                            0,
-                        );
+                        pass.draw_indexed_indirect(&pool.indirect_args_buffer, 0);
                         stats.draw_calls += 1;
                     }
                 }
@@ -2173,6 +2269,4 @@ impl Renderer3D {
             self.particle_draw_cmds.clear();
         }
     }
-
 }
-

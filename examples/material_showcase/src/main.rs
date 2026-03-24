@@ -4,9 +4,9 @@ use esox_gfx::{Color, Frame, GpuContext, RenderResources};
 use esox_platform::config::{PlatformConfig, WindowConfig};
 use esox_platform::{AppDelegate, Clipboard, MouseInputEvent};
 use esox_ui::{
-    id, ClipboardProvider, ColumnWidth, FieldStatus, InputState, ModalAction, Rect, RichText,
+    ClipboardProvider, ColumnWidth, FieldStatus, InputState, ModalAction, Rect, RichText,
     SelectState, TabState, TableColumn, TableState, TextRenderer, Theme, ThemeTransition,
-    TreeState, UiState, VirtualScrollState, WidgetStyle,
+    TreeState, UiState, VirtualScrollState, WidgetStyle, id,
 };
 
 struct PlatformClipboard;
@@ -154,7 +154,13 @@ impl AppDelegate for MaterialShowcase {
         let text = self.text.as_mut().unwrap();
         let vp = Rect::new(0.0, 0.0, self.viewport.0 as f32, self.viewport.1 as f32);
         let mut ui = esox_ui::Ui::begin(
-            frame, gpu, resources, text, &mut self.ui_state, &self.theme, vp,
+            frame,
+            gpu,
+            resources,
+            text,
+            &mut self.ui_state,
+            &self.theme,
+            vp,
         );
 
         let scroll_h = self.viewport.1 as f32;
@@ -167,7 +173,10 @@ impl AppDelegate for MaterialShowcase {
                     ui.fill_space(100.0);
                     let toggle_label = if self.is_dark { "Light" } else { "Dark" };
                     let btn_bg = ui.theme().secondary_button_bg;
-                    if ui.small_button(id!("ms_theme_toggle"), toggle_label, btn_bg).clicked {
+                    if ui
+                        .small_button(id!("ms_theme_toggle"), toggle_label, btn_bg)
+                        .clicked
+                    {
                         self.is_dark = !self.is_dark;
                         let target = if self.is_dark {
                             self.base_dark.clone()
@@ -204,92 +213,80 @@ impl AppDelegate for MaterialShowcase {
                             );
 
                             if wide {
-                                ui.columns_spaced(16.0, &[1.0, 1.0], |ui, col| {
-                                    match col {
-                                        0 => {
-                                            ui.card(|ui| {
-                                                let accent = ui.theme().accent;
-                                                let green = ui.theme().green;
-                                                ui.rich_label(
-                                                    &RichText::new()
-                                                        .colored_bold("Dashboard", accent),
-                                                );
-                                                ui.add_space(8.0);
-                                                ui.label_sized(
-                                                    "1,247",
-                                                    esox_ui::TextSize::Xxl,
-                                                );
-                                                ui.muted_label("Active users this week");
-                                                ui.add_space(8.0);
-                                                ui.progress_bar(0.72);
-                                                ui.add_space(8.0);
-                                                ui.row(|ui| {
-                                                    ui.badge(12);
-                                                    ui.chip(id!("chip_new"), "New");
-                                                    ui.chip(id!("chip_active"), "Active");
-                                                    ui.label_colored("72%", green);
-                                                });
-                                            });
+                                ui.columns_spaced(16.0, &[1.0, 1.0], |ui, col| match col {
+                                    0 => {
+                                        ui.card(|ui| {
+                                            let accent = ui.theme().accent;
+                                            let green = ui.theme().green;
+                                            ui.rich_label(
+                                                &RichText::new().colored_bold("Dashboard", accent),
+                                            );
                                             ui.add_space(8.0);
-                                            ui.card(|ui| {
-                                                let accent = ui.theme().accent;
-                                                let green = ui.theme().green;
-                                                let red = ui.theme().red;
-                                                ui.rich_label_wrapped(
-                                                    &RichText::new()
-                                                        .span("The toolkit renders ")
-                                                        .colored_bold(
-                                                            "every pixel on the GPU",
-                                                            accent,
-                                                        )
-                                                        .span(". It supports ")
-                                                        .colored("dark", green)
-                                                        .span(" and ")
-                                                        .colored("light", red)
-                                                        .span(" themes with smooth transitions."),
-                                                );
-                                                ui.separator();
-                                                ui.row(|ui| {
-                                                    ui.chip(id!("chip_gpu"), "GPU");
-                                                    ui.chip(id!("chip_imm"), "Immediate");
-                                                    ui.chip(id!("chip_rust"), "Rust");
-                                                });
-                                            });
-                                        }
-                                        1 => {
-                                            ui.card(|ui| {
-                                                ui.header_label("UPLOAD PROGRESS");
-                                                ui.add_space(4.0);
-                                                let accent = ui.theme().accent;
-                                                ui.progress_bar_colored(
-                                                    upload_progress,
-                                                    accent,
-                                                );
-                                                ui.add_space(8.0);
-                                                ui.row(|ui| {
-                                                    ui.spinner();
-                                                    ui.label(" Processing...");
-                                                });
-                                            });
+                                            ui.label_sized("1,247", esox_ui::TextSize::Xxl);
+                                            ui.muted_label("Active users this week");
                                             ui.add_space(8.0);
-                                            ui.card(|ui| {
-                                                ui.header_label("SYSTEM STATUS");
-                                                ui.add_space(4.0);
-                                                let green = ui.theme().green;
-                                                let amber = ui.theme().amber;
-                                                let red = ui.theme().red;
-                                                ui.label_colored("CPU: 42%", green);
-                                                ui.progress_bar_colored(0.42, green);
-                                                ui.add_space(4.0);
-                                                ui.label_colored("Memory: 78%", amber);
-                                                ui.progress_bar_colored(0.78, amber);
-                                                ui.add_space(4.0);
-                                                ui.label_colored("Disk: 91%", red);
-                                                ui.progress_bar_colored(0.91, red);
+                                            ui.progress_bar(0.72);
+                                            ui.add_space(8.0);
+                                            ui.row(|ui| {
+                                                ui.badge(12);
+                                                ui.chip(id!("chip_new"), "New");
+                                                ui.chip(id!("chip_active"), "Active");
+                                                ui.label_colored("72%", green);
                                             });
-                                        }
-                                        _ => {}
+                                        });
+                                        ui.add_space(8.0);
+                                        ui.card(|ui| {
+                                            let accent = ui.theme().accent;
+                                            let green = ui.theme().green;
+                                            let red = ui.theme().red;
+                                            ui.rich_label_wrapped(
+                                                &RichText::new()
+                                                    .span("The toolkit renders ")
+                                                    .colored_bold("every pixel on the GPU", accent)
+                                                    .span(". It supports ")
+                                                    .colored("dark", green)
+                                                    .span(" and ")
+                                                    .colored("light", red)
+                                                    .span(" themes with smooth transitions."),
+                                            );
+                                            ui.separator();
+                                            ui.row(|ui| {
+                                                ui.chip(id!("chip_gpu"), "GPU");
+                                                ui.chip(id!("chip_imm"), "Immediate");
+                                                ui.chip(id!("chip_rust"), "Rust");
+                                            });
+                                        });
                                     }
+                                    1 => {
+                                        ui.card(|ui| {
+                                            ui.header_label("UPLOAD PROGRESS");
+                                            ui.add_space(4.0);
+                                            let accent = ui.theme().accent;
+                                            ui.progress_bar_colored(upload_progress, accent);
+                                            ui.add_space(8.0);
+                                            ui.row(|ui| {
+                                                ui.spinner();
+                                                ui.label(" Processing...");
+                                            });
+                                        });
+                                        ui.add_space(8.0);
+                                        ui.card(|ui| {
+                                            ui.header_label("SYSTEM STATUS");
+                                            ui.add_space(4.0);
+                                            let green = ui.theme().green;
+                                            let amber = ui.theme().amber;
+                                            let red = ui.theme().red;
+                                            ui.label_colored("CPU: 42%", green);
+                                            ui.progress_bar_colored(0.42, green);
+                                            ui.add_space(4.0);
+                                            ui.label_colored("Memory: 78%", amber);
+                                            ui.progress_bar_colored(0.78, amber);
+                                            ui.add_space(4.0);
+                                            ui.label_colored("Disk: 91%", red);
+                                            ui.progress_bar_colored(0.91, red);
+                                        });
+                                    }
+                                    _ => {}
                                 });
                             } else {
                                 ui.card(|ui| {
@@ -392,12 +389,7 @@ impl AppDelegate for MaterialShowcase {
 
                                 ui.add_space(8.0);
                                 ui.header_label("EXPERIENCE (YEARS)");
-                                ui.slider_f64(
-                                    id!("ms_exp"),
-                                    &mut self.experience_value,
-                                    0.0,
-                                    20.0,
-                                );
+                                ui.slider_f64(id!("ms_exp"), &mut self.experience_value, 0.0, 20.0);
                                 ui.add_space(8.0);
 
                                 ui.header_label("FONT SIZE");
@@ -425,24 +417,9 @@ impl AppDelegate for MaterialShowcase {
                                 ui.add_space(8.0);
 
                                 ui.header_label("PRIORITY");
-                                ui.radio(
-                                    id!("ms_pri_low"),
-                                    &mut self.priority_radio,
-                                    0,
-                                    "Low",
-                                );
-                                ui.radio(
-                                    id!("ms_pri_med"),
-                                    &mut self.priority_radio,
-                                    1,
-                                    "Medium",
-                                );
-                                ui.radio(
-                                    id!("ms_pri_hi"),
-                                    &mut self.priority_radio,
-                                    2,
-                                    "High",
-                                );
+                                ui.radio(id!("ms_pri_low"), &mut self.priority_radio, 0, "Low");
+                                ui.radio(id!("ms_pri_med"), &mut self.priority_radio, 1, "Medium");
+                                ui.radio(id!("ms_pri_hi"), &mut self.priority_radio, 2, "High");
                             });
 
                             ui.add_space(12.0);
@@ -559,80 +536,76 @@ impl AppDelegate for MaterialShowcase {
                                     "esox-workspace/",
                                     true,
                                 );
-                                ui.animated_tree_indent(
-                                    id!("tree_ws_anim"),
-                                    r.expanded,
-                                    |ui| {
-                                        let r2 = ui.tree_node(
-                                            id!("tree_crates"),
-                                            &mut self.tree_state,
-                                            "crates/",
-                                            true,
-                                        );
-                                        ui.animated_tree_indent(
-                                            id!("tree_crates_anim"),
-                                            r2.expanded,
-                                            |ui| {
-                                                ui.tree_node(
-                                                    id!("tree_gfx"),
-                                                    &mut self.tree_state,
-                                                    "esox_gfx/",
-                                                    false,
-                                                );
-                                                ui.tree_node(
-                                                    id!("tree_ui"),
-                                                    &mut self.tree_state,
-                                                    "esox_ui/",
-                                                    false,
-                                                );
-                                                ui.tree_node(
-                                                    id!("tree_platform"),
-                                                    &mut self.tree_state,
-                                                    "esox_platform/",
-                                                    false,
-                                                );
-                                            },
-                                        );
+                                ui.animated_tree_indent(id!("tree_ws_anim"), r.expanded, |ui| {
+                                    let r2 = ui.tree_node(
+                                        id!("tree_crates"),
+                                        &mut self.tree_state,
+                                        "crates/",
+                                        true,
+                                    );
+                                    ui.animated_tree_indent(
+                                        id!("tree_crates_anim"),
+                                        r2.expanded,
+                                        |ui| {
+                                            ui.tree_node(
+                                                id!("tree_gfx"),
+                                                &mut self.tree_state,
+                                                "esox_gfx/",
+                                                false,
+                                            );
+                                            ui.tree_node(
+                                                id!("tree_ui"),
+                                                &mut self.tree_state,
+                                                "esox_ui/",
+                                                false,
+                                            );
+                                            ui.tree_node(
+                                                id!("tree_platform"),
+                                                &mut self.tree_state,
+                                                "esox_platform/",
+                                                false,
+                                            );
+                                        },
+                                    );
 
-                                        let r3 = ui.tree_node(
-                                            id!("tree_examples"),
-                                            &mut self.tree_state,
-                                            "examples/",
-                                            true,
-                                        );
-                                        ui.animated_tree_indent(
-                                            id!("tree_ex_anim"),
-                                            r3.expanded,
-                                            |ui| {
-                                                ui.tree_node(
-                                                    id!("tree_demo"),
-                                                    &mut self.tree_state,
-                                                    "demo/",
-                                                    false,
-                                                );
-                                                ui.tree_node(
-                                                    id!("tree_showcase"),
-                                                    &mut self.tree_state,
-                                                    "material_showcase/",
-                                                    false,
-                                                );
-                                            },
-                                        );
+                                    let r3 = ui.tree_node(
+                                        id!("tree_examples"),
+                                        &mut self.tree_state,
+                                        "examples/",
+                                        true,
+                                    );
+                                    ui.animated_tree_indent(
+                                        id!("tree_ex_anim"),
+                                        r3.expanded,
+                                        |ui| {
+                                            ui.tree_node(
+                                                id!("tree_demo"),
+                                                &mut self.tree_state,
+                                                "demo/",
+                                                false,
+                                            );
+                                            ui.tree_node(
+                                                id!("tree_showcase"),
+                                                &mut self.tree_state,
+                                                "material_showcase/",
+                                                false,
+                                            );
+                                        },
+                                    );
 
-                                        ui.tree_node(
-                                            id!("tree_cargo"),
-                                            &mut self.tree_state,
-                                            "Cargo.toml",
-                                            false,
-                                        );
-                                        ui.tree_node(
-                                            id!("tree_readme"),
-                                            &mut self.tree_state,
-                                            "README.md",
-                                            false,
-                                        );
-                                    },
-                                );
+                                    ui.tree_node(
+                                        id!("tree_cargo"),
+                                        &mut self.tree_state,
+                                        "Cargo.toml",
+                                        false,
+                                    );
+                                    ui.tree_node(
+                                        id!("tree_readme"),
+                                        &mut self.tree_state,
+                                        "README.md",
+                                        false,
+                                    );
+                                });
                             });
 
                             ui.add_space(12.0);
@@ -704,10 +677,7 @@ impl AppDelegate for MaterialShowcase {
                                     ui.toast_success("Operation completed successfully!");
                                 }
                                 ui.add_space(4.0);
-                                if ui
-                                    .button(id!("ms_toast_error"), "Show Error Toast")
-                                    .clicked
-                                {
+                                if ui.button(id!("ms_toast_error"), "Show Error Toast").clicked {
                                     ui.toast_error("Something went wrong.");
                                 }
                                 ui.add_space(4.0);
@@ -737,15 +707,10 @@ impl AppDelegate for MaterialShowcase {
                                 ui.header_label("INTERACTIVE");
                                 ui.add_space(4.0);
                                 ui.button(id!("ms_tooltip_btn"), "Hover for Tooltip");
-                                ui.tooltip(
-                                    id!("ms_tooltip_btn"),
-                                    "This is a helpful tooltip!",
-                                );
+                                ui.tooltip(id!("ms_tooltip_btn"), "This is a helpful tooltip!");
                                 ui.add_space(4.0);
-                                let resp = ui.button(
-                                    id!("ms_ctx_btn"),
-                                    "Right-click for Context Menu",
-                                );
+                                let resp =
+                                    ui.button(id!("ms_ctx_btn"), "Right-click for Context Menu");
                                 if resp.right_clicked {
                                     ui.context_menu(
                                         id!("ms_ctx_menu"),
@@ -809,7 +774,11 @@ impl AppDelegate for MaterialShowcase {
                 ui.label("Press Escape or click outside to close.");
                 ui.add_space(8.0);
                 ui.form_field("Modal Input", FieldStatus::None, "", |ui| {
-                    ui.text_input(id!("ms_modal_input"), &mut self.name_input, "Type something...")
+                    ui.text_input(
+                        id!("ms_modal_input"),
+                        &mut self.name_input,
+                        "Type something...",
+                    )
                 });
             },
         );

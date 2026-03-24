@@ -7,12 +7,12 @@
 use std::collections::HashMap;
 
 use esox_font::{
-    FontFace, FontId, FontStyle, GlyphCache, GlyphKey, GlyphRasterizer, ShapedGlyph,
-    SystemFontDb, TextShaper,
+    FontFace, FontId, FontStyle, GlyphCache, GlyphKey, GlyphRasterizer, ShapedGlyph, SystemFontDb,
+    TextShaper,
 };
 use esox_gfx::{
-    AtlasAllocator, AtlasId, AtlasTexture, Color, Frame, GpuContext, QuadInstance,
-    RenderResources, ShapeType, ShelfAllocator, UvRect,
+    AtlasAllocator, AtlasId, AtlasTexture, Color, Frame, GpuContext, QuadInstance, RenderResources,
+    ShapeType, ShelfAllocator, UvRect,
 };
 
 /// Text truncation mode for overflow handling.
@@ -98,7 +98,7 @@ impl ShapeCache {
 
     fn advance_generation(&mut self) {
         self.generation = self.generation.wrapping_add(1);
-        if self.generation % 60 == 0 || self.entries.len() > SHAPE_CACHE_CAPACITY {
+        if self.generation.is_multiple_of(60) || self.entries.len() > SHAPE_CACHE_CAPACITY {
             let gen = self.generation;
             self.entries
                 .retain(|_, e| gen.wrapping_sub(e.last_generation) < SHAPE_CACHE_MAX_IDLE);
@@ -199,6 +199,8 @@ impl TextRenderer {
     // ── Public API ──────────────────────────────────────────────────────
 
     /// Draw text at the given position and return the total advance width.
+    // Layout helper — parameter count reflects distinct layout inputs.
+    #[allow(clippy::too_many_arguments)]
     pub fn draw_text(
         &mut self,
         text: &str,
@@ -215,6 +217,8 @@ impl TextRenderer {
     }
 
     /// Draw text with a style byte (bit 0 = bold via faux emboldening).
+    // Style variant adds one parameter beyond draw_text.
+    #[allow(clippy::too_many_arguments)]
     pub fn draw_text_styled(
         &mut self,
         text: &str,
@@ -232,6 +236,8 @@ impl TextRenderer {
     }
 
     /// Draw text at the standard UI font size (14px).
+    // Convenience wrapper — delegates to draw_text with a fixed size.
+    #[allow(clippy::too_many_arguments)]
     pub fn draw_ui_text(
         &mut self,
         text: &str,
@@ -246,6 +252,8 @@ impl TextRenderer {
     }
 
     /// Draw text at the header font size (11px).
+    // Convenience wrapper — delegates to draw_text with a fixed size.
+    #[allow(clippy::too_many_arguments)]
     pub fn draw_header_text(
         &mut self,
         text: &str,
@@ -270,7 +278,8 @@ impl TextRenderer {
         }
         let run = self.shaper.shape(&self.face, text, size);
         let advance = run.glyphs.iter().map(|g| g.x_advance).sum();
-        self.shape_cache.insert(key, run.glyphs, advance, text.len());
+        self.shape_cache
+            .insert(key, run.glyphs, advance, text.len());
         advance
     }
 
@@ -347,8 +356,7 @@ impl TextRenderer {
                 let mut accum = 0.0_f32;
                 for (i, c) in word[..].char_indices() {
                     let byte_pos = word_start_byte + i;
-                    let cw =
-                        self.measure_text(&text[byte_pos..byte_pos + c.len_utf8()], size);
+                    let cw = self.measure_text(&text[byte_pos..byte_pos + c.len_utf8()], size);
                     if accum + cw > max_width && accum > 0.0 {
                         lines.push((char_start, byte_pos, accum));
                         char_start = byte_pos;
@@ -421,8 +429,7 @@ impl TextRenderer {
                 let mut accum = 0.0_f32;
                 for (i, c) in word[..].char_indices() {
                     let byte_pos = word_start_byte + i;
-                    let cw =
-                        self.measure_text(&text[byte_pos..byte_pos + c.len_utf8()], size);
+                    let cw = self.measure_text(&text[byte_pos..byte_pos + c.len_utf8()], size);
                     if accum + cw > max_width && accum > 0.0 {
                         lines.push((char_start, byte_pos));
                         char_start = byte_pos;
@@ -455,6 +462,8 @@ impl TextRenderer {
     ///
     /// Uses a glyph walk to find the truncation point in O(glyphs) instead of
     /// O(chars) shaping calls. Returns the advance width of what was drawn.
+    // Truncation adds max_width to the base draw_text parameters.
+    #[allow(clippy::too_many_arguments)]
     pub fn draw_text_truncated(
         &mut self,
         text: &str,
@@ -495,7 +504,14 @@ impl TextRenderer {
         // Render prefix glyphs directly — no re-shaping of the truncated string.
         let advance = self.render_glyphs(
             &glyphs[..trunc_count],
-            x, y, size, color, 0, frame, gpu, resources,
+            x,
+            y,
+            size,
+            color,
+            0,
+            frame,
+            gpu,
+            resources,
         );
         self.draw_text(ellipsis, x + advance, y, size, color, frame, gpu, resources);
         advance + ellipsis_width
@@ -506,6 +522,8 @@ impl TextRenderer {
     /// - `End`: `text…` (same as `draw_text_truncated`)
     /// - `Start`: `…text` (walk glyphs from end backward)
     /// - `Middle`: `te…xt` (split budget between prefix and suffix)
+    // Truncation mode adds max_width and mode to the base draw_text parameters.
+    #[allow(clippy::too_many_arguments)]
     pub fn draw_text_truncated_mode(
         &mut self,
         text: &str,
@@ -548,7 +566,14 @@ impl TextRenderer {
                 }
                 let advance = self.render_glyphs(
                     &glyphs[..trunc_count],
-                    x, y, size, color, 0, frame, gpu, resources,
+                    x,
+                    y,
+                    size,
+                    color,
+                    0,
+                    frame,
+                    gpu,
+                    resources,
                 );
                 self.draw_text(ellipsis, x + advance, y, size, color, frame, gpu, resources);
                 advance + ellipsis_width
@@ -567,7 +592,14 @@ impl TextRenderer {
                 let ew = self.draw_text(ellipsis, x, y, size, color, frame, gpu, resources);
                 self.render_glyphs(
                     &glyphs[suffix_start..],
-                    x + ew, y, size, color, 0, frame, gpu, resources,
+                    x + ew,
+                    y,
+                    size,
+                    color,
+                    0,
+                    frame,
+                    gpu,
+                    resources,
                 );
                 ew + accum
             }
@@ -597,15 +629,35 @@ impl TextRenderer {
 
                 let prefix_advance = self.render_glyphs(
                     &glyphs[..prefix_count],
-                    x, y, size, color, 0, frame, gpu, resources,
+                    x,
+                    y,
+                    size,
+                    color,
+                    0,
+                    frame,
+                    gpu,
+                    resources,
                 );
                 let ew = self.draw_text(
                     ellipsis,
-                    x + prefix_advance, y, size, color, frame, gpu, resources,
+                    x + prefix_advance,
+                    y,
+                    size,
+                    color,
+                    frame,
+                    gpu,
+                    resources,
                 );
                 self.render_glyphs(
                     &glyphs[suffix_start..],
-                    x + prefix_advance + ew, y, size, color, 0, frame, gpu, resources,
+                    x + prefix_advance + ew,
+                    y,
+                    size,
+                    color,
+                    0,
+                    frame,
+                    gpu,
+                    resources,
                 );
                 prefix_advance + ew + suffix_accum
             }
@@ -664,12 +716,15 @@ impl TextRenderer {
         let run = self.shaper.shape(&self.face, text, size);
         let advance = run.glyphs.iter().map(|g| g.x_advance).sum();
         let ret = run.glyphs.clone();
-        self.shape_cache.insert(key, run.glyphs, advance, text.len());
+        self.shape_cache
+            .insert(key, run.glyphs, advance, text.len());
         ret
     }
 
     /// Core glyph renderer. Renders pre-shaped glyphs, handling rasterization,
     /// atlas allocation, eviction, and GPU upload. Returns total advance width.
+    // Core renderer — parameter count reflects distinct rendering inputs.
+    #[allow(clippy::too_many_arguments)]
     fn render_glyphs(
         &mut self,
         glyphs: &[ShapedGlyph],
@@ -727,23 +782,13 @@ impl TextRenderer {
         let uploads = self.cache.drain_uploads();
         if !uploads.is_empty() {
             for (region, data) in &uploads {
-                self.atlas.upload_region(
-                    &gpu.queue,
-                    region.x,
-                    region.y,
-                    region.w,
-                    region.h,
-                    data,
-                );
+                self.atlas
+                    .upload_region(&gpu.queue, region.x, region.y, region.w, region.h, data);
             }
         }
 
         if !self.atlas_bound {
-            resources.bind_textures(
-                &gpu.device,
-                self.atlas.view(),
-                self.atlas.view(),
-            );
+            resources.bind_textures(&gpu.device, self.atlas.view(), self.atlas.view());
             self.atlas_bound = true;
         }
     }
@@ -793,14 +838,7 @@ impl TextRenderer {
 }
 
 /// Build a textured quad for a glyph.
-fn make_textured_quad(
-    x: f32,
-    y: f32,
-    w: f32,
-    h: f32,
-    uv: UvRect,
-    color: Color,
-) -> QuadInstance {
+fn make_textured_quad(x: f32, y: f32, w: f32, h: f32, uv: UvRect, color: Color) -> QuadInstance {
     QuadInstance {
         rect: [x, y, w, h],
         uv: [uv.u0, uv.v0, uv.u1, uv.v1],

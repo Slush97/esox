@@ -94,10 +94,8 @@ impl Scene3D {
                     .iter()
                     .map(|&mi| {
                         let mesh_handle = handles.meshes[mi];
-                        let mat_handle = mesh_materials
-                            .get(mi)
-                            .copied()
-                            .unwrap_or(default_material);
+                        let mat_handle =
+                            mesh_materials.get(mi).copied().unwrap_or(default_material);
                         (mesh_handle, mat_handle)
                     })
                     .collect();
@@ -187,7 +185,10 @@ impl Scene3D {
 
     /// Get the world transform matrix for a node.
     pub fn world_transform(&self, index: usize) -> Mat4 {
-        self.world_transforms.get(index).copied().unwrap_or(Mat4::IDENTITY)
+        self.world_transforms
+            .get(index)
+            .copied()
+            .unwrap_or(Mat4::IDENTITY)
     }
 
     /// Number of nodes in the scene.
@@ -280,11 +281,7 @@ mod tests {
 
     #[test]
     fn set_node_transform_marks_dirty() {
-        let mut scene = make_scene(
-            vec![Transform::IDENTITY],
-            vec![vec![]],
-            vec![0],
-        );
+        let mut scene = make_scene(vec![Transform::IDENTITY], vec![vec![]], vec![0]);
         assert!(!scene.dirty);
         scene.set_node_transform(0, Transform::from_position(Vec3::new(5.0, 0.0, 0.0)));
         assert!(scene.dirty);

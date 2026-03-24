@@ -107,15 +107,14 @@ impl SkinningPipeline {
             source: wgpu::ShaderSource::Wgsl(SKINNING_SHADER.into()),
         });
 
-        let compute_pipeline =
-            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some("esox_3d_skinning_pipeline"),
-                layout: Some(&pipeline_layout),
-                module: &shader,
-                entry_point: Some("skin_main"),
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-                cache: None,
-            });
+        let compute_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("esox_3d_skinning_pipeline"),
+            layout: Some(&pipeline_layout),
+            module: &shader,
+            entry_point: Some("skin_main"),
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+            cache: None,
+        });
 
         Self {
             compute_pipeline,
@@ -258,13 +257,13 @@ impl super::renderer::Renderer3D {
         let skinned = SkinnedMesh::new(&gpu.device, pipeline, mesh_data, skin_data, joint_count);
 
         // Create a Mesh that uses the skinned output buffer as its vertex buffer.
-        let index_buffer =
-            gpu.device
-                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("esox_3d_skinned_index_buffer"),
-                    contents: bytemuck::cast_slice(&mesh_data.indices),
-                    usage: wgpu::BufferUsages::INDEX,
-                });
+        let index_buffer = gpu
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("esox_3d_skinned_index_buffer"),
+                contents: bytemuck::cast_slice(&mesh_data.indices),
+                usage: wgpu::BufferUsages::INDEX,
+            });
 
         let mesh = Mesh {
             vertex_buffer: skinned.output_buffer.clone(),
@@ -272,7 +271,8 @@ impl super::renderer::Renderer3D {
             index_count: mesh_data.indices.len() as u32,
         };
 
-        let mesh_handle = MeshHandle(self.meshes.len() as u32 | super::render_types::SKINNED_MESH_BIT);
+        let mesh_handle =
+            MeshHandle(self.meshes.len() as u32 | super::render_types::SKINNED_MESH_BIT);
         self.meshes.push(mesh);
 
         let skinned_index = self.skinned_meshes.len();

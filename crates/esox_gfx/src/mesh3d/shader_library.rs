@@ -6,12 +6,14 @@
 
 use std::path::PathBuf;
 
-use super::material::MaterialType;
-use super::shaders_embedded::{SHADER_PREAMBLE, FS_UNLIT, FS_LIT, FS_PBR, FS_TOON, COMPOSITE_SHADER_3D};
-use super::shadow::SHADOW_VERTEX_SHADER;
-use super::ssao::{SSAO_SHADER, SSAO_BLUR_SHADER};
 use super::depth_resolve::DEPTH_RESOLVE_SHADER;
+use super::material::MaterialType;
+use super::shaders_embedded::{
+    COMPOSITE_SHADER_3D, FS_LIT, FS_PBR, FS_TOON, FS_UNLIT, SHADER_PREAMBLE,
+};
+use super::shadow::SHADOW_VERTEX_SHADER;
 use super::skinning::SKINNING_SHADER;
+use super::ssao::{SSAO_BLUR_SHADER, SSAO_SHADER};
 use crate::bloom;
 
 /// Identifies a shader source slot.
@@ -97,7 +99,10 @@ impl ShaderSlot {
     /// Map a file stem to a slot, if known.
     #[cfg_attr(not(feature = "hot-reload"), allow(dead_code))]
     fn from_file_stem(stem: &str) -> Option<ShaderSlot> {
-        ShaderSlot::ALL.iter().find(|s| s.file_stem() == stem).copied()
+        ShaderSlot::ALL
+            .iter()
+            .find(|s| s.file_stem() == stem)
+            .copied()
     }
 }
 
@@ -164,7 +169,10 @@ impl ShaderLibrary {
         let mut sources = HashMap::new();
 
         // Pre-populate bloom caches from composed sources.
-        sources.insert(ShaderSlot::BloomDownsample, bloom::downsample_shader_source());
+        sources.insert(
+            ShaderSlot::BloomDownsample,
+            bloom::downsample_shader_source(),
+        );
         sources.insert(ShaderSlot::BloomUpsample, bloom::upsample_shader_source());
 
         let (watcher, rx) = if let Some(ref dir) = shader_dir {
@@ -201,7 +209,7 @@ impl ShaderLibrary {
     fn start_watcher(
         dir: &PathBuf,
     ) -> Result<(notify::RecommendedWatcher, mpsc::Receiver<PathBuf>), notify::Error> {
-        use notify::{Watcher, RecursiveMode, Event, EventKind};
+        use notify::{Event, EventKind, RecursiveMode, Watcher};
 
         let (tx, rx) = mpsc::channel();
         let mut watcher = notify::recommended_watcher(move |res: Result<Event, notify::Error>| {
@@ -292,7 +300,10 @@ impl ShaderLibrary {
             // Validate with naga before accepting.
             let validate_src = match slot {
                 // Material shaders need preamble prepended for validation.
-                ShaderSlot::FsUnlit | ShaderSlot::FsLit | ShaderSlot::FsPbr | ShaderSlot::FsToon => {
+                ShaderSlot::FsUnlit
+                | ShaderSlot::FsLit
+                | ShaderSlot::FsPbr
+                | ShaderSlot::FsToon => {
                     let preamble = self.get(ShaderSlot::Preamble);
                     format!("{preamble}\n{content}")
                 }
@@ -324,8 +335,7 @@ impl ShaderLibrary {
 /// Validate WGSL source using naga.
 #[cfg_attr(not(feature = "hot-reload"), allow(dead_code))]
 fn validate_wgsl(source: &str) -> Result<(), String> {
-    let module = naga::front::wgsl::parse_str(source)
-        .map_err(|e| format!("parse error: {e}"))?;
+    let module = naga::front::wgsl::parse_str(source).map_err(|e| format!("parse error: {e}"))?;
     let mut validator = naga::valid::Validator::new(
         naga::valid::ValidationFlags::all(),
         naga::valid::Capabilities::all(),

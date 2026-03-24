@@ -104,7 +104,7 @@ pub struct IconData {
 }
 
 /// Accessibility settings detected from the system or user-configured.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct AccessibilityConfig {
     /// Whether high-contrast mode is active.
     pub high_contrast: bool,
@@ -162,22 +162,17 @@ impl AccessibilityConfig {
 
     fn read_gsettings_a11y_enabled() -> bool {
         if let Ok(output) = std::process::Command::new("gsettings")
-            .args(["get", "org.gnome.desktop.interface", "toolkit-accessibility"])
+            .args([
+                "get",
+                "org.gnome.desktop.interface",
+                "toolkit-accessibility",
+            ])
             .output()
         {
             let val = String::from_utf8_lossy(&output.stdout);
             return val.trim() == "true";
         }
         false
-    }
-}
-
-impl Default for AccessibilityConfig {
-    fn default() -> Self {
-        Self {
-            high_contrast: false,
-            enabled: false,
-        }
     }
 }
 

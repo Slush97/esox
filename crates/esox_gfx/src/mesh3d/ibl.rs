@@ -179,7 +179,11 @@ impl IblState {
         ground_color: Vec3,
     ) -> Self {
         let (data, w, h) = generate_procedural_sky_equirect(
-            sun_dir, sun_color, sun_intensity, sky_color, ground_color,
+            sun_dir,
+            sun_color,
+            sun_intensity,
+            sky_color,
+            ground_color,
         );
         Self::from_equirect(device, queue, &data, w, h).unwrap()
     }
@@ -210,8 +214,7 @@ impl IblState {
         let source_faces = equirect_to_cubemap_faces(hdr_data, width, height, source_size);
 
         // Step 2: diffuse irradiance convolution (32x32)
-        let irradiance_faces =
-            convolve_irradiance(&source_faces, source_size, IRRADIANCE_SIZE);
+        let irradiance_faces = convolve_irradiance(&source_faces, source_size, IRRADIANCE_SIZE);
         let irradiance_bytes = faces_f32_to_f16_bytes(&irradiance_faces, IRRADIANCE_SIZE);
         let (irradiance_texture, irradiance_view) = create_cubemap_with_data(
             device,
@@ -224,12 +227,8 @@ impl IblState {
         );
 
         // Step 3: specular prefiltering (128x128, 5 mip levels)
-        let (prefiltered_texture, prefiltered_view) = create_prefiltered_env_map(
-            device,
-            queue,
-            &source_faces,
-            source_size,
-        );
+        let (prefiltered_texture, prefiltered_view) =
+            create_prefiltered_env_map(device, queue, &source_faces, source_size);
 
         // Step 4: BRDF LUT
         let (brdf_lut_texture, brdf_lut_view) = generate_brdf_lut(device, queue, BRDF_LUT_SIZE);
@@ -275,11 +274,7 @@ pub fn generate_procedural_sky_equirect(
             let u = (x as f32 + 0.5) / width as f32;
             let theta = (u - 0.5) * 2.0 * PI;
 
-            let dir = Vec3::new(
-                cos_phi * theta.cos(),
-                sin_phi,
-                cos_phi * theta.sin(),
-            );
+            let dir = Vec3::new(cos_phi * theta.cos(), sin_phi, cos_phi * theta.sin());
 
             // Sky gradient
             let up_factor = dir.y;
@@ -331,17 +326,41 @@ fn smoothstep(edge0: f32, edge1: f32, x: f32) -> f32 {
 fn cubemap_face_bases() -> [(Vec3, Vec3, Vec3); 6] {
     [
         // +X
-        (Vec3::new(0.0, 0.0, -1.0), Vec3::new(0.0, -1.0, 0.0), Vec3::new(1.0, 0.0, 0.0)),
+        (
+            Vec3::new(0.0, 0.0, -1.0),
+            Vec3::new(0.0, -1.0, 0.0),
+            Vec3::new(1.0, 0.0, 0.0),
+        ),
         // -X
-        (Vec3::new(0.0, 0.0, 1.0), Vec3::new(0.0, -1.0, 0.0), Vec3::new(-1.0, 0.0, 0.0)),
+        (
+            Vec3::new(0.0, 0.0, 1.0),
+            Vec3::new(0.0, -1.0, 0.0),
+            Vec3::new(-1.0, 0.0, 0.0),
+        ),
         // +Y
-        (Vec3::new(1.0, 0.0, 0.0), Vec3::new(0.0, 0.0, 1.0), Vec3::new(0.0, 1.0, 0.0)),
+        (
+            Vec3::new(1.0, 0.0, 0.0),
+            Vec3::new(0.0, 0.0, 1.0),
+            Vec3::new(0.0, 1.0, 0.0),
+        ),
         // -Y
-        (Vec3::new(1.0, 0.0, 0.0), Vec3::new(0.0, 0.0, -1.0), Vec3::new(0.0, -1.0, 0.0)),
+        (
+            Vec3::new(1.0, 0.0, 0.0),
+            Vec3::new(0.0, 0.0, -1.0),
+            Vec3::new(0.0, -1.0, 0.0),
+        ),
         // +Z
-        (Vec3::new(1.0, 0.0, 0.0), Vec3::new(0.0, -1.0, 0.0), Vec3::new(0.0, 0.0, 1.0)),
+        (
+            Vec3::new(1.0, 0.0, 0.0),
+            Vec3::new(0.0, -1.0, 0.0),
+            Vec3::new(0.0, 0.0, 1.0),
+        ),
         // -Z
-        (Vec3::new(-1.0, 0.0, 0.0), Vec3::new(0.0, -1.0, 0.0), Vec3::new(0.0, 0.0, -1.0)),
+        (
+            Vec3::new(-1.0, 0.0, 0.0),
+            Vec3::new(0.0, -1.0, 0.0),
+            Vec3::new(0.0, 0.0, -1.0),
+        ),
     ]
 }
 
@@ -483,11 +502,7 @@ fn convolve_irradiance(
                     let sin_theta = (1.0 - cos_theta * cos_theta).max(0.0).sqrt();
 
                     // Tangent-space direction
-                    let ts = Vec3::new(
-                        sin_theta * phi.cos(),
-                        sin_theta * phi.sin(),
-                        cos_theta,
-                    );
+                    let ts = Vec3::new(sin_theta * phi.cos(), sin_theta * phi.sin(), cos_theta);
                     // World-space direction
                     let sample_dir = tangent * ts.x + bitangent * ts.y + normal * ts.z;
 
@@ -548,8 +563,7 @@ fn create_prefiltered_env_map(
         let roughness = mip as f32 / (PREFILTERED_MIP_LEVELS - 1) as f32;
         let face_texels = (mip_size * mip_size) as usize;
 
-        let faces_f32 =
-            prefilter_cubemap_mip(source_faces, source_size, mip_size, roughness);
+        let faces_f32 = prefilter_cubemap_mip(source_faces, source_size, mip_size, roughness);
 
         // Convert f32 RGBA -> f16 bytes
         let mut data = Vec::with_capacity(6 * face_texels * bytes_per_texel as usize);
@@ -972,10 +986,7 @@ mod tests {
             let xi = hammersley(i, 64);
             let h = importance_sample_ggx_tangent(xi, 0.5);
             let len = h.length();
-            assert!(
-                (len - 1.0).abs() < 1e-4,
-                "half-vector not unit: len={len}"
-            );
+            assert!((len - 1.0).abs() < 1e-4, "half-vector not unit: len={len}");
         }
     }
 
@@ -1054,8 +1065,16 @@ mod tests {
                 t.dot(b)
             );
             // Unit length
-            assert!((t.length() - 1.0).abs() < 1e-5, "T not unit: len={}", t.length());
-            assert!((b.length() - 1.0).abs() < 1e-5, "B not unit: len={}", b.length());
+            assert!(
+                (t.length() - 1.0).abs() < 1e-5,
+                "T not unit: len={}",
+                t.length()
+            );
+            assert!(
+                (b.length() - 1.0).abs() < 1e-5,
+                "B not unit: len={}",
+                b.length()
+            );
         }
     }
 
@@ -1182,7 +1201,11 @@ mod tests {
                 }
             } else if exp == 31 {
                 if man == 0 {
-                    if sign == 1 { f32::NEG_INFINITY } else { f32::INFINITY }
+                    if sign == 1 {
+                        f32::NEG_INFINITY
+                    } else {
+                        f32::INFINITY
+                    }
                 } else {
                     f32::NAN
                 }

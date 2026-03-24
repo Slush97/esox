@@ -25,10 +25,7 @@ const MONOSPACE_FALLBACKS: &[&str] = &[
 ];
 
 /// Directories to probe when fc-match is unavailable.
-const FONT_DIRS: &[&str] = &[
-    "/usr/share/fonts",
-    "/usr/local/share/fonts",
-];
+const FONT_DIRS: &[&str] = &["/usr/share/fonts", "/usr/local/share/fonts"];
 
 /// Result of a system font query — the raw font file bytes.
 pub struct FontMatch {
@@ -143,30 +140,23 @@ impl SystemFontDb {
         }
 
         // Scan for Nerd Font variants via fc-list.
-        if self.fc_available {
-            if let Ok(output) = Command::new("fc-list")
+        if self.fc_available
+            && let Ok(output) = Command::new("fc-list")
                 .args(["--format", "%{family}\n"])
                 .output()
-            {
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                for line in stdout.lines() {
-                    // fc-list may return comma-separated family names.
-                    for family_name in line.split(',') {
-                        let family_name = family_name.trim();
-                        if family_name.contains("Nerd Font")
-                            && !seen_families.contains(family_name)
-                        {
-                            if let Some(m) =
-                                self.query_family(family_name, FontStyle::Regular)
-                            {
-                                tracing::debug!(
-                                    family = m.family,
-                                    "found Nerd Font fallback"
-                                );
-                                seen_families.insert(m.family.clone());
-                                results.push(m);
-                            }
-                        }
+        {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            for line in stdout.lines() {
+                // fc-list may return comma-separated family names.
+                for family_name in line.split(',') {
+                    let family_name = family_name.trim();
+                    if family_name.contains("Nerd Font")
+                        && !seen_families.contains(family_name)
+                        && let Some(m) = self.query_family(family_name, FontStyle::Regular)
+                    {
+                        tracing::debug!(family = m.family, "found Nerd Font fallback");
+                        seen_families.insert(m.family.clone());
+                        results.push(m);
                     }
                 }
             }
@@ -281,18 +271,18 @@ impl SystemFontDb {
         for entry in entries.flatten() {
             let ft = entry.file_type().ok()?;
             if ft.is_file() {
-                if let Some(name) = entry.file_name().to_str() {
-                    if name.eq_ignore_ascii_case(filename) {
-                        let data = std::fs::read(entry.path()).ok()?;
-                        tracing::info!(
-                            path = %entry.path().display(),
-                            "found font via directory probe"
-                        );
-                        return Some(FontMatch {
-                            data,
-                            family: family.to_string(),
-                        });
-                    }
+                if let Some(name) = entry.file_name().to_str()
+                    && name.eq_ignore_ascii_case(filename)
+                {
+                    let data = std::fs::read(entry.path()).ok()?;
+                    tracing::info!(
+                        path = %entry.path().display(),
+                        "found font via directory probe"
+                    );
+                    return Some(FontMatch {
+                        data,
+                        family: family.to_string(),
+                    });
                 }
             } else if ft.is_dir() {
                 subdirs.push(entry.path());

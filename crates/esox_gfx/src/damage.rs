@@ -147,8 +147,8 @@ pub struct TileGrid {
 impl TileGrid {
     /// Create a new tile grid for the given viewport dimensions.
     pub fn new(viewport_w: u32, viewport_h: u32) -> Self {
-        let cols = ((viewport_w + TILE_SIZE - 1) / TILE_SIZE) as u16;
-        let rows = ((viewport_h + TILE_SIZE - 1) / TILE_SIZE) as u16;
+        let cols = viewport_w.div_ceil(TILE_SIZE) as u16;
+        let rows = viewport_h.div_ceil(TILE_SIZE) as u16;
         let count = cols as usize * rows as usize;
         Self {
             cols,
@@ -207,9 +207,13 @@ impl TileGrid {
     /// Mark tiles overlapping a damage rect as dirty.
     pub fn mark_damage(&mut self, rect: &DamageRect) {
         let col_start = (rect.x.max(0.0) as u32 / TILE_SIZE) as u16;
-        let col_end = (((rect.x + rect.width).ceil() as u32 + TILE_SIZE - 1) / TILE_SIZE).min(self.cols as u32) as u16;
+        let col_end = ((rect.x + rect.width).ceil() as u32)
+            .div_ceil(TILE_SIZE)
+            .min(self.cols as u32) as u16;
         let row_start = (rect.y.max(0.0) as u32 / TILE_SIZE) as u16;
-        let row_end = (((rect.y + rect.height).ceil() as u32 + TILE_SIZE - 1) / TILE_SIZE).min(self.rows as u32) as u16;
+        let row_end = ((rect.y + rect.height).ceil() as u32)
+            .div_ceil(TILE_SIZE)
+            .min(self.rows as u32) as u16;
 
         for row in row_start..row_end {
             for col in col_start..col_end {
@@ -230,16 +234,26 @@ impl TileGrid {
     }
 
     /// Compute which tiles a quad instance overlaps, returning tile indices.
-    pub fn tiles_for_rect(&self, x: f32, y: f32, w: f32, h: f32) -> impl Iterator<Item = TileIndex> {
+    pub fn tiles_for_rect(
+        &self,
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+    ) -> impl Iterator<Item = TileIndex> {
         let col_start = (x.max(0.0) as u32 / TILE_SIZE).min(self.cols as u32 - 1) as u16;
-        let col_end = (((x + w).ceil() as u32 + TILE_SIZE - 1) / TILE_SIZE).min(self.cols as u32) as u16;
-        let row_start = (y.max(0.0) as u32 / TILE_SIZE).min(self.rows.saturating_sub(1) as u32) as u16;
-        let row_end = (((y + h).ceil() as u32 + TILE_SIZE - 1) / TILE_SIZE).min(self.rows as u32) as u16;
+        let col_end = ((x + w).ceil() as u32)
+            .div_ceil(TILE_SIZE)
+            .min(self.cols as u32) as u16;
+        let row_start =
+            (y.max(0.0) as u32 / TILE_SIZE).min(self.rows.saturating_sub(1) as u32) as u16;
+        let row_end = ((y + h).ceil() as u32)
+            .div_ceil(TILE_SIZE)
+            .min(self.rows as u32) as u16;
         let cols = self.cols;
 
-        (row_start..row_end).flat_map(move |row| {
-            (col_start..col_end).map(move |col| TileIndex(row * cols + col))
-        })
+        (row_start..row_end)
+            .flat_map(move |row| (col_start..col_end).map(move |col| TileIndex(row * cols + col)))
     }
 
     /// Begin a new frame: reset dirty flags to clean, then apply damage.
@@ -279,10 +293,10 @@ impl TileGrid {
     ) -> Vec<crate::primitive::QuadInstance> {
         let mut merged = Vec::new();
 
-        for idx in 0..self.tile_count() {
+        for (idx, bucket) in tile_buckets.iter_mut().enumerate().take(self.tile_count()) {
             if self.dirty[idx] {
                 // Dirty tile: take fresh instances from bucket, store in cache.
-                let fresh = std::mem::take(&mut tile_buckets[idx]);
+                let fresh = std::mem::take(bucket);
                 merged.extend_from_slice(&fresh);
                 self.cache[idx].instances = fresh;
                 self.cache[idx].generation = self.generation;
@@ -456,7 +470,7 @@ mod tests {
     fn tile_grid_dimensions() {
         let grid = TileGrid::new(1920, 1080);
         assert_eq!(grid.cols(), 15); // 1920/128 = 15
-        assert_eq!(grid.rows(), 9);  // ceil(1080/128) = 9
+        assert_eq!(grid.rows(), 9); // ceil(1080/128) = 9
         assert_eq!(grid.tile_count(), 135);
     }
 

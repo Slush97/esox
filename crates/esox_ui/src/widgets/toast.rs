@@ -30,21 +30,28 @@ impl<'f> Ui<'f> {
         let mut y = self.region.y + margin;
 
         // Collect toast info (avoid borrow issues).
-        let toast_infos: Vec<_> = self.state.toasts.toasts.iter().take(max_visible).map(|t| {
-            let elapsed = t.created.elapsed().as_millis() as u64;
-            let phase_t = if elapsed < fade_in_ms as u64 {
-                // Fade in.
-                elapsed as f32 / fade_in_ms
-            } else if elapsed < t.duration_ms {
-                // Fully visible.
-                1.0
-            } else {
-                // Fade out.
-                let fade_elapsed = elapsed - t.duration_ms;
-                1.0 - (fade_elapsed as f32 / fade_out_ms).min(1.0)
-            };
-            (t.id, t.kind, t.message.clone(), phase_t)
-        }).collect();
+        let toast_infos: Vec<_> = self
+            .state
+            .toasts
+            .toasts
+            .iter()
+            .take(max_visible)
+            .map(|t| {
+                let elapsed = t.created.elapsed().as_millis() as u64;
+                let phase_t = if elapsed < fade_in_ms as u64 {
+                    // Fade in.
+                    elapsed as f32 / fade_in_ms
+                } else if elapsed < t.duration_ms {
+                    // Fully visible.
+                    1.0
+                } else {
+                    // Fade out.
+                    let fade_elapsed = elapsed - t.duration_ms;
+                    1.0 - (fade_elapsed as f32 / fade_out_ms).min(1.0)
+                };
+                (t.id, t.kind, t.message.clone(), phase_t)
+            })
+            .collect();
 
         for (toast_id, kind, message, phase_t) in toast_infos {
             let opacity = Easing::EaseOutCubic.apply(phase_t);
@@ -113,9 +120,18 @@ impl<'f> Ui<'f> {
             }
 
             let x_hovered = x_rect.contains(self.state.mouse.x, self.state.mouse.y);
-            let x_hover_t = self.state.hover_t(dismiss_id ^ HOVER_SALT, x_hovered, self.theme.hover_duration_ms);
+            let x_hover_t = self.state.hover_t(
+                dismiss_id ^ HOVER_SALT,
+                x_hovered,
+                self.theme.hover_duration_ms,
+            );
             let x_color = paint::lerp_color(
-                Color::new(self.theme.fg_muted.r, self.theme.fg_muted.g, self.theme.fg_muted.b, opacity),
+                Color::new(
+                    self.theme.fg_muted.r,
+                    self.theme.fg_muted.g,
+                    self.theme.fg_muted.b,
+                    opacity,
+                ),
                 Color::new(self.theme.fg.r, self.theme.fg.g, self.theme.fg.b, opacity),
                 x_hover_t,
             );

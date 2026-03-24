@@ -1,10 +1,10 @@
 //! Post-processing types and texture helpers for the 3D renderer.
 
-use crate::bloom::BloomPass;
-use crate::pipeline::GpuContext;
 use super::camera::Camera;
 use super::render_types::{DEPTH_FORMAT, HDR_FORMAT};
 use super::shaders_embedded::COMPOSITE_SHADER_3D;
+use crate::bloom::BloomPass;
+use crate::pipeline::GpuContext;
 
 // ── Post-process config ──
 
@@ -219,11 +219,12 @@ impl super::renderer::Renderer3D {
 
         // Create bloom pipelines.
         let bloom_bgl = bloom_pass.bind_group_layout();
-        let bloom_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("esox_3d_bloom_pipeline_layout"),
-            bind_group_layouts: &[bloom_bgl],
-            immediate_size: 0,
-        });
+        let bloom_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("esox_3d_bloom_pipeline_layout"),
+                bind_group_layouts: &[bloom_bgl],
+                immediate_size: 0,
+            });
         let down_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("esox_3d_bloom_downsample"),
             source: wgpu::ShaderSource::Wgsl(crate::bloom::downsample_shader_source().into()),
@@ -233,7 +234,10 @@ impl super::renderer::Renderer3D {
             source: wgpu::ShaderSource::Wgsl(crate::bloom::upsample_shader_source().into()),
         });
 
-        let create_bloom_pipeline = |shader: &wgpu::ShaderModule, label: &str, blend: Option<wgpu::BlendState>| -> wgpu::RenderPipeline {
+        let create_bloom_pipeline = |shader: &wgpu::ShaderModule,
+                                     label: &str,
+                                     blend: Option<wgpu::BlendState>|
+         -> wgpu::RenderPipeline {
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some(label),
                 layout: Some(&bloom_pipeline_layout),
@@ -266,16 +270,21 @@ impl super::renderer::Renderer3D {
         };
         let bloom_down_pipeline = create_bloom_pipeline(&down_shader, "esox_3d_bloom_down", None);
         // Upsample needs additive blending to accumulate onto destination mips.
-        let bloom_up_pipeline = create_bloom_pipeline(&up_shader, "esox_3d_bloom_up", Some(wgpu::BlendState {
-            color: wgpu::BlendComponent {
-                src_factor: wgpu::BlendFactor::One,
-                dst_factor: wgpu::BlendFactor::One,
-                operation: wgpu::BlendOperation::Add,
-            },
-            alpha: wgpu::BlendComponent::OVER,
-        }));
+        let bloom_up_pipeline = create_bloom_pipeline(
+            &up_shader,
+            "esox_3d_bloom_up",
+            Some(wgpu::BlendState {
+                color: wgpu::BlendComponent {
+                    src_factor: wgpu::BlendFactor::One,
+                    dst_factor: wgpu::BlendFactor::One,
+                    operation: wgpu::BlendOperation::Add,
+                },
+                alpha: wgpu::BlendComponent::OVER,
+            }),
+        );
 
-        let (bloom_black_texture, bloom_black_view) = crate::bloom::create_black_texture(device, &gpu.queue, HDR_FORMAT);
+        let (bloom_black_texture, bloom_black_view) =
+            crate::bloom::create_black_texture(device, &gpu.queue, HDR_FORMAT);
 
         let composite_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -329,7 +338,7 @@ impl super::renderer::Renderer3D {
                             ty: wgpu::BufferBindingType::Uniform,
                             has_dynamic_offset: false,
                             min_binding_size: wgpu::BufferSize::new(
-                                size_of::<CompositeParams3D>() as u64,
+                                size_of::<CompositeParams3D>() as u64
                             ),
                         },
                         count: None,
@@ -360,44 +369,42 @@ impl super::renderer::Renderer3D {
             source: wgpu::ShaderSource::Wgsl(COMPOSITE_SHADER_3D.into()),
         });
 
-        let composite_pipeline =
-            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some("esox_3d_composite_pipeline"),
-                layout: Some(&composite_pipeline_layout),
-                vertex: wgpu::VertexState {
-                    module: &composite_shader,
-                    entry_point: Some("vs_main"),
-                    buffers: &[],
-                    compilation_options: wgpu::PipelineCompilationOptions::default(),
-                },
-                fragment: Some(wgpu::FragmentState {
-                    module: &composite_shader,
-                    entry_point: Some("fs_main"),
-                    targets: &[Some(wgpu::ColorTargetState {
-                        format: gpu.config.format,
-                        blend: None,
-                        write_mask: wgpu::ColorWrites::ALL,
-                    })],
-                    compilation_options: wgpu::PipelineCompilationOptions::default(),
-                }),
-                primitive: wgpu::PrimitiveState {
-                    topology: wgpu::PrimitiveTopology::TriangleList,
-                    cull_mode: None,
-                    ..Default::default()
-                },
-                depth_stencil: None,
-                multisample: wgpu::MultisampleState::default(),
-                multiview_mask: None,
-                cache: None,
-            });
+        let composite_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("esox_3d_composite_pipeline"),
+            layout: Some(&composite_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &composite_shader,
+                entry_point: Some("vs_main"),
+                buffers: &[],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &composite_shader,
+                entry_point: Some("fs_main"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: gpu.config.format,
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                cull_mode: None,
+                ..Default::default()
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview_mask: None,
+            cache: None,
+        });
 
-        let params_buffer =
-            device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("esox_3d_composite_params"),
-                size: size_of::<CompositeParams3D>() as u64,
-                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            });
+        let params_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("esox_3d_composite_params"),
+            size: size_of::<CompositeParams3D>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
 
         let linear_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("esox_3d_composite_sampler"),
@@ -450,10 +457,15 @@ impl super::renderer::Renderer3D {
 
         // SSAO (reads depth buffer, writes occlusion texture).
         if let Some(ssao) = &mut self.ssao_pass {
-            let proj = camera.projection_matrix(
-                viewport_width as f32 / viewport_height.max(1) as f32,
+            let proj =
+                camera.projection_matrix(viewport_width as f32 / viewport_height.max(1) as f32);
+            ssao.encode(
+                &gpu.device,
+                encoder,
+                &gpu.queue,
+                &self.depth_sample_view,
+                proj,
             );
-            ssao.encode(&gpu.device, encoder, &gpu.queue, &self.depth_sample_view, proj);
         }
 
         // Bloom + composite (when post-processing is enabled).
@@ -463,7 +475,14 @@ impl super::renderer::Renderer3D {
 
             // Run bloom on the scene HDR texture.
             if config.bloom_enabled {
-                pp.bloom_pass.encode(encoder, &gpu.queue, &pp.bloom_down_pipeline, &pp.bloom_up_pipeline, config.bloom_threshold, config.bloom_soft_knee);
+                pp.bloom_pass.encode(
+                    encoder,
+                    &gpu.queue,
+                    &pp.bloom_down_pipeline,
+                    &pp.bloom_up_pipeline,
+                    config.bloom_threshold,
+                    config.bloom_soft_knee,
+                );
             }
 
             // SSAO result (or fallback white).
@@ -479,7 +498,11 @@ impl super::renderer::Renderer3D {
 
             // Upload composite params.
             let params = CompositeParams3D {
-                bloom_intensity: if config.bloom_enabled { config.bloom_intensity } else { 0.0 },
+                bloom_intensity: if config.bloom_enabled {
+                    config.bloom_intensity
+                } else {
+                    0.0
+                },
                 tone_map: if config.tone_map_enabled { 1.0 } else { 0.0 },
                 ssao_enabled: if config.ssao_enabled { 1.0 } else { 0.0 },
                 _pad0: 0.0,
@@ -491,7 +514,8 @@ impl super::renderer::Renderer3D {
                 ],
                 fog_params: [config.fog_start, config.fog_end, camera.near, camera.far],
             };
-            gpu.queue.write_buffer(&pp.params_buffer, 0, bytemuck::bytes_of(&params));
+            gpu.queue
+                .write_buffer(&pp.params_buffer, 0, bytemuck::bytes_of(&params));
 
             // Build composite bind group.
             let bloom_view = if config.bloom_enabled {

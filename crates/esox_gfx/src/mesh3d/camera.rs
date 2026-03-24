@@ -10,9 +10,7 @@ pub enum CameraMode {
     Perspective,
     /// Orthographic projection. `ortho_size` is the half-height of the view
     /// volume; width is derived as `ortho_size * aspect`.
-    Orthographic {
-        ortho_size: f32,
-    },
+    Orthographic { ortho_size: f32 },
 }
 
 impl Default for CameraMode {
@@ -74,9 +72,7 @@ impl Camera {
     /// Used by the shadow system to build per-cascade sub-frustum projections.
     pub fn sub_projection(&self, aspect: f32, near: f32, far: f32) -> Mat4 {
         match self.mode {
-            CameraMode::Perspective => {
-                Mat4::perspective_rh(self.fov_y, aspect, near, far)
-            }
+            CameraMode::Perspective => Mat4::perspective_rh(self.fov_y, aspect, near, far),
             CameraMode::Orthographic { ortho_size } => {
                 let half_h = ortho_size;
                 let half_w = ortho_size * aspect;

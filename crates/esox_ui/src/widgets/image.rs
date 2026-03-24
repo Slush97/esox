@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use esox_gfx::{AtlasManager, AtlasId, GpuContext};
+use esox_gfx::{AtlasId, AtlasManager, GpuContext};
 
 use crate::response::Response;
 use crate::state::WidgetKind;
@@ -81,13 +81,12 @@ impl ImageCache {
         rgba: &image::RgbaImage,
         gpu: &GpuContext,
     ) -> Option<ImageHandle> {
-        let mut encoder = gpu.device.create_command_encoder(
-            &wgpu::CommandEncoderDescriptor { label: Some("image_atlas_upload") },
-        );
-        let (_alloc_id, region) = self
-            .atlas
-            .allocate(&gpu.device, &mut encoder, w, h)
-            .ok()?;
+        let mut encoder = gpu
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("image_atlas_upload"),
+            });
+        let (_alloc_id, region) = self.atlas.allocate(&gpu.device, &mut encoder, w, h).ok()?;
         gpu.queue.submit(Some(encoder.finish()));
 
         self.atlas.upload_region(&gpu.queue, &region, rgba.as_raw());
@@ -96,12 +95,15 @@ impl ImageCache {
         let atlas_h = self.atlas.size().1;
         let uv = region.to_uv_rect(atlas_w, atlas_h);
 
-        self.images.insert(key, CachedImage {
-            uv,
-            layer: region.layer,
-            width: w,
-            height: h,
-        });
+        self.images.insert(
+            key,
+            CachedImage {
+                uv,
+                layer: region.layer,
+                width: w,
+                height: h,
+            },
+        );
         self.dirty = true;
         Some(ImageHandle(key))
     }

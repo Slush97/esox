@@ -58,11 +58,11 @@ pub use state::{
 };
 pub use text::{TextRenderer, TruncationMode};
 pub use theme::{StyleState, TextSize, Theme, ThemeBuilder, ThemeTransition, WidgetStyle};
-pub use widgets::image::{ImageCache, ImageHandle};
-pub use widgets::table::{ColumnWidth, TableColumn};
 pub use widgets::form::FieldStatus;
-pub use widgets::tree::TreeNodeResponse;
+pub use widgets::image::{ImageCache, ImageHandle};
 pub use widgets::menu_bar::{Menu, MenuEntry, MenuItem};
+pub use widgets::table::{ColumnWidth, TableColumn};
+pub use widgets::tree::TreeNodeResponse;
 
 use esox_gfx::{Color, Frame, GpuContext, RenderResources};
 use layout::{Direction, LayoutContext, Vec2};
@@ -132,14 +132,17 @@ impl<'a, 'f> FlexBuilder<'a, 'f> {
     /// On frame 1 (no prev_layout), children render at natural cursor positions.
     /// On frame 2+, `allocate_rect` picks up solved positions from the tree.
     pub fn show_flex(self, id: u64, f: impl FnOnce(&mut FlexUi<'_, 'f>)) {
-        self.ui.tree_build.open_container(Some(id), LayoutStyle {
-            direction: self.direction,
-            gap: self.gap,
-            align_items: self.align,
-            justify_content: self.justify,
-            flex_wrap: self.wrap,
-            ..Default::default()
-        });
+        self.ui.tree_build.open_container(
+            Some(id),
+            LayoutStyle {
+                direction: self.direction,
+                gap: self.gap,
+                align_items: self.align,
+                justify_content: self.justify,
+                flex_wrap: self.wrap,
+                ..Default::default()
+            },
+        );
 
         let saved_cursor = self.ui.cursor;
         let saved_region = self.ui.region;
@@ -195,14 +198,17 @@ impl<'a, 'f> FlexBuilder<'a, 'f> {
     pub fn show(self, f: impl FnOnce(&mut Ui<'f>)) {
         let is_horizontal = self.direction == Direction::Horizontal;
 
-        self.ui.tree_build.open_container(None, LayoutStyle {
-            direction: self.direction,
-            gap: self.gap,
-            align_items: self.align,
-            justify_content: self.justify,
-            flex_wrap: self.wrap,
-            ..Default::default()
-        });
+        self.ui.tree_build.open_container(
+            None,
+            LayoutStyle {
+                direction: self.direction,
+                gap: self.gap,
+                align_items: self.align,
+                justify_content: self.justify,
+                flex_wrap: self.wrap,
+                ..Default::default()
+            },
+        );
 
         if is_horizontal {
             let saved_spacing = self.ui.spacing;
@@ -254,16 +260,19 @@ impl<'a, 'f> FlexUi<'a, 'f> {
             Direction::Horizontal
         };
 
-        self.ui.tree_build.open_container(None, LayoutStyle {
-            direction: cross_dir,
-            flex_grow: props.grow,
-            flex_shrink: props.shrink,
-            flex_basis: props.basis,
-            align_self: props.align_self,
-            margin: props.margin,
-            gap: self.ui.spacing,
-            ..Default::default()
-        });
+        self.ui.tree_build.open_container(
+            None,
+            LayoutStyle {
+                direction: cross_dir,
+                flex_grow: props.grow,
+                flex_shrink: props.shrink,
+                flex_basis: props.basis,
+                align_self: props.align_self,
+                margin: props.margin,
+                gap: self.ui.spacing,
+                ..Default::default()
+            },
+        );
 
         // Apply margin for cursor fallback.
         if self.direction == Direction::Horizontal {
@@ -314,6 +323,9 @@ pub struct Ui<'f> {
     tree_build: TreeBuildContext,
     /// Solved layout tree from the previous frame (for position lookups).
     prev_layout: Option<LayoutTree>,
+    /// Nesting depth inside scroll containers. Cache lookups are skipped when > 0
+    /// because cached absolute positions don't account for scroll offset changes.
+    scroll_depth: u32,
 }
 
 impl<'f> Ui<'f> {
@@ -338,21 +350,20 @@ impl<'f> Ui<'f> {
         }
 
         // Move the solved layout tree from last frame into prev_layout.
-        // TODO: prev_layout is currently disabled — solved positions from the
-        // previous frame cause widgets inside scroll containers to render at
-        // wrong absolute positions, producing blank content.  With this disabled,
-        // all widgets use cursor-based fallback positioning every frame, which is
-        // correct but slightly less efficient.  Re-enable once the layout cache
-        // accounts for scroll offsets.
-        let _prev_layout_unused = state.layout_cache.take();
-        let prev_layout = None;
+        // Cache lookups are skipped inside scroll containers (via scroll_depth)
+        // because cached absolute positions don't account for scroll offset
+        // changes between frames.
+        let prev_layout = state.layout_cache.take();
 
         let mut tree_build = TreeBuildContext::new();
-        tree_build.open_container(Some(u64::MAX), LayoutStyle {
-            direction: Direction::Vertical,
-            gap: theme.padding,
-            ..Default::default()
-        });
+        tree_build.open_container(
+            Some(u64::MAX),
+            LayoutStyle {
+                direction: Direction::Vertical,
+                gap: theme.padding,
+                ..Default::default()
+            },
+        );
 
         Self {
             frame,
@@ -373,6 +384,7 @@ impl<'f> Ui<'f> {
             style_stack: Vec::new(),
             tree_build,
             prev_layout,
+            scroll_depth: 0,
         }
     }
 
@@ -405,7 +417,11 @@ impl<'f> Ui<'f> {
 
         // Close root container and solve the layout tree.
         self.tree_build.close_container();
-        debug_assert_eq!(self.tree_build.open_stack_len(), 0, "unclosed layout container");
+        debug_assert_eq!(
+            self.tree_build.open_stack_len(),
+            0,
+            "unclosed layout container"
+        );
         let viewport = self.region;
         let mut tree = self.tree_build.tree;
         tree.solve(viewport);
@@ -423,7 +439,12 @@ impl<'f> Ui<'f> {
         let node_id = self.tree_build.add_leaf(None, w, h);
         let node_key = self.tree_build.tree.node(node_id).key;
 
-        let rect = if let Some(solved) = self.prev_layout.as_ref().and_then(|t| t.lookup(node_key)) {
+        let rect = if let Some(solved) = self
+            .prev_layout
+            .as_ref()
+            .filter(|_| self.scroll_depth == 0)
+            .and_then(|t| t.lookup(node_key))
+        {
             // Use solved position from previous frame. Advance cursor for compatibility.
             match self.layout_stack.last() {
                 Some(ctx) if ctx.direction == Direction::Horizontal => {
@@ -483,11 +504,14 @@ impl<'f> Ui<'f> {
 
     /// Run a closure in a horizontal row layout.
     pub fn row(&mut self, f: impl FnOnce(&mut Self)) {
-        self.tree_build.open_container(None, LayoutStyle {
-            direction: Direction::Horizontal,
-            gap: self.spacing,
-            ..Default::default()
-        });
+        self.tree_build.open_container(
+            None,
+            LayoutStyle {
+                direction: Direction::Horizontal,
+                gap: self.spacing,
+                ..Default::default()
+            },
+        );
         let ctx = LayoutContext {
             direction: Direction::Horizontal,
             origin: self.cursor,
@@ -518,12 +542,15 @@ impl<'f> Ui<'f> {
 
     /// Run a closure within a max-width container, centered horizontally.
     pub fn max_width(&mut self, max_w: f32, f: impl FnOnce(&mut Self)) {
-        self.tree_build.open_container(None, LayoutStyle {
-            max_width: Some(max_w),
-            direction: Direction::Vertical,
-            gap: self.spacing,
-            ..Default::default()
-        });
+        self.tree_build.open_container(
+            None,
+            LayoutStyle {
+                max_width: Some(max_w),
+                direction: Direction::Vertical,
+                gap: self.spacing,
+                ..Default::default()
+            },
+        );
         let col_w = self.region.w.min(max_w);
         let col_x = self.cursor.x + (self.region.w - col_w) / 2.0;
 
@@ -544,12 +571,15 @@ impl<'f> Ui<'f> {
 
     /// Run a closure with padding on all sides.
     pub fn padding(&mut self, amount: f32, f: impl FnOnce(&mut Self)) {
-        self.tree_build.open_container(None, LayoutStyle {
-            direction: Direction::Vertical,
-            padding: Spacing::all(amount),
-            gap: self.spacing,
-            ..Default::default()
-        });
+        self.tree_build.open_container(
+            None,
+            LayoutStyle {
+                direction: Direction::Vertical,
+                padding: Spacing::all(amount),
+                gap: self.spacing,
+                ..Default::default()
+            },
+        );
         let saved_cursor = self.cursor;
         let saved_region = self.region;
 
@@ -606,11 +636,14 @@ impl<'f> Ui<'f> {
 
     /// Run a closure with a temporary spacing value. Restores original spacing after.
     pub fn with_spacing(&mut self, gap: f32, f: impl FnOnce(&mut Self)) {
-        self.tree_build.open_container(None, LayoutStyle {
-            direction: Direction::Vertical,
-            gap,
-            ..Default::default()
-        });
+        self.tree_build.open_container(
+            None,
+            LayoutStyle {
+                direction: Direction::Vertical,
+                gap,
+                ..Default::default()
+            },
+        );
         let saved = self.spacing;
         self.spacing = gap;
         f(self);
@@ -658,12 +691,15 @@ impl<'f> Ui<'f> {
     ///
     /// `content_width` is the expected width of the content inside.
     pub fn center_horizontal(&mut self, content_width: f32, f: impl FnOnce(&mut Self)) {
-        self.tree_build.open_container(None, LayoutStyle {
-            max_width: Some(content_width),
-            direction: Direction::Vertical,
-            gap: self.spacing,
-            ..Default::default()
-        });
+        self.tree_build.open_container(
+            None,
+            LayoutStyle {
+                max_width: Some(content_width),
+                direction: Direction::Vertical,
+                gap: self.spacing,
+                ..Default::default()
+            },
+        );
         let cw = content_width.min(self.region.w);
         let offset = (self.region.w - cw) / 2.0;
 
@@ -722,7 +758,12 @@ impl<'f> Ui<'f> {
     }
 
     /// Same as `columns` with explicit inter-column gap.
-    pub fn columns_spaced(&mut self, gap: f32, weights: &[f32], mut f: impl FnMut(&mut Self, usize)) {
+    pub fn columns_spaced(
+        &mut self,
+        gap: f32,
+        weights: &[f32],
+        mut f: impl FnMut(&mut Self, usize),
+    ) {
         if weights.is_empty() {
             return;
         }
@@ -735,11 +776,14 @@ impl<'f> Ui<'f> {
         let total_gap = gap * (n as f32 - 1.0).max(0.0);
         let available = self.region.w - total_gap;
 
-        self.tree_build.open_container(None, LayoutStyle {
-            direction: Direction::Horizontal,
-            gap,
-            ..Default::default()
-        });
+        self.tree_build.open_container(
+            None,
+            LayoutStyle {
+                direction: Direction::Horizontal,
+                gap,
+                ..Default::default()
+            },
+        );
 
         let saved_cursor = self.cursor;
         let saved_region = self.region;
@@ -751,14 +795,20 @@ impl<'f> Ui<'f> {
         for (i, &w) in weights.iter().enumerate() {
             let col_w = available * w / total_weight;
 
-            self.tree_build.open_container(None, LayoutStyle {
-                direction: Direction::Vertical,
-                gap: self.spacing,
-                flex_grow: w / total_weight,
-                ..Default::default()
-            });
+            self.tree_build.open_container(
+                None,
+                LayoutStyle {
+                    direction: Direction::Vertical,
+                    gap: self.spacing,
+                    flex_grow: w / total_weight,
+                    ..Default::default()
+                },
+            );
 
-            self.cursor = Vec2 { x: col_x, y: saved_cursor.y };
+            self.cursor = Vec2 {
+                x: col_x,
+                y: saved_cursor.y,
+            };
             self.region = Rect::new(col_x, saved_region.y, col_w, saved_region.h);
             self.spacing = saved_spacing;
 
@@ -784,15 +834,18 @@ impl<'f> Ui<'f> {
 
     /// Run a closure within layout constraints.
     pub fn constrained(&mut self, c: layout::Constraints, f: impl FnOnce(&mut Self)) {
-        self.tree_build.open_container(None, LayoutStyle {
-            min_width: c.min_width,
-            max_width: c.max_width,
-            min_height: c.min_height,
-            max_height: c.max_height,
-            direction: Direction::Vertical,
-            gap: self.spacing,
-            ..Default::default()
-        });
+        self.tree_build.open_container(
+            None,
+            LayoutStyle {
+                min_width: c.min_width,
+                max_width: c.max_width,
+                min_height: c.min_height,
+                max_height: c.max_height,
+                direction: Direction::Vertical,
+                gap: self.spacing,
+                ..Default::default()
+            },
+        );
         let saved_cursor = self.cursor;
         let saved_region = self.region;
 
@@ -815,12 +868,18 @@ impl<'f> Ui<'f> {
     /// Indent children of an expanded tree node.
     pub fn tree_indent(&mut self, f: impl FnOnce(&mut Self)) {
         let indent = self.theme.tree_indent;
-        self.tree_build.open_container(None, LayoutStyle {
-            direction: Direction::Vertical,
-            padding: Spacing { left: indent, ..Default::default() },
-            gap: self.spacing,
-            ..Default::default()
-        });
+        self.tree_build.open_container(
+            None,
+            LayoutStyle {
+                direction: Direction::Vertical,
+                padding: Spacing {
+                    left: indent,
+                    ..Default::default()
+                },
+                gap: self.spacing,
+                ..Default::default()
+            },
+        );
         let saved_cursor_x = self.cursor.x;
         let saved_region = self.region;
 
@@ -853,19 +912,27 @@ impl<'f> Ui<'f> {
         let indent = self.theme.tree_indent;
         let duration = self.theme.tree_expand_duration_ms;
         let target = if expanded { 1.0 } else { 0.0 };
-        let t = self.state.anim_t(anim_id, target, duration, state::Easing::EaseOutCubic);
+        let t = self
+            .state
+            .anim_t(anim_id, target, duration, state::Easing::EaseOutCubic);
 
         // If fully collapsed and animation settled, skip drawing entirely.
         if t < 0.001 && !expanded {
             return;
         }
 
-        self.tree_build.open_container(None, LayoutStyle {
-            direction: Direction::Vertical,
-            padding: Spacing { left: indent, ..Default::default() },
-            gap: self.spacing,
-            ..Default::default()
-        });
+        self.tree_build.open_container(
+            None,
+            LayoutStyle {
+                direction: Direction::Vertical,
+                padding: Spacing {
+                    left: indent,
+                    ..Default::default()
+                },
+                gap: self.spacing,
+                ..Default::default()
+            },
+        );
         let saved_cursor_x = self.cursor.x;
         let saved_cursor_y = self.cursor.y;
         let saved_region = self.region;
@@ -882,15 +949,16 @@ impl<'f> Ui<'f> {
         let start_y = self.cursor.y;
 
         // Set clip rect if animating (0 < t < 1).
-        let cached_h = self.state.tree_children_heights.get(&anim_id).copied().unwrap_or(0.0);
+        let cached_h = self
+            .state
+            .tree_children_heights
+            .get(&anim_id)
+            .copied()
+            .unwrap_or(0.0);
         if t < 0.999 {
             let clip_h = cached_h * t;
-            self.frame.set_active_clip(Some([
-                saved_cursor_x,
-                start_y,
-                saved_region.w,
-                clip_h,
-            ]));
+            self.frame
+                .set_active_clip(Some([saved_cursor_x, start_y, saved_region.w, clip_h]));
         }
 
         f(self);
@@ -902,11 +970,7 @@ impl<'f> Ui<'f> {
         self.frame.set_active_clip(saved_clip);
 
         // Advance cursor by animated height.
-        let visible_h = if t >= 0.999 {
-            children_h
-        } else {
-            cached_h * t
-        };
+        let visible_h = if t >= 0.999 { children_h } else { cached_h * t };
 
         self.cursor.x = saved_cursor_x;
         self.cursor.y = saved_cursor_y + visible_h;
@@ -936,7 +1000,9 @@ impl<'f> Ui<'f> {
         // Check dead zone — start drag when mouse moves >4px from press.
         if self.state.drag.is_none() && self.state.mouse_pressed {
             if let Some((sx, sy)) = self.state.drag_start {
-                if let Some((rect, _, _)) = self.state.hit_rects.iter().find(|(_, wid, _)| *wid == id) {
+                if let Some((rect, _, _)) =
+                    self.state.hit_rects.iter().find(|(_, wid, _)| *wid == id)
+                {
                     let dx = self.state.mouse.x - sx;
                     let dy = self.state.mouse.y - sy;
                     if dx * dx + dy * dy > 16.0 {
@@ -996,12 +1062,7 @@ impl<'f> Ui<'f> {
     ///
     /// When disabled, skips both hit_rects and focus_chain — no cursor
     /// icon change, no Tab focus, no click consumption.
-    pub fn register_widget(
-        &mut self,
-        id: u64,
-        rect: Rect,
-        kind: state::WidgetKind,
-    ) {
+    pub fn register_widget(&mut self, id: u64, rect: Rect, kind: state::WidgetKind) {
         if self.disabled {
             return;
         }
@@ -1093,16 +1154,16 @@ impl<'f> Ui<'f> {
             );
             if activatable {
                 for (event, _) in &self.state.keys {
-                    if event.pressed {
-                        if matches!(
+                    if event.pressed
+                        && matches!(
                             event.key,
                             Key::Named(NamedKey::Enter) | Key::Named(NamedKey::Space)
-                        ) {
-                            clicked = true;
-                            self.state.focused = Some(id);
-                            self.state.reset_blink();
-                            break;
-                        }
+                        )
+                    {
+                        clicked = true;
+                        self.state.focused = Some(id);
+                        self.state.reset_blink();
+                        break;
                     }
                 }
             }
@@ -1311,7 +1372,12 @@ impl<'f> Ui<'f> {
                     });
                 }
             }
-        } else if self.state.tooltip.as_ref().is_some_and(|tt| tt.widget_id == id) {
+        } else if self
+            .state
+            .tooltip
+            .as_ref()
+            .is_some_and(|tt| tt.widget_id == id)
+        {
             self.state.tooltip = None;
         }
     }
@@ -1380,10 +1446,10 @@ impl<'f> Ui<'f> {
 
         // Depth-cycling colors for layout bounds.
         const DEPTH_COLORS: [[f32; 4]; 4] = [
-            [0.2, 0.8, 0.2, 0.3],  // green
-            [0.2, 0.5, 1.0, 0.3],  // blue
-            [1.0, 0.6, 0.1, 0.3],  // orange
-            [0.8, 0.2, 0.8, 0.3],  // purple
+            [0.2, 0.8, 0.2, 0.3], // green
+            [0.2, 0.5, 1.0, 0.3], // blue
+            [1.0, 0.6, 0.1, 0.3], // orange
+            [0.8, 0.2, 0.8, 0.3], // purple
         ];
 
         let rects: Vec<_> = self.state.debug_widget_rects.drain(..).collect();
@@ -1394,19 +1460,41 @@ impl<'f> Ui<'f> {
             // Draw 1px outline.
             let t = 1.0;
             // Top
-            paint::draw_rounded_rect(self.frame, Rect::new(rect.x, rect.y, rect.w, t), outline_color, 0.0);
+            paint::draw_rounded_rect(
+                self.frame,
+                Rect::new(rect.x, rect.y, rect.w, t),
+                outline_color,
+                0.0,
+            );
             // Bottom
-            paint::draw_rounded_rect(self.frame, Rect::new(rect.x, rect.y + rect.h - t, rect.w, t), outline_color, 0.0);
+            paint::draw_rounded_rect(
+                self.frame,
+                Rect::new(rect.x, rect.y + rect.h - t, rect.w, t),
+                outline_color,
+                0.0,
+            );
             // Left
-            paint::draw_rounded_rect(self.frame, Rect::new(rect.x, rect.y, t, rect.h), outline_color, 0.0);
+            paint::draw_rounded_rect(
+                self.frame,
+                Rect::new(rect.x, rect.y, t, rect.h),
+                outline_color,
+                0.0,
+            );
             // Right
-            paint::draw_rounded_rect(self.frame, Rect::new(rect.x + rect.w - t, rect.y, t, rect.h), outline_color, 0.0);
+            paint::draw_rounded_rect(
+                self.frame,
+                Rect::new(rect.x + rect.w - t, rect.y, t, rect.h),
+                outline_color,
+                0.0,
+            );
         }
 
         // Hovered widget gets a tooltip with rect info.
         let mouse_x = self.state.mouse.x;
         let mouse_y = self.state.mouse.y;
-        if let Some((rect, id, kind)) = rects.iter().rev()
+        if let Some((rect, id, kind)) = rects
+            .iter()
+            .rev()
             .find(|(r, _, _)| r.contains(mouse_x, mouse_y))
         {
             // Alt+click: log widget info instead of sending click.
@@ -1430,13 +1518,36 @@ impl<'f> Ui<'f> {
             // Draw highlighted outline on hovered widget.
             let highlight = Color::new(1.0, 1.0, 0.0, 0.5);
             let t = 2.0;
-            paint::draw_rounded_rect(self.frame, Rect::new(rect.x, rect.y, rect.w, t), highlight, 0.0);
-            paint::draw_rounded_rect(self.frame, Rect::new(rect.x, rect.y + rect.h - t, rect.w, t), highlight, 0.0);
-            paint::draw_rounded_rect(self.frame, Rect::new(rect.x, rect.y, t, rect.h), highlight, 0.0);
-            paint::draw_rounded_rect(self.frame, Rect::new(rect.x + rect.w - t, rect.y, t, rect.h), highlight, 0.0);
+            paint::draw_rounded_rect(
+                self.frame,
+                Rect::new(rect.x, rect.y, rect.w, t),
+                highlight,
+                0.0,
+            );
+            paint::draw_rounded_rect(
+                self.frame,
+                Rect::new(rect.x, rect.y + rect.h - t, rect.w, t),
+                highlight,
+                0.0,
+            );
+            paint::draw_rounded_rect(
+                self.frame,
+                Rect::new(rect.x, rect.y, t, rect.h),
+                highlight,
+                0.0,
+            );
+            paint::draw_rounded_rect(
+                self.frame,
+                Rect::new(rect.x + rect.w - t, rect.y, t, rect.h),
+                highlight,
+                0.0,
+            );
 
             // Info tooltip.
-            let info = format!("{kind} [{:.0}x{:.0}] @({:.0},{:.0})", rect.w, rect.h, rect.x, rect.y);
+            let info = format!(
+                "{kind} [{:.0}x{:.0}] @({:.0},{:.0})",
+                rect.w, rect.h, rect.x, rect.y
+            );
             let font_size = self.theme.tooltip_font_size;
             let pad = 4.0;
             let text_w = self.text.measure_text(&info, font_size);
@@ -1471,25 +1582,33 @@ impl<'f> Ui<'f> {
     /// Show an info toast notification.
     pub fn toast_info(&mut self, msg: &str) {
         let dur = self.theme.toast_duration_ms;
-        self.state.toasts.push(state::ToastKind::Info, msg.to_string(), dur);
+        self.state
+            .toasts
+            .push(state::ToastKind::Info, msg.to_string(), dur);
     }
 
     /// Show a success toast notification.
     pub fn toast_success(&mut self, msg: &str) {
         let dur = self.theme.toast_duration_ms;
-        self.state.toasts.push(state::ToastKind::Success, msg.to_string(), dur);
+        self.state
+            .toasts
+            .push(state::ToastKind::Success, msg.to_string(), dur);
     }
 
     /// Show an error toast notification.
     pub fn toast_error(&mut self, msg: &str) {
         let dur = self.theme.toast_duration_ms;
-        self.state.toasts.push(state::ToastKind::Error, msg.to_string(), dur);
+        self.state
+            .toasts
+            .push(state::ToastKind::Error, msg.to_string(), dur);
     }
 
     /// Show a warning toast notification.
     pub fn toast_warning(&mut self, msg: &str) {
         let dur = self.theme.toast_duration_ms;
-        self.state.toasts.push(state::ToastKind::Warning, msg.to_string(), dur);
+        self.state
+            .toasts
+            .push(state::ToastKind::Warning, msg.to_string(), dur);
     }
 
     /// Show a toast with custom kind and duration.
@@ -1594,7 +1713,7 @@ impl<'f> Ui<'f> {
     /// the platform layer can skip GPU submission to save power.
     pub fn needs_redraw(&self) -> bool {
         self.state.damage.is_full_invalidation()
-            || self.state.damage.regions().map_or(false, |r| !r.is_empty())
+            || self.state.damage.regions().is_some_and(|r| !r.is_empty())
     }
 
     // ── Context Menu ──

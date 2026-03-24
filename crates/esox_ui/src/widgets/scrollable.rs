@@ -10,6 +10,7 @@
 //! });
 //! ```
 
+use crate::id::SCROLL_CONTENT_SALT;
 use crate::layout::{Direction, Rect, Vec2};
 use crate::layout_tree::{LayoutStyle, Overflow};
 use crate::paint;
@@ -73,7 +74,9 @@ impl<'f> Ui<'f> {
         let gpu_clip = match saved_active_clip {
             Some(prev) => {
                 let prev_rect = Rect::new(prev[0], prev[1], prev[2], prev[3]);
-                container_clip.intersect(&prev_rect).unwrap_or(container_clip)
+                container_clip
+                    .intersect(&prev_rect)
+                    .unwrap_or(container_clip)
             }
             None => container_clip,
         };
@@ -84,15 +87,22 @@ impl<'f> Ui<'f> {
         });
 
         // --- Run child content ---
-        self.tree_build.open_container(Some(id), LayoutStyle {
-            direction: Direction::Vertical,
-            gap: self.spacing,
-            overflow: Overflow::Scroll,
-            ..Default::default()
-        });
+        // Use a salted key so the content container doesn't collide with the
+        // viewport leaf (both share the user's `id`) in the layout cache.
+        self.tree_build.open_container(
+            Some(id ^ SCROLL_CONTENT_SALT),
+            LayoutStyle {
+                direction: Direction::Vertical,
+                gap: self.spacing,
+                overflow: Overflow::Scroll,
+                ..Default::default()
+            },
+        );
+        self.scroll_depth += 1;
         let content_start_y = self.cursor.y;
         f(self);
         let content_height = self.cursor.y - content_start_y - self.spacing; // subtract trailing spacing
+        self.scroll_depth -= 1;
         self.tree_build.close_container();
 
         // --- Restore layout state ---
@@ -107,7 +117,9 @@ impl<'f> Ui<'f> {
 
         // --- Scroll logic ---
         let max_scroll = (content_height - visible_height).max(0.0);
-        self.state.prev_max_scroll.insert(id, ([max_scroll, 0.0], 0));
+        self.state
+            .prev_max_scroll
+            .insert(id, ([max_scroll, 0.0], 0));
         let mut offset = scroll_offset;
 
         // Handle scrollbar drag.
@@ -178,18 +190,19 @@ impl<'f> Ui<'f> {
             // Hover animation on thumb.
             let thumb_hovered = thumb_rect.contains(self.state.mouse.x, self.state.mouse.y);
             let thumb_hover_id = id.wrapping_mul(0x517cc1b727220a95);
-            let t = self.state.hover_t(thumb_hover_id, thumb_hovered || self.state.scrollbar_drag.map_or(false, |(did, _)| did == id), self.theme.hover_duration_ms);
-            let thumb_color = paint::lerp_color(self.theme.fg_dim, self.theme.fg_muted, t);
-            paint::draw_rounded_rect(
-                self.frame,
-                thumb_rect,
-                thumb_color,
-                scrollbar_w / 2.0,
+            let t = self.state.hover_t(
+                thumb_hover_id,
+                thumb_hovered || self.state.scrollbar_drag.is_some_and(|(did, _)| did == id),
+                self.theme.hover_duration_ms,
             );
+            let thumb_color = paint::lerp_color(self.theme.fg_dim, self.theme.fg_muted, t);
+            paint::draw_rounded_rect(self.frame, thumb_rect, thumb_color, scrollbar_w / 2.0);
 
             // Register scrollbar for hit testing.
             let scrollbar_id = id.wrapping_add(1);
-            self.state.hit_rects.push((thumb_rect, scrollbar_id, WidgetKind::Scrollbar));
+            self.state
+                .hit_rects
+                .push((thumb_rect, scrollbar_id, WidgetKind::Scrollbar));
 
             // Handle click on track or thumb to initiate drag.
             if let Some((cx, cy, ref mut consumed)) = self.state.mouse.pending_click {
@@ -201,7 +214,8 @@ impl<'f> Ui<'f> {
                     } else {
                         // Click on track: jump thumb center to click position, then drag.
                         let half_thumb = thumb_h / 2.0;
-                        let new_thumb_top = (cy - track_y - half_thumb).clamp(0.0, scrollable_range);
+                        let new_thumb_top =
+                            (cy - track_y - half_thumb).clamp(0.0, scrollable_range);
                         offset = if scrollable_range > 0.0 {
                             (new_thumb_top / scrollable_range) * max_scroll
                         } else {
@@ -209,17 +223,27 @@ impl<'f> Ui<'f> {
                         };
                         self.state.scrollbar_drag = Some((id, half_thumb));
                         // Re-store the updated offset.
-                        self.state.scroll_offsets.insert(id, ([offset.clamp(0.0, max_scroll), 0.0], 0));
+                        self.state
+                            .scroll_offsets
+                            .insert(id, ([offset.clamp(0.0, max_scroll), 0.0], 0));
                     }
                 }
             }
         }
 
         self.push_a11y_node(crate::state::A11yNode {
-            id, role: crate::state::A11yRole::ScrollView, label: String::new(),
-            value: None, rect: container, focused: false, disabled: false,
-            expanded: None, selected: None, checked: None,
-            value_range: None, children: Vec::new(),
+            id,
+            role: crate::state::A11yRole::ScrollView,
+            label: String::new(),
+            value: None,
+            rect: container,
+            focused: false,
+            disabled: false,
+            expanded: None,
+            selected: None,
+            checked: None,
+            value_range: None,
+            children: Vec::new(),
         });
 
         Response {
@@ -278,7 +302,9 @@ impl<'f> Ui<'f> {
         let gpu_clip = match saved_active_clip {
             Some(prev) => {
                 let prev_rect = Rect::new(prev[0], prev[1], prev[2], prev[3]);
-                container_clip.intersect(&prev_rect).unwrap_or(container_clip)
+                container_clip
+                    .intersect(&prev_rect)
+                    .unwrap_or(container_clip)
             }
             None => container_clip,
         };
@@ -288,15 +314,20 @@ impl<'f> Ui<'f> {
             None => container_clip,
         });
 
-        self.tree_build.open_container(Some(id), LayoutStyle {
-            direction: Direction::Horizontal,
-            gap: self.spacing,
-            overflow: Overflow::Scroll,
-            ..Default::default()
-        });
+        self.tree_build.open_container(
+            Some(id ^ SCROLL_CONTENT_SALT),
+            LayoutStyle {
+                direction: Direction::Horizontal,
+                gap: self.spacing,
+                overflow: Overflow::Scroll,
+                ..Default::default()
+            },
+        );
+        self.scroll_depth += 1;
         let content_start_x = self.cursor.x;
         f(self);
         let content_width = self.cursor.x - content_start_x - self.spacing;
+        self.scroll_depth -= 1;
         self.tree_build.close_container();
 
         self.cursor = saved_cursor;
@@ -307,7 +338,9 @@ impl<'f> Ui<'f> {
         self.hit_clip = saved_hit_clip;
 
         let max_scroll = (content_width - visible_width).max(0.0);
-        self.state.prev_max_scroll.insert(id, ([0.0, max_scroll], 0));
+        self.state
+            .prev_max_scroll
+            .insert(id, ([0.0, max_scroll], 0));
         let mut offset = scroll_offset;
 
         // Horizontal scroll from wheel (shift+scroll or trackpad).
@@ -333,7 +366,10 @@ impl<'f> Ui<'f> {
 
             let track_rect = Rect::new(track_x, track_y, track_w, scrollbar_w);
             paint::draw_rounded_rect(
-                self.frame, track_rect, self.theme.bg_raised, scrollbar_w / 2.0,
+                self.frame,
+                track_rect,
+                self.theme.bg_raised,
+                scrollbar_w / 2.0,
             );
 
             let thumb_w = (visible_width / content_width * track_w)
@@ -349,14 +385,16 @@ impl<'f> Ui<'f> {
 
             let thumb_hovered = thumb_rect.contains(self.state.mouse.x, self.state.mouse.y);
             let thumb_hover_id = id.wrapping_mul(0x517cc1b727220a95);
-            let t = self.state.hover_t(thumb_hover_id, thumb_hovered, self.theme.hover_duration_ms);
+            let t = self
+                .state
+                .hover_t(thumb_hover_id, thumb_hovered, self.theme.hover_duration_ms);
             let thumb_color = paint::lerp_color(self.theme.fg_dim, self.theme.fg_muted, t);
-            paint::draw_rounded_rect(
-                self.frame, thumb_rect, thumb_color, scrollbar_w / 2.0,
-            );
+            paint::draw_rounded_rect(self.frame, thumb_rect, thumb_color, scrollbar_w / 2.0);
 
             let scrollbar_id = id.wrapping_add(1);
-            self.state.hit_rects.push((thumb_rect, scrollbar_id, WidgetKind::Scrollbar));
+            self.state
+                .hit_rects
+                .push((thumb_rect, scrollbar_id, WidgetKind::Scrollbar));
         }
 
         Response {
@@ -428,16 +466,21 @@ impl<'f> Ui<'f> {
             None => content_clip,
         });
 
-        self.tree_build.open_container(Some(id), LayoutStyle {
-            direction: Direction::Vertical,
-            gap: self.spacing,
-            overflow: Overflow::Scroll,
-            ..Default::default()
-        });
+        self.tree_build.open_container(
+            Some(id ^ SCROLL_CONTENT_SALT),
+            LayoutStyle {
+                direction: Direction::Vertical,
+                gap: self.spacing,
+                overflow: Overflow::Scroll,
+                ..Default::default()
+            },
+        );
+        self.scroll_depth += 1;
         let content_start = self.cursor;
         f(self);
         let content_width = self.cursor.x - content_start.x - self.spacing;
         let content_height = self.cursor.y - content_start.y - self.spacing;
+        self.scroll_depth -= 1;
         self.tree_build.close_container();
 
         self.cursor = saved_cursor;
@@ -449,7 +492,9 @@ impl<'f> Ui<'f> {
 
         let max_scroll_y = (content_height - content_area_h).max(0.0);
         let max_scroll_x = (content_width - content_area_w).max(0.0);
-        self.state.prev_max_scroll.insert(id, ([max_scroll_y, max_scroll_x], 0));
+        self.state
+            .prev_max_scroll
+            .insert(id, ([max_scroll_y, max_scroll_x], 0));
         let mut off_y = scroll_y;
         let mut off_x = scroll_x;
 
@@ -475,7 +520,10 @@ impl<'f> Ui<'f> {
             let track_x = container.x + content_area_w;
             let track_rect = Rect::new(track_x, container.y, scrollbar_w, content_area_h);
             paint::draw_rounded_rect(
-                self.frame, track_rect, self.theme.bg_raised, scrollbar_w / 2.0,
+                self.frame,
+                track_rect,
+                self.theme.bg_raised,
+                scrollbar_w / 2.0,
             );
 
             let thumb_h = (content_area_h / content_height * content_area_h)
@@ -489,9 +537,14 @@ impl<'f> Ui<'f> {
             };
             let thumb_rect = Rect::new(track_x, thumb_y, scrollbar_w, thumb_h);
             let thumb_hover_id = id.wrapping_mul(0x517cc1b727220a95);
-            let t = self.state.hover_t(thumb_hover_id, thumb_rect.contains(self.state.mouse.x, self.state.mouse.y), self.theme.hover_duration_ms);
+            let t = self.state.hover_t(
+                thumb_hover_id,
+                thumb_rect.contains(self.state.mouse.x, self.state.mouse.y),
+                self.theme.hover_duration_ms,
+            );
             paint::draw_rounded_rect(
-                self.frame, thumb_rect,
+                self.frame,
+                thumb_rect,
                 paint::lerp_color(self.theme.fg_dim, self.theme.fg_muted, t),
                 scrollbar_w / 2.0,
             );
@@ -502,7 +555,10 @@ impl<'f> Ui<'f> {
             let track_y = container.y + content_area_h;
             let track_rect = Rect::new(container.x, track_y, content_area_w, scrollbar_w);
             paint::draw_rounded_rect(
-                self.frame, track_rect, self.theme.bg_raised, scrollbar_w / 2.0,
+                self.frame,
+                track_rect,
+                self.theme.bg_raised,
+                scrollbar_w / 2.0,
             );
 
             let thumb_w = (content_area_w / content_width * content_area_w)
@@ -516,9 +572,14 @@ impl<'f> Ui<'f> {
             };
             let thumb_rect = Rect::new(thumb_x, track_y, thumb_w, scrollbar_w);
             let thumb_hover_id = id.wrapping_mul(0x7a2b3c4d5e6f0a1b);
-            let t = self.state.hover_t(thumb_hover_id, thumb_rect.contains(self.state.mouse.x, self.state.mouse.y), self.theme.hover_duration_ms);
+            let t = self.state.hover_t(
+                thumb_hover_id,
+                thumb_rect.contains(self.state.mouse.x, self.state.mouse.y),
+                self.theme.hover_duration_ms,
+            );
             paint::draw_rounded_rect(
-                self.frame, thumb_rect,
+                self.frame,
+                thumb_rect,
                 paint::lerp_color(self.theme.fg_dim, self.theme.fg_muted, t),
                 scrollbar_w / 2.0,
             );
@@ -532,9 +593,7 @@ impl<'f> Ui<'f> {
                 scrollbar_w,
                 scrollbar_w,
             );
-            paint::draw_rounded_rect(
-                self.frame, corner, self.theme.bg_raised, 0.0,
-            );
+            paint::draw_rounded_rect(self.frame, corner, self.theme.bg_raised, 0.0);
         }
 
         Response {

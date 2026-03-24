@@ -177,7 +177,12 @@ impl MaterialDescriptor {
                     0.0
                 },
             ],
-            extra: [self.normal_scale, self.toon_bands, self.rim_power, self.rim_intensity],
+            extra: [
+                self.normal_scale,
+                self.toon_bands,
+                self.rim_power,
+                self.rim_intensity,
+            ],
         }
     }
 }

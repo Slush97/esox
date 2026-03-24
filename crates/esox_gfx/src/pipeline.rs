@@ -66,8 +66,8 @@ impl GpuContext {
         // Request optional features if the adapter supports them.
         // INDIRECT_FIRST_INSTANCE is required for multi_draw_indexed_indirect
         // with per-draw instance offsets (first_instance must be 0 without it).
-        let desired_features = wgpu::Features::MULTI_DRAW_INDIRECT_COUNT
-            | wgpu::Features::INDIRECT_FIRST_INSTANCE;
+        let desired_features =
+            wgpu::Features::MULTI_DRAW_INDIRECT_COUNT | wgpu::Features::INDIRECT_FIRST_INSTANCE;
         let enabled_features = adapter.features() & desired_features;
         let multi_draw_indirect =
             enabled_features.contains(wgpu::Features::INDIRECT_FIRST_INSTANCE);
@@ -945,7 +945,14 @@ pub fn spawn_pipeline_compilation(
             // Opaque SDF 2D (no blend, depth write).
             {
                 let label = "quad_sdf_2d_opaque";
-                let p = compile_scene(SDF_2D_FRAGMENT_SOURCE, label, None, true, sample_count, true);
+                let p = compile_scene(
+                    SDF_2D_FRAGMENT_SOURCE,
+                    label,
+                    None,
+                    true,
+                    sample_count,
+                    true,
+                );
                 send(crate::primitive::PIPELINE_SDF_2D_OPAQUE, label, p);
             }
 
@@ -1001,7 +1008,14 @@ pub fn spawn_pipeline_compilation(
                 ),
             ];
             for (id, label, blend) in &blend_variants {
-                let p = compile_scene(SDF_2D_FRAGMENT_SOURCE, label, Some(blend.clone()), false, sample_count, true);
+                let p = compile_scene(
+                    SDF_2D_FRAGMENT_SOURCE,
+                    label,
+                    Some(*blend),
+                    false,
+                    sample_count,
+                    true,
+                );
                 send(*id, label, p);
             }
 
@@ -1036,7 +1050,9 @@ pub fn spawn_pipeline_compilation(
                     let label = "quad_sdf_2d_opaque_no_msaa";
                     let p = compile_scene(SDF_2D_FRAGMENT_SOURCE, label, None, false, 1, false);
                     send(
-                        ShaderId(crate::primitive::PIPELINE_SDF_2D_OPAQUE.0 + NO_MSAA_PIPELINE_OFFSET),
+                        ShaderId(
+                            crate::primitive::PIPELINE_SDF_2D_OPAQUE.0 + NO_MSAA_PIPELINE_OFFSET,
+                        ),
                         label,
                         p,
                     );
@@ -1044,7 +1060,14 @@ pub fn spawn_pipeline_compilation(
 
                 for (id, label, blend) in &blend_variants {
                     let no_msaa_label = format!("{label}_no_msaa");
-                    let p = compile_scene(SDF_2D_FRAGMENT_SOURCE, &no_msaa_label, Some(blend.clone()), false, 1, false);
+                    let p = compile_scene(
+                        SDF_2D_FRAGMENT_SOURCE,
+                        &no_msaa_label,
+                        Some(*blend),
+                        false,
+                        1,
+                        false,
+                    );
                     send(ShaderId(id.0 + NO_MSAA_PIPELINE_OFFSET), &no_msaa_label, p);
                 }
             }

@@ -243,11 +243,7 @@ mod tests {
 
     fn all_visible_frustum() -> Frustum {
         // Camera far away, looking at origin, huge frustum
-        let view = glam::Mat4::look_at_rh(
-            Vec3::new(0.0, 0.0, 1000.0),
-            Vec3::ZERO,
-            Vec3::Y,
-        );
+        let view = glam::Mat4::look_at_rh(Vec3::new(0.0, 0.0, 1000.0), Vec3::ZERO, Vec3::Y);
         let proj = glam::Mat4::perspective_rh(
             std::f32::consts::FRAC_PI_2, // 90 degrees
             1.0,
@@ -259,16 +255,10 @@ mod tests {
 
     fn narrow_frustum() -> Frustum {
         // Camera at z=10 looking at origin, narrow FOV
-        let view = glam::Mat4::look_at_rh(
-            Vec3::new(0.0, 0.0, 10.0),
-            Vec3::ZERO,
-            Vec3::Y,
-        );
+        let view = glam::Mat4::look_at_rh(Vec3::new(0.0, 0.0, 10.0), Vec3::ZERO, Vec3::Y);
         let proj = glam::Mat4::perspective_rh(
             0.1, // very narrow FOV
-            1.0,
-            0.1,
-            100.0,
+            1.0, 0.1, 100.0,
         );
         Frustum::from_view_projection(&(proj * view))
     }
@@ -395,10 +385,7 @@ mod tests {
 
         // BVH must include all linearly-visible objects (no false negatives)
         for idx in &linear_visible {
-            assert!(
-                bvh_visible.contains(idx),
-                "BVH missed visible object {idx}"
-            );
+            assert!(bvh_visible.contains(idx), "BVH missed visible object {idx}");
         }
     }
 

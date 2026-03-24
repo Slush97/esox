@@ -42,7 +42,12 @@ impl<'f> Ui<'f> {
             // Selection changed — restart fade.
         }
         let fade_id = fnv1a_mix(id, TAB_FADE_SALT);
-        let _fade_t = self.state.anim_t(fade_id, 1.0, self.theme.tab_fade_duration_ms, Easing::EaseOutCubic);
+        let _fade_t = self.state.anim_t(
+            fade_id,
+            1.0,
+            self.theme.tab_fade_duration_ms,
+            Easing::EaseOutCubic,
+        );
 
         content(self, state.selected);
         response
@@ -126,14 +131,26 @@ impl<'f> Ui<'f> {
             let selected = state.selected == i;
 
             self.push_a11y_node(crate::state::A11yNode {
-                id: tab_id, role: crate::state::A11yRole::Tab, label: label.to_string(),
-                value: None, rect: tab_rect, focused: tab_response.focused, disabled: false,
-                expanded: None, selected: Some(selected), checked: None,
-                value_range: None, children: Vec::new(),
+                id: tab_id,
+                role: crate::state::A11yRole::Tab,
+                label: label.to_string(),
+                value: None,
+                rect: tab_rect,
+                focused: tab_response.focused,
+                disabled: false,
+                expanded: None,
+                selected: Some(selected),
+                checked: None,
+                value_range: None,
+                children: Vec::new(),
             });
 
             // Hover animation.
-            let hover_t = self.state.hover_t(tab_id, tab_response.hovered && !selected, self.theme.hover_duration_ms);
+            let hover_t = self.state.hover_t(
+                tab_id,
+                tab_response.hovered && !selected,
+                self.theme.hover_duration_ms,
+            );
 
             // Text color.
             let text_color = if selected {

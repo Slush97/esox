@@ -111,7 +111,7 @@ impl<'f> Ui<'f> {
             let click_x = self.state.mouse.x;
             input.cursor = x_to_cursor(
                 input,
-                &mut self.text,
+                self.text,
                 rect,
                 click_x,
                 self.theme.font_size,
@@ -187,7 +187,7 @@ impl<'f> Ui<'f> {
 
             // Update scroll offset.
             let inner_w = rect.w - self.theme.input_padding * 2.0;
-            update_scroll(input, &mut self.text, inner_w, self.theme.font_size);
+            update_scroll(input, self.text, inner_w, self.theme.font_size);
         }
 
         // ── Draw ──

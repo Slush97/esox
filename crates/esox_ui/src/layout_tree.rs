@@ -163,17 +163,24 @@ impl LayoutTree {
     /// Lookup a solved rect by widget key. Returns `None` if the key wasn't in
     /// the previous frame's tree.
     pub fn lookup(&self, key: u64) -> Option<Rect> {
-        self.key_index.get(&key).map(|id| self.nodes[id.index()].rect)
+        self.key_index
+            .get(&key)
+            .map(|id| self.nodes[id.index()].rect)
     }
 
     /// Lookup the intrinsic (measured) size by widget key.
     pub fn intrinsic_size(&self, key: u64) -> Option<(f32, f32)> {
-        self.key_index.get(&key).map(|id| self.nodes[id.index()].intrinsic)
+        self.key_index
+            .get(&key)
+            .map(|id| self.nodes[id.index()].intrinsic)
     }
 
     /// Iterate children of `parent`.
     pub fn children(&self, parent: NodeId) -> ChildIter<'_> {
-        ChildIter { tree: self, next: self.nodes[parent.index()].first_child }
+        ChildIter {
+            tree: self,
+            next: self.nodes[parent.index()].first_child,
+        }
     }
 
     /// Count children of `parent`.
@@ -222,14 +229,8 @@ impl LayoutTree {
             let margin = &cn.style.margin;
             let (cw, ch) = cn.intrinsic;
             let (c_main, c_cross) = match dir {
-                Direction::Horizontal => (
-                    cw + margin.horizontal(),
-                    ch + margin.vertical(),
-                ),
-                Direction::Vertical => (
-                    ch + margin.vertical(),
-                    cw + margin.horizontal(),
-                ),
+                Direction::Horizontal => (cw + margin.horizontal(), ch + margin.vertical()),
+                Direction::Vertical => (ch + margin.vertical(), cw + margin.horizontal()),
             };
             main_sum += c_main;
             cross_max = cross_max.max(c_cross);
@@ -264,7 +265,16 @@ impl LayoutTree {
             h = h.max(min);
         }
 
-        self.nodes[id.index()].intrinsic = (w, h);
+        // Scroll containers clip their content internally, so they should not
+        // inflate the parent's intrinsic size with the full content height.
+        // Report zero — the parent already has a viewport leaf for the visible
+        // area.  arrange() for scroll children produces unused solved positions
+        // (scroll_depth > 0 bypasses the cache), so this is safe.
+        if self.nodes[id.index()].style.overflow == Overflow::Scroll {
+            self.nodes[id.index()].intrinsic = (0.0, 0.0);
+        } else {
+            self.nodes[id.index()].intrinsic = (w, h);
+        }
     }
 
     /// Top-down: distribute space from root to leaves.
@@ -276,7 +286,12 @@ impl LayoutTree {
         // For scroll containers, use intrinsic height for content layout.
         let rect = if self.nodes[id.index()].style.overflow == Overflow::Scroll {
             let (iw, ih) = self.nodes[id.index()].intrinsic;
-            Rect::new(available.x, available.y, available.w.max(iw), ih.max(available.h))
+            Rect::new(
+                available.x,
+                available.y,
+                available.w.max(iw),
+                ih.max(available.h),
+            )
         } else {
             available
         };
@@ -354,12 +369,16 @@ impl LayoutTree {
 
         // Compute total basis + margins on main axis.
         let total_gap = if n > 1 { gap * (n - 1) as f32 } else { 0.0 };
-        let total_basis: f32 = child_info.iter().map(|ci| {
-            ci.basis + match dir {
-                Direction::Horizontal => ci.margin.horizontal(),
-                Direction::Vertical => ci.margin.vertical(),
-            }
-        }).sum();
+        let total_basis: f32 = child_info
+            .iter()
+            .map(|ci| {
+                ci.basis
+                    + match dir {
+                        Direction::Horizontal => ci.margin.horizontal(),
+                        Direction::Vertical => ci.margin.vertical(),
+                    }
+            })
+            .sum();
 
         let remaining = available_main - total_gap - total_basis;
 
@@ -385,10 +404,13 @@ impl LayoutTree {
 
         // Justify: compute start offset and inter-item spacing adjustment.
         let used: f32 = sizes.iter().sum::<f32>()
-            + child_info.iter().map(|ci| match dir {
-                Direction::Horizontal => ci.margin.horizontal(),
-                Direction::Vertical => ci.margin.vertical(),
-            }).sum::<f32>()
+            + child_info
+                .iter()
+                .map(|ci| match dir {
+                    Direction::Horizontal => ci.margin.horizontal(),
+                    Direction::Vertical => ci.margin.vertical(),
+                })
+                .sum::<f32>()
             + total_gap;
         let free = (available_main - used).max(0.0);
 
@@ -417,10 +439,11 @@ impl LayoutTree {
 
             // Cross-axis sizing and alignment.
             let (cross_size, cross_offset) = {
-                let avail_cross = available_cross - match dir {
-                    Direction::Horizontal => ci.margin.vertical(),
-                    Direction::Vertical => ci.margin.horizontal(),
-                };
+                let avail_cross = available_cross
+                    - match dir {
+                        Direction::Horizontal => ci.margin.vertical(),
+                        Direction::Vertical => ci.margin.horizontal(),
+                    };
                 match eff_align {
                     Align::Stretch => (avail_cross, 0.0),
                     Align::Start => (ci.cross, 0.0),
@@ -446,10 +469,13 @@ impl LayoutTree {
 
             self.arrange(ci.id, child_rect);
 
-            main_pos += main_size + gap + extra_gap + match dir {
-                Direction::Horizontal => ci.margin.horizontal(),
-                Direction::Vertical => ci.margin.vertical(),
-            };
+            main_pos += main_size
+                + gap
+                + extra_gap
+                + match dir {
+                    Direction::Horizontal => ci.margin.horizontal(),
+                    Direction::Vertical => ci.margin.vertical(),
+                };
         }
     }
 
@@ -554,7 +580,11 @@ impl LayoutTree {
                 Justify::End => (free, 0.0),
                 Justify::Center => (free / 2.0, 0.0),
                 Justify::SpaceBetween => {
-                    if n > 1 { (0.0, free / (n - 1) as f32) } else { (0.0, 0.0) }
+                    if n > 1 {
+                        (0.0, free / (n - 1) as f32)
+                    } else {
+                        (0.0, 0.0)
+                    }
                 }
             };
 
@@ -577,14 +607,18 @@ impl LayoutTree {
                     Direction::Vertical => iw,
                 };
 
-                let avail_cross = line.cross_max - match dir {
-                    Direction::Horizontal => margin.vertical(),
-                    Direction::Vertical => margin.horizontal(),
-                };
+                let avail_cross = line.cross_max
+                    - match dir {
+                        Direction::Horizontal => margin.vertical(),
+                        Direction::Vertical => margin.horizontal(),
+                    };
                 let (cross_size, cross_offset) = match align_self {
                     Align::Stretch => (avail_cross.max(0.0), 0.0),
                     Align::Start => (cross_natural, 0.0),
-                    Align::Center => (cross_natural, ((avail_cross - cross_natural) / 2.0).max(0.0)),
+                    Align::Center => (
+                        cross_natural,
+                        ((avail_cross - cross_natural) / 2.0).max(0.0),
+                    ),
                     Align::End => (cross_natural, (avail_cross - cross_natural).max(0.0)),
                 };
 
@@ -605,10 +639,13 @@ impl LayoutTree {
 
                 self.arrange(cid, child_rect);
 
-                main_pos += basis + gap + extra_gap + match dir {
-                    Direction::Horizontal => margin.horizontal(),
-                    Direction::Vertical => margin.vertical(),
-                };
+                main_pos += basis
+                    + gap
+                    + extra_gap
+                    + match dir {
+                        Direction::Horizontal => margin.horizontal(),
+                        Direction::Vertical => margin.vertical(),
+                    };
             }
 
             cross_pos += line.cross_max + gap;
@@ -716,7 +753,11 @@ impl TreeBuildContext {
     /// Open a container node. Returns the NodeId.
     pub fn open_container(&mut self, key: Option<u64>, style: LayoutStyle) -> NodeId {
         let child_idx = self.current_child_index();
-        let key = self.key_override.take().or(key).unwrap_or_else(|| self.derive_key(child_idx));
+        let key = self
+            .key_override
+            .take()
+            .or(key)
+            .unwrap_or_else(|| self.derive_key(child_idx));
         let id = self.tree.add_node(key);
         self.tree.node_mut(id).style = style;
         self.tree.node_mut(id).is_leaf = false;
@@ -740,7 +781,11 @@ impl TreeBuildContext {
     /// Add a leaf node with intrinsic size.
     pub fn add_leaf(&mut self, key: Option<u64>, w: f32, h: f32) -> NodeId {
         let child_idx = self.current_child_index();
-        let key = self.key_override.take().or(key).unwrap_or_else(|| self.derive_key(child_idx));
+        let key = self
+            .key_override
+            .take()
+            .or(key)
+            .unwrap_or_else(|| self.derive_key(child_idx));
         let id = self.tree.add_node(key);
         self.tree.node_mut(id).intrinsic = (w, h);
         self.tree.node_mut(id).is_leaf = true;
@@ -1182,7 +1227,12 @@ mod tests {
 
         let a = tree.add_node(1);
         tree.node_mut(a).intrinsic = (50.0, 20.0);
-        tree.node_mut(a).style.margin = Spacing { top: 5.0, right: 0.0, bottom: 5.0, left: 10.0 };
+        tree.node_mut(a).style.margin = Spacing {
+            top: 5.0,
+            right: 0.0,
+            bottom: 5.0,
+            left: 10.0,
+        };
         tree.append_child(root, a);
 
         tree.solve(Rect::new(0.0, 0.0, 200.0, 200.0));

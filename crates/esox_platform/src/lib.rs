@@ -131,12 +131,7 @@ impl std::fmt::Debug for Waker {
 
 /// Convert a winit `ModifiersState` to `esox_input::Modifiers`.
 pub(crate) fn convert_modifiers(m: winit::keyboard::ModifiersState) -> esox_input::Modifiers {
-    esox_input::Modifiers::from_flags(
-        m.shift_key(),
-        m.control_key(),
-        m.alt_key(),
-        m.super_key(),
-    )
+    esox_input::Modifiers::from_flags(m.shift_key(), m.control_key(), m.alt_key(), m.super_key())
 }
 
 /// Convert a winit `KeyEvent` to `esox_input::KeyEvent`.
@@ -146,7 +141,10 @@ pub(crate) fn convert_key_event(e: &winit::event::KeyEvent) -> esox_input::KeyEv
         physical_key: convert_key_code(e.physical_key),
         pressed: e.state.is_pressed(),
         repeat: e.repeat,
-        text: e.text.as_ref().map(|s| esox_input::SmolStr::new(s.as_str())),
+        text: e
+            .text
+            .as_ref()
+            .map(|s| esox_input::SmolStr::new(s.as_str())),
     }
 }
 
@@ -165,8 +163,8 @@ fn convert_key(key: &winit::keyboard::Key) -> esox_input::Key {
 
 /// Convert a winit `NamedKey` to `esox_input::NamedKey`.
 fn convert_named_key(key: winit::keyboard::NamedKey) -> Option<esox_input::NamedKey> {
-    use winit::keyboard::NamedKey as W;
     use esox_input::NamedKey as N;
+    use winit::keyboard::NamedKey as W;
     Some(match key {
         W::Enter => N::Enter,
         W::Tab => N::Tab,
@@ -200,8 +198,8 @@ fn convert_named_key(key: winit::keyboard::NamedKey) -> Option<esox_input::Named
 
 /// Convert a winit `PhysicalKey` to `esox_input::KeyCode`.
 fn convert_key_code(key: winit::keyboard::PhysicalKey) -> esox_input::KeyCode {
-    use winit::keyboard::{KeyCode as WK, PhysicalKey};
     use esox_input::KeyCode as K;
+    use winit::keyboard::{KeyCode as WK, PhysicalKey};
     match key {
         PhysicalKey::Code(c) => match c {
             WK::KeyA => K::KeyA,
@@ -337,11 +335,7 @@ pub trait AppDelegate {
     );
 
     /// Called when a keyboard event is received.
-    fn on_key(
-        &mut self,
-        event: &esox_input::KeyEvent,
-        modifiers: esox_input::Modifiers,
-    );
+    fn on_key(&mut self, event: &esox_input::KeyEvent, modifiers: esox_input::Modifiers);
 
     /// Called when the window is resized.
     fn on_resize(&mut self, width: u32, height: u32, gpu: &esox_gfx::GpuContext);
@@ -778,10 +772,11 @@ impl ApplicationHandler<AppUserEvent> for App {
         if let Some((x, y)) = self.config.window.position {
             attrs = attrs.with_position(winit::dpi::LogicalPosition::new(x, y));
         }
-        if let Some(ref icon) = self.config.window.icon_rgba {
-            if let Ok(i) = winit::window::Icon::from_rgba(icon.rgba.clone(), icon.width, icon.height) {
-                attrs = attrs.with_window_icon(Some(i));
-            }
+        if let Some(ref icon) = self.config.window.icon_rgba
+            && let Ok(i) =
+                winit::window::Icon::from_rgba(icon.rgba.clone(), icon.width, icon.height)
+        {
+            attrs = attrs.with_window_icon(Some(i));
         }
         // Tell the compositor this window uses transparency so it honors alpha.
         if self.config.opacity < 1.0 {
@@ -947,8 +942,8 @@ impl ApplicationHandler<AppUserEvent> for App {
             }
         }
 
-        let mut clear = esox_gfx::Color::from_hex(&self.config.background)
-            .unwrap_or(esox_gfx::Color::BLACK);
+        let mut clear =
+            esox_gfx::Color::from_hex(&self.config.background).unwrap_or(esox_gfx::Color::BLACK);
         clear.a = self.config.opacity;
         self.clear_color = clear.premultiplied();
 
@@ -965,7 +960,7 @@ impl ApplicationHandler<AppUserEvent> for App {
             let hz_at_native = modes
                 .iter()
                 .filter(|m| m.size() == native_size)
-                .map(|m| (m.refresh_rate_millihertz() + 999) / 1000)
+                .map(|m| m.refresh_rate_millihertz().div_ceil(1000))
                 .max()
                 .filter(|&hz| hz > 0);
 
@@ -981,7 +976,7 @@ impl ApplicationHandler<AppUserEvent> for App {
                 );
             } else if let Some(hz) = modes
                 .iter()
-                .map(|m| (m.refresh_rate_millihertz() + 999) / 1000)
+                .map(|m| m.refresh_rate_millihertz().div_ceil(1000))
                 .max()
                 .filter(|&hz| hz > 0)
             {
@@ -1004,7 +999,10 @@ impl ApplicationHandler<AppUserEvent> for App {
             }
         } else {
             self.monitor_refresh_hz = 240;
-            tracing::warn!("no monitor detected, defaulting to {}Hz cap", self.monitor_refresh_hz);
+            tracing::warn!(
+                "no monitor detected, defaulting to {}Hz cap",
+                self.monitor_refresh_hz
+            );
         }
 
         window.set_ime_allowed(true);
@@ -1178,11 +1176,11 @@ impl ApplicationHandler<AppUserEvent> for App {
                     y: position.y,
                 });
                 // Update OS cursor icon based on pointer position (skip when grabbed).
-                if !self.cursor_grabbed {
-                    if let Some(window) = self.window.as_ref() {
-                        let icon = self.delegate.cursor_icon(position.x, position.y);
-                        window.set_cursor(winit::window::Cursor::Icon(convert_cursor_icon(icon)));
-                    }
+                if !self.cursor_grabbed
+                    && let Some(window) = self.window.as_ref()
+                {
+                    let icon = self.delegate.cursor_icon(position.x, position.y);
+                    window.set_cursor(winit::window::Cursor::Icon(convert_cursor_icon(icon)));
                 }
             }
             WindowEvent::MouseInput { state, button, .. } => {
@@ -1608,7 +1606,8 @@ impl ApplicationHandler<AppUserEvent> for App {
                 {
                     self.perf.begin_frame();
                     self.frame.clear();
-                    self.delegate.on_redraw(gpu, resources, &mut self.frame, &self.perf);
+                    self.delegate
+                        .on_redraw(gpu, resources, &mut self.frame, &self.perf);
 
                     let elapsed = self.start_time.elapsed().as_secs_f32();
                     let delta = elapsed - self.last_frame_elapsed;
@@ -1732,7 +1731,7 @@ impl ApplicationHandler<AppUserEvent> for App {
                     }
 
                     // Read counts after encoding (build_batches runs inside the encoder).
-                    let instance_count = self.frame.instance_count() as u32;
+                    let instance_count = self.frame.instance_count();
                     let batch_count = self.frame.batch_count() as u32;
                     self.perf.end_frame(instance_count, batch_count);
                     self.frame_number += 1;
@@ -1803,11 +1802,13 @@ impl ApplicationHandler<AppUserEvent> for App {
     ) {
         // When the cursor is grabbed, CursorMoved window events stop firing.
         // Raw device motion still arrives here, so forward it to the delegate.
-        if self.cursor_grabbed {
-            if let winit::event::DeviceEvent::MouseMotion { delta } = event {
-                self.delegate
-                    .on_mouse(MouseInputEvent::RawMotion { dx: delta.0, dy: delta.1 });
-            }
+        if self.cursor_grabbed
+            && let winit::event::DeviceEvent::MouseMotion { delta } = event
+        {
+            self.delegate.on_mouse(MouseInputEvent::RawMotion {
+                dx: delta.0,
+                dy: delta.1,
+            });
         }
     }
 
@@ -1867,9 +1868,7 @@ fn screenshot_path() -> std::path::PathBuf {
 
     let dir = std::env::var_os("XDG_PICTURES_DIR")
         .map(std::path::PathBuf::from)
-        .or_else(|| {
-            dirs_fallback().map(|home| home.join("Pictures"))
-        })
+        .or_else(|| dirs_fallback().map(|home| home.join("Pictures")))
         .unwrap_or_else(|| std::path::PathBuf::from("."));
 
     // Ensure the directory exists.
@@ -1920,7 +1919,9 @@ pub fn run(
     let proxy = event_loop.create_proxy();
     let mut app = App::new(config, delegate);
     app.event_proxy = Some(proxy.clone());
-    app.delegate.set_waker(Waker { proxy: proxy.clone() });
+    app.delegate.set_waker(Waker {
+        proxy: proxy.clone(),
+    });
 
     // Start portal bridge if feature is enabled.
     #[cfg(feature = "portals")]

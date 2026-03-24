@@ -18,9 +18,9 @@ pub struct ParticlePoolHandle(pub u32);
 #[repr(C)]
 struct GpuParticle {
     position: [f32; 3],
-    age: f32,       // 16B
+    age: f32, // 16B
     velocity: [f32; 3],
-    lifetime: f32,  // 16B
+    lifetime: f32,         // 16B
     color_start: [f32; 4], // 16B
     color_end: [f32; 4],   // 16B
 }
@@ -81,67 +81,66 @@ pub(crate) struct ParticlePool {
 
 impl ParticlePipeline {
     pub fn new(device: &wgpu::Device) -> Self {
-        let bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("esox_3d_particle_layout"),
-                entries: &[
-                    // binding 0: particle buffer (rw storage)
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: false },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
+        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("esox_3d_particle_layout"),
+            entries: &[
+                // binding 0: particle buffer (rw storage)
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: false },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
                     },
-                    // binding 1: instance output (rw storage)
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: false },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
+                    count: None,
+                },
+                // binding 1: instance output (rw storage)
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: false },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
                     },
-                    // binding 2: counters (rw storage)
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 2,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: false },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
+                    count: None,
+                },
+                // binding 2: counters (rw storage)
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: false },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
                     },
-                    // binding 3: emitter params (uniform)
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 3,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
+                    count: None,
+                },
+                // binding 3: emitter params (uniform)
+                wgpu::BindGroupLayoutEntry {
+                    binding: 3,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
                     },
-                    // binding 4: indirect args (rw storage)
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 4,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: false },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
+                    count: None,
+                },
+                // binding 4: indirect args (rw storage)
+                wgpu::BindGroupLayoutEntry {
+                    binding: 4,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: false },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
                     },
-                ],
-            });
+                    count: None,
+                },
+            ],
+        });
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("esox_3d_particle_pipeline_layout"),
@@ -154,25 +153,23 @@ impl ParticlePipeline {
             source: wgpu::ShaderSource::Wgsl(PARTICLE_SHADER.into()),
         });
 
-        let update_pipeline =
-            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some("esox_3d_particle_update"),
-                layout: Some(&pipeline_layout),
-                module: &shader,
-                entry_point: Some("update_main"),
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-                cache: None,
-            });
+        let update_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("esox_3d_particle_update"),
+            layout: Some(&pipeline_layout),
+            module: &shader,
+            entry_point: Some("update_main"),
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+            cache: None,
+        });
 
-        let finalize_pipeline =
-            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some("esox_3d_particle_finalize"),
-                layout: Some(&pipeline_layout),
-                module: &shader,
-                entry_point: Some("finalize_main"),
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-                cache: None,
-            });
+        let finalize_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("esox_3d_particle_finalize"),
+            layout: Some(&pipeline_layout),
+            module: &shader,
+            entry_point: Some("finalize_main"),
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+            cache: None,
+        });
 
         Self {
             update_pipeline,
@@ -203,22 +200,20 @@ impl ParticlePool {
         });
 
         // counters: [alive_count: u32, remaining_spawns: u32]
-        let counters_buffer =
-            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("esox_3d_particle_counters"),
-                contents: bytemuck::cast_slice(&[0u32, 0u32]),
-                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-            });
+        let counters_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("esox_3d_particle_counters"),
+            contents: bytemuck::cast_slice(&[0u32, 0u32]),
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        });
 
         // DrawIndexedIndirect: [index_count, instance_count, first_index, base_vertex, first_instance]
-        let indirect_args_buffer =
-            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("esox_3d_particle_indirect"),
-                contents: bytemuck::cast_slice(&[6u32, 0u32, 0u32, 0u32, 0u32]),
-                usage: wgpu::BufferUsages::INDIRECT
-                    | wgpu::BufferUsages::STORAGE
-                    | wgpu::BufferUsages::COPY_DST,
-            });
+        let indirect_args_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("esox_3d_particle_indirect"),
+            contents: bytemuck::cast_slice(&[6u32, 0u32, 0u32, 0u32, 0u32]),
+            usage: wgpu::BufferUsages::INDIRECT
+                | wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_DST,
+        });
 
         let emitter_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("esox_3d_particle_emitter"),
@@ -304,11 +299,8 @@ impl super::renderer::Renderer3D {
                     r.vertex_offset, // safe: vertex_offset fits in i32 range
                     0,
                 ];
-                gpu.queue.write_buffer(
-                    &pool.indirect_args_buffer,
-                    0,
-                    bytemuck::cast_slice(&args),
-                );
+                gpu.queue
+                    .write_buffer(&pool.indirect_args_buffer, 0, bytemuck::cast_slice(&args));
             }
         }
 
@@ -344,7 +336,8 @@ impl super::renderer::Renderer3D {
 
     /// Queue a particle pool for rendering with the given material.
     pub fn draw_particles(&mut self, pool: ParticlePoolHandle, material: MaterialHandle) {
-        self.particle_draw_cmds.push(ParticleDrawCmd { pool, material });
+        self.particle_draw_cmds
+            .push(ParticleDrawCmd { pool, material });
     }
 
     /// Run the compute pass for all active particle pools.

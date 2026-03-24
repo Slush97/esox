@@ -33,6 +33,11 @@ pub fn fnv1a_mix(seed: u64, val: u64) -> u64 {
 /// Chosen so collisions with any plausible widget ID string are negligible.
 pub const HOVER_SALT: u64 = 0x9e3779b97f4a7c15;
 
+/// XOR salt used to derive a distinct layout-tree key for the scroll content
+/// container, avoiding collision with the viewport leaf that shares the same
+/// user-provided widget ID.
+pub const SCROLL_CONTENT_SALT: u64 = 0x6a09e667f3bcc908;
+
 /// Compile-time widget ID from a string literal.
 /// `id!("my_widget")` → a `u64` constant, zero runtime cost.
 #[macro_export]
@@ -99,9 +104,20 @@ mod tests {
 
     #[test]
     fn hover_salt_produces_distinct_ids() {
-        let ids = [fnv1a("btn"), fnv1a("slider"), fnv1a("input"), 0, 1, u64::MAX];
+        let ids = [
+            fnv1a("btn"),
+            fnv1a("slider"),
+            fnv1a("input"),
+            0,
+            1,
+            u64::MAX,
+        ];
         for id in ids {
-            assert_ne!(id ^ HOVER_SALT, id, "HOVER_SALT should flip bits for id={id}");
+            assert_ne!(
+                id ^ HOVER_SALT,
+                id,
+                "HOVER_SALT should flip bits for id={id}"
+            );
         }
     }
 

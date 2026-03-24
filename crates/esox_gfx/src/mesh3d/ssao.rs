@@ -322,19 +322,17 @@ impl SsaoPass {
             source: wgpu::ShaderSource::Wgsl(SSAO_BLUR_SHADER.into()),
         });
 
-        let ssao_pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("esox_ssao_pipeline_layout"),
-                bind_group_layouts: &[&ssao_bind_group_layout],
-                immediate_size: 0,
-            });
+        let ssao_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("esox_ssao_pipeline_layout"),
+            bind_group_layouts: &[&ssao_bind_group_layout],
+            immediate_size: 0,
+        });
 
-        let blur_pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("esox_ssao_blur_pipeline_layout"),
-                bind_group_layouts: &[&blur_bind_group_layout],
-                immediate_size: 0,
-            });
+        let blur_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("esox_ssao_blur_pipeline_layout"),
+            bind_group_layouts: &[&blur_bind_group_layout],
+            immediate_size: 0,
+        });
 
         let ssao_pipeline = create_fullscreen_pipeline(
             device,
@@ -472,8 +470,7 @@ impl SsaoPass {
         self.occlusion_view = occ_view;
         self.occlusion_sample_view = occ_sample;
 
-        let (blur_tex, res_view, blur_sample) =
-            create_r8_texture(device, w, h, "esox_ssao_blur");
+        let (blur_tex, res_view, blur_sample) = create_r8_texture(device, w, h, "esox_ssao_blur");
         self.blur_texture = blur_tex;
         self.result_view = res_view;
         self.blur_sample_view = blur_sample;
