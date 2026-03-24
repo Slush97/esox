@@ -116,11 +116,9 @@ impl GpuContext {
             format,
             width: size.width.max(1),
             height: size.height.max(1),
-            present_mode: if caps.present_modes.contains(&wgpu::PresentMode::Mailbox) {
-                wgpu::PresentMode::Mailbox
-            } else {
-                wgpu::PresentMode::Fifo
-            },
+            // Fifo = vsync, matches display refresh rate, saves power.
+            // Mailbox is available as opt-in for latency-sensitive apps.
+            present_mode: wgpu::PresentMode::Fifo,
             desired_maximum_frame_latency: 1,
             alpha_mode: caps.alpha_modes[0],
             view_formats: vec![],
