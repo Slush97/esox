@@ -1,0 +1,52 @@
+[package]
+name = "esox_platform"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Platform integration: windowing, GPU surface, clipboard, and sandboxing"
+
+[dependencies]
+arboard = { workspace = true }
+esox_gfx = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+pollster = { workspace = true }
+wgpu = { workspace = true }
+esox_input = { workspace = true }
+winit = { workspace = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = "0.2"
+seccompiler = { version = "0.4", optional = true }
+landlock = { version = "0.4", optional = true }
+
+[dependencies.zbus]
+workspace = true
+optional = true
+
+[dependencies.tokio]
+workspace = true
+optional = true
+
+[dependencies.esox_ui]
+workspace = true
+optional = true
+
+[dependencies.serde]
+workspace = true
+optional = true
+
+[dependencies.toml]
+version = "0.8"
+optional = true
+
+[dependencies.ashpd]
+version = "0.10"
+optional = true
+
+[features]
+default = []
+sandbox = ["seccompiler", "landlock"]
+a11y = ["zbus", "tokio", "esox_ui"]
+settings = ["serde", "toml"]
+portals = ["ashpd", "tokio"]

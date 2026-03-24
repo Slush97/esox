@@ -1,0 +1,36 @@
+//! Widget implementations as methods on `Ui`.
+
+pub mod button;
+pub mod checkbox;
+pub mod drop_zone;
+pub mod image;
+pub mod label;
+pub mod modal;
+pub mod select;
+pub mod separator;
+pub mod slider;
+pub mod progress_bar;
+pub mod radio;
+pub mod scrollable;
+pub mod table;
+pub mod tabs;
+pub mod text_area;
+pub mod text_input;
+pub mod toast;
+pub mod toggle;
+pub mod tree;
+pub mod virtual_scroll;
+pub mod spinner;
+pub mod hyperlink;
+pub mod collapsing;
+pub mod container;
+pub mod form;
+pub mod menu_bar;
+pub mod chip;
+pub mod badge;
+pub mod empty_state;
+pub mod status_bar;
+pub mod number_input;
+pub mod split_pane;
+pub mod combobox;
+pub mod paragraph;

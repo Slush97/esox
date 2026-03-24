@@ -1,0 +1,71 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/esox_gfx",
+    "crates/esox_font",
+    "crates/esox_input",
+    "crates/esox_ui",
+    "crates/esox_platform",
+    "examples/demo",
+    "examples/layout_showcase",
+    "examples/material_showcase",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+
+[workspace.dependencies]
+# Internal crates
+esox_gfx = { path = "crates/esox_gfx" }
+esox_font = { path = "crates/esox_font" }
+esox_ui = { path = "crates/esox_ui" }
+esox_platform = { path = "crates/esox_platform" }
+esox_input = { path = "crates/esox_input" }
+
+# GPU / rendering
+wgpu = { version = "28.0", default-features = false, features = ["vulkan", "wgsl"] }
+naga = "28.0"
+bytemuck = { version = "1", features = ["derive"] }
+raw-window-handle = "0.6"
+
+# Windowing
+winit = { version = "0.30", default-features = false, features = ["rwh_06", "x11", "wayland", "wayland-dlopen"] }
+
+# Text
+rustybuzz = "0.20"
+swash = "0.2"
+
+# Platform
+arboard = { version = "3", features = ["wayland-data-control"] }
+pollster = "0.4"
+
+# Accessibility
+zbus = { version = "5", default-features = false, features = ["tokio"] }
+tokio = { version = "1", features = ["rt", "sync", "macros"] }
+
+# Image
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+
+# 3D asset loading (optional, for esox_gfx mesh3d feature)
+gltf = "1"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+
+# Utilities
+thiserror = "2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Compile dependencies with optimizations in debug builds
+[profile.dev.package."*"]
+opt-level = 2
+
+[profile.release]
+overflow-checks = true
+lto = true
+strip = true
+codegen-units = 1
+opt-level = "s"
