@@ -338,7 +338,14 @@ impl<'f> Ui<'f> {
         }
 
         // Move the solved layout tree from last frame into prev_layout.
-        let prev_layout = state.layout_cache.take();
+        // TODO: prev_layout is currently disabled — solved positions from the
+        // previous frame cause widgets inside scroll containers to render at
+        // wrong absolute positions, producing blank content.  With this disabled,
+        // all widgets use cursor-based fallback positioning every frame, which is
+        // correct but slightly less efficient.  Re-enable once the layout cache
+        // accounts for scroll offsets.
+        let _prev_layout_unused = state.layout_cache.take();
+        let prev_layout = None;
 
         let mut tree_build = TreeBuildContext::new();
         tree_build.open_container(Some(u64::MAX), LayoutStyle {

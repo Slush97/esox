@@ -586,12 +586,40 @@ impl ShapeBuilder {
             }
             None => self.bit_flags,
         };
+
+        // Expand the quad by AA_PAD pixels on each side for SDF shapes with
+        // border radius so the anti-aliasing smoothstep has room to fade out.
+        // The padding value is passed in sdf_params[0] for SHAPE_RECT so the
+        // fragment shader can subtract it from half_size.
+        const AA_PAD: f32 = 1.5;
+        let has_border_radius = self.border_radius[0] > 0.0
+            || self.border_radius[1] > 0.0
+            || self.border_radius[2] > 0.0
+            || self.border_radius[3] > 0.0;
+        let needs_sdf_padding = matches!(self.shape_type, ShapeType::Rect) && has_border_radius;
+
+        let (rect, sdf_params) = if needs_sdf_padding {
+            let mut params = self.sdf_params;
+            params[0] = AA_PAD;
+            (
+                [
+                    self.rect[0] - AA_PAD,
+                    self.rect[1] - AA_PAD,
+                    self.rect[2] + AA_PAD * 2.0,
+                    self.rect[3] + AA_PAD * 2.0,
+                ],
+                params,
+            )
+        } else {
+            (self.rect, self.sdf_params)
+        };
+
         QuadInstance {
-            rect: self.rect,
+            rect,
             uv: self.uv,
             color: self.color,
             border_radius: self.border_radius,
-            sdf_params: self.sdf_params,
+            sdf_params,
             flags: [
                 self.shape_type.to_f32(),
                 self.stroke_width,

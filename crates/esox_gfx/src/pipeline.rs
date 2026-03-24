@@ -2145,7 +2145,10 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     var d: f32 = 0.0;
 
     if shape_type == SHAPE_RECT {
-        d = sdf_rounded_rect(p, half_size, in.border_radius);
+        // sdf_params.x carries the AA padding added by ShapeBuilder.
+        // Subtract it from half_size so the SDF matches the original rect.
+        let aa_pad = in.sdf_params.x;
+        d = sdf_rounded_rect(p, half_size - vec2<f32>(aa_pad), in.border_radius);
     } else if shape_type == SHAPE_CIRCLE {
         d = sdf_circle(p, in.sdf_params.x);
     } else if shape_type == SHAPE_ELLIPSE {
@@ -2209,7 +2212,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
         var shadow_d = d;
         if shape_type == SHAPE_RECT {
-            shadow_d = sdf_rounded_rect(shadow_p, half_size, in.border_radius);
+            let aa_pad_s = in.sdf_params.x;
+            shadow_d = sdf_rounded_rect(shadow_p, half_size - vec2<f32>(aa_pad_s), in.border_radius);
         } else if shape_type == SHAPE_CIRCLE {
             shadow_d = sdf_circle(shadow_p, in.sdf_params.x);
         } else if shape_type == SHAPE_ELLIPSE {
