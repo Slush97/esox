@@ -1,6 +1,8 @@
-//! Rich text — multi-span text with color, bold, and size variations.
+//! Rich text — multi-span text with color, bold, size, and weight variations.
 
 use esox_gfx::Color;
+
+pub use esox_font::FontWeight;
 
 /// A single span of styled text.
 #[derive(Debug, Clone, Copy)]
@@ -9,6 +11,9 @@ pub struct Span<'a> {
     pub color: Option<Color>,
     pub bold: bool,
     pub size: Option<f32>,
+    pub letter_spacing: Option<f32>,
+    /// Font weight override. When `Some`, takes precedence over `bold`.
+    pub weight: Option<FontWeight>,
 }
 
 /// Builder for multi-span rich text.
@@ -29,6 +34,8 @@ impl<'a> RichText<'a> {
             color: None,
             bold: false,
             size: None,
+            letter_spacing: None,
+            weight: None,
         });
         self
     }
@@ -40,6 +47,8 @@ impl<'a> RichText<'a> {
             color: None,
             bold: true,
             size: None,
+            letter_spacing: None,
+            weight: None,
         });
         self
     }
@@ -51,6 +60,8 @@ impl<'a> RichText<'a> {
             color: Some(color),
             bold: false,
             size: None,
+            letter_spacing: None,
+            weight: None,
         });
         self
     }
@@ -62,6 +73,8 @@ impl<'a> RichText<'a> {
             color: Some(color),
             bold: true,
             size: None,
+            letter_spacing: None,
+            weight: None,
         });
         self
     }
@@ -73,6 +86,73 @@ impl<'a> RichText<'a> {
             color: None,
             bold: false,
             size: Some(size),
+            letter_spacing: None,
+            weight: None,
+        });
+        self
+    }
+
+    /// Add a span with custom letter spacing.
+    pub fn spaced(mut self, text: &'a str, spacing: f32) -> Self {
+        self.spans.push(Span {
+            text,
+            color: None,
+            bold: false,
+            size: None,
+            letter_spacing: Some(spacing),
+            weight: None,
+        });
+        self
+    }
+
+    /// Add a light-weight text span.
+    pub fn light(mut self, text: &'a str) -> Self {
+        self.spans.push(Span {
+            text,
+            color: None,
+            bold: false,
+            size: None,
+            letter_spacing: None,
+            weight: Some(FontWeight::Light),
+        });
+        self
+    }
+
+    /// Add a medium-weight text span.
+    pub fn medium(mut self, text: &'a str) -> Self {
+        self.spans.push(Span {
+            text,
+            color: None,
+            bold: false,
+            size: None,
+            letter_spacing: None,
+            weight: Some(FontWeight::Medium),
+        });
+        self
+    }
+
+    /// Add a semi-bold text span.
+    pub fn semibold(mut self, text: &'a str) -> Self {
+        self.spans.push(Span {
+            text,
+            color: None,
+            bold: false,
+            size: None,
+            letter_spacing: None,
+            weight: Some(FontWeight::SemiBold),
+        });
+        self
+    }
+
+    /// Add an extra-bold text span.
+    pub fn extrabold(mut self, text: &'a str) -> Self {
+        self.spans.push(Span {
+            text,
+            color: None,
+            bold: false,
+            size: None,
+            letter_spacing: None,
+            weight: Some(FontWeight::ExtraBold),
         });
         self
     }
@@ -143,6 +223,8 @@ mod tests {
             color: Some(Color::new(0.0, 1.0, 0.0, 1.0)),
             bold: true,
             size: Some(32.0),
+            letter_spacing: None,
+            weight: None,
         };
         let rt = RichText::new().push(custom);
         assert_eq!(rt.spans.len(), 1);

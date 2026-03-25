@@ -50,6 +50,7 @@ pub use id::{fnv1a_mix, fnv1a_runtime, HOVER_SALT};
 pub use layout::{Align, Constraints, FlexItem, FlexWrap, Justify, Rect, Spacing};
 pub use paint::lerp_color;
 pub use response::Response;
+pub use rich_text::FontWeight;
 pub use rich_text::{RichText, Span};
 pub use state::{
     A11yNode, A11yRole, A11yTree, ClipboardProvider, DragPayload, DropZoneState, Easing, ImeState,
@@ -57,10 +58,13 @@ pub use state::{
     ToastQueue, TooltipState, TreeState, UiState, VirtualScrollState, WidgetKind,
 };
 pub use text::{TextRenderer, TruncationMode};
-pub use theme::{StyleState, TextSize, Theme, ThemeBuilder, ThemeTransition, WidgetStyle};
+pub use theme::{
+    Elevation, StyleState, TextSize, Theme, ThemeBuilder, ThemeTransition, WidgetStyle,
+};
 pub use widgets::form::FieldStatus;
 pub use widgets::image::{ImageCache, ImageHandle};
 pub use widgets::menu_bar::{Menu, MenuEntry, MenuItem};
+pub use widgets::pagination::PaginationState;
 pub use widgets::table::{ColumnWidth, TableColumn};
 pub use widgets::tree::TreeNodeResponse;
 
@@ -530,6 +534,54 @@ impl<'f> Ui<'f> {
         self.tree_build.close_container();
     }
 
+    /// Run a closure in a horizontal row, then vertically center all children.
+    ///
+    /// Uses a two-pass approach: renders children top-aligned, then shifts
+    /// the entire content block down so it is vertically centered within the
+    /// tallest child's height.
+    pub fn row_centered(&mut self, f: impl FnOnce(&mut Self)) {
+        let inst_start = self.frame.instance_len();
+
+        self.tree_build.open_container(
+            None,
+            LayoutStyle {
+                direction: Direction::Horizontal,
+                gap: self.spacing,
+                ..Default::default()
+            },
+        );
+        let ctx = LayoutContext {
+            direction: Direction::Horizontal,
+            origin: self.cursor,
+            region: self.region,
+            saved_cursor: self.cursor,
+            spacing: self.spacing,
+            max_cross: 0.0,
+            clip_rect: None,
+        };
+        self.layout_stack.push(ctx);
+        f(self);
+        let ctx = self.layout_stack.pop().unwrap();
+        let max_cross = ctx.max_cross;
+        self.cursor.x = ctx.saved_cursor.x;
+        self.cursor.y = ctx.saved_cursor.y + max_cross + self.spacing;
+        self.tree_build.close_container();
+
+        // Vertically center each instance within max_cross.
+        // Instances shorter than max_cross get shifted down by half the
+        // difference; instances at full height stay in place.
+        let inst_end = self.frame.instance_len();
+        if max_cross > 0.0 {
+            for i in inst_start..inst_end {
+                let h = self.frame.instance_data()[i].rect[3];
+                if h > 0.0 && h < max_cross {
+                    let dy = (max_cross - h) / 2.0;
+                    self.frame.offset_instances_y(i, i + 1, dy);
+                }
+            }
+        }
+    }
+
     /// Set spacing between subsequent widgets.
     pub fn spacing(&mut self, amount: f32) {
         self.spacing = amount;
@@ -538,6 +590,11 @@ impl<'f> Ui<'f> {
     /// Add extra vertical space.
     pub fn add_space(&mut self, amount: f32) {
         self.cursor.y += amount;
+    }
+
+    /// Add a section-level gap. Use between major page areas.
+    pub fn section_break(&mut self) {
+        self.cursor.y += self.theme.section_gap;
     }
 
     /// Run a closure within a max-width container, centered horizontally.
@@ -883,6 +940,9 @@ impl<'f> Ui<'f> {
         let saved_cursor_x = self.cursor.x;
         let saved_region = self.region;
 
+        let guide_x = self.cursor.x + indent / 2.0;
+        let guide_start_y = self.cursor.y;
+
         self.cursor.x += indent;
         self.region = Rect::new(
             self.cursor.x,
@@ -892,6 +952,18 @@ impl<'f> Ui<'f> {
         );
 
         f(self);
+
+        // Draw vertical guide line spanning the children.
+        let guide_h = self.cursor.y - guide_start_y;
+        if guide_h > 0.0 {
+            paint::draw_vline(
+                self.frame,
+                guide_x,
+                guide_start_y,
+                guide_h,
+                self.theme.border,
+            );
+        }
 
         self.cursor.x = saved_cursor_x;
         self.region = saved_region;
@@ -961,10 +1033,19 @@ impl<'f> Ui<'f> {
                 .set_active_clip(Some([saved_cursor_x, start_y, saved_region.w, clip_h]));
         }
 
+        let guide_x = saved_cursor_x + indent / 2.0;
+
         f(self);
 
         let children_h = self.cursor.y - start_y;
         self.state.tree_children_heights.insert(anim_id, children_h);
+
+        // Draw vertical guide line spanning the children (inside clip rect).
+        let guide_h = self.cursor.y - start_y;
+        if guide_h > 0.0 {
+            let border_color = self.theme.border;
+            paint::draw_vline(self.frame, guide_x, start_y, guide_h, border_color);
+        }
 
         // Restore clip.
         self.frame.set_active_clip(saved_clip);
@@ -1095,6 +1176,7 @@ impl<'f> Ui<'f> {
                 clicked: false,
                 right_clicked: false,
                 hovered: false,
+                pressed: false,
                 focused: false,
                 changed: false,
                 disabled: true,
@@ -1111,6 +1193,7 @@ impl<'f> Ui<'f> {
                         clicked: false,
                         right_clicked: false,
                         hovered: false,
+                        pressed: false,
                         focused: self.state.focused == Some(id),
                         changed: false,
                         disabled: false,
@@ -1169,10 +1252,13 @@ impl<'f> Ui<'f> {
             }
         }
 
+        let pressed = hovered && self.state.mouse_pressed;
+
         response::Response {
             clicked,
             right_clicked,
             hovered,
+            pressed,
             focused,
             changed: false,
             disabled: false,
@@ -1414,16 +1500,14 @@ impl<'f> Ui<'f> {
 
         let tt_rect = Rect::new(tx, ty, tooltip_w, tooltip_h);
 
-        // Shadow.
-        paint::draw_rounded_rect(
+        // Background + elevation shadow.
+        paint::draw_elevated_rect(
             self.frame,
-            Rect::new(tx + 1.0, ty + 1.0, tooltip_w, tooltip_h),
-            self.theme.shadow,
+            tt_rect,
+            self.theme.tooltip_bg,
             4.0,
+            &self.theme.elevation_medium,
         );
-
-        // Background.
-        paint::draw_rounded_rect(self.frame, tt_rect, self.theme.tooltip_bg, 4.0);
 
         // Text.
         self.text.draw_text(
@@ -1712,8 +1796,7 @@ impl<'f> Ui<'f> {
     /// scroll, overlay) since the last frame. When this returns `false`,
     /// the platform layer can skip GPU submission to save power.
     pub fn needs_redraw(&self) -> bool {
-        self.state.damage.is_full_invalidation()
-            || self.state.damage.regions().is_some_and(|r| !r.is_empty())
+        self.state.needs_redraw()
     }
 
     // ── Context Menu ──

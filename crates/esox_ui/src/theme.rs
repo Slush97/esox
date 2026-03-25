@@ -6,6 +6,48 @@ use esox_gfx::Color;
 
 use crate::paint::lerp_color;
 
+/// Shadow parameters for a single elevation level.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Elevation {
+    /// Gaussian blur radius in pixels.
+    pub blur: f32,
+    /// Horizontal shadow offset in pixels.
+    pub dx: f32,
+    /// Vertical shadow offset in pixels (positive = downward).
+    pub dy: f32,
+    /// Shadow color (typically semi-transparent black).
+    pub color: Color,
+}
+
+impl Elevation {
+    pub const NONE: Self = Self {
+        blur: 0.0,
+        dx: 0.0,
+        dy: 0.0,
+        color: Color::TRANSPARENT,
+    };
+}
+
+/// Linearly interpolate between two elevation levels.
+fn lerp_elevation(a: &Elevation, b: &Elevation, t: f32) -> Elevation {
+    Elevation {
+        blur: a.blur + (b.blur - a.blur) * t,
+        dx: a.dx + (b.dx - a.dx) * t,
+        dy: a.dy + (b.dy - a.dy) * t,
+        color: lerp_color(a.color, b.color, t),
+    }
+}
+
+/// Scale an elevation's dimensional fields by a DPI factor.
+fn scale_elevation(e: Elevation, factor: f32) -> Elevation {
+    Elevation {
+        blur: e.blur * factor,
+        dx: e.dx * factor,
+        dy: e.dy * factor,
+        color: e.color,
+    }
+}
+
 /// Semantic text size.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum TextSize {
@@ -132,6 +174,8 @@ pub struct Theme {
     pub scrollbar_min_thumb: f32,
     pub scroll_speed: f32,
     pub scroll_friction: f32,
+    /// Height of gradient fade at scroll edges (0 to disable).
+    pub scroll_fade_height: f32,
 
     // Tabs.
     pub tab_indicator_height: f32,
@@ -179,6 +223,10 @@ pub struct Theme {
 
     // Text layout.
     pub line_spacing: f32,
+    /// Extra horizontal space between glyphs (default 0.0).
+    pub letter_spacing: f32,
+    /// Letter spacing for section/header labels (default 1.5).
+    pub header_letter_spacing: f32,
 
     // Responsive breakpoints.
     pub breakpoint_compact: f32,
@@ -204,6 +252,13 @@ pub struct Theme {
     // Uniform hover animation speed.
     pub hover_duration_ms: f32,
 
+    // Press feedback.
+    pub press_duration_ms: f32,
+    pub press_darken: f32,
+
+    // Focus ring.
+    pub focus_ring_color: Color,
+
     // Widget sizes.
     pub checkbox_size: f32,
     pub radio_size: f32,
@@ -214,6 +269,21 @@ pub struct Theme {
     pub badge_pad_y: f32,
     pub chip_pad_y: f32,
 
+    /// Base spacing unit (default: 4.0). Layout spacing values should be multiples of this.
+    pub spacing_unit: f32,
+
+    /// Tight spacing between elements inside a container (default: 8.0).
+    /// Used inside cards/surfaces between labels, buttons, form fields.
+    pub content_spacing: f32,
+
+    /// Gap between sibling cards/surfaces (default: 16.0).
+    /// Applied automatically after card() and surface().
+    pub card_gap: f32,
+
+    /// Gap between major page sections (default: 24.0).
+    /// Used by section() and section_break().
+    pub section_gap: f32,
+
     // Modal layout.
     pub modal_max_height_ratio: f32,
     pub modal_shadow_alpha: f32,
@@ -223,6 +293,11 @@ pub struct Theme {
 
     // Semantic colors.
     pub fg_on_accent: Color,
+
+    // Elevation shadows.
+    pub elevation_low: Elevation,
+    pub elevation_medium: Elevation,
+    pub elevation_high: Elevation,
 }
 
 impl Theme {
@@ -244,6 +319,7 @@ impl Theme {
             accent: Color::new(0.306, 0.533, 0.957, 1.0), // #4e88f4
             accent_dim: Color::new(0.306, 0.533, 0.957, 0.18),
             accent_hover: Color::new(0.431, 0.627, 0.973, 1.0), // #6ea0f8
+            focus_ring_color: Color::new(0.306, 0.533, 0.957, 0.50),
 
             green: Color::new(0.243, 0.812, 0.416, 1.0), // #3ecf6a
             amber: Color::new(0.961, 0.737, 0.133, 1.0), // #f5bc22
@@ -274,6 +350,25 @@ impl Theme {
             toast_info_bg: Color::new(0.106, 0.165, 0.310, 1.0), // dark blue
             toast_warning_bg: Color::new(0.310, 0.240, 0.078, 1.0), // dark amber
 
+            elevation_low: Elevation {
+                blur: 4.0,
+                dx: 0.0,
+                dy: 2.0,
+                color: Color::new(0.0, 0.0, 0.0, 0.35),
+            },
+            elevation_medium: Elevation {
+                blur: 12.0,
+                dx: 0.0,
+                dy: 4.0,
+                color: Color::new(0.0, 0.0, 0.0, 0.50),
+            },
+            elevation_high: Elevation {
+                blur: 24.0,
+                dx: 0.0,
+                dy: 8.0,
+                color: Color::new(0.0, 0.0, 0.0, 0.60),
+            },
+
             ..Self::layout_defaults()
         }
     }
@@ -287,13 +382,14 @@ impl Theme {
             bg_input: Color::new(1.000, 1.000, 1.000, 1.0), // #ffffff inputs
 
             fg: Color::new(0.067, 0.067, 0.094, 1.0), // #111118
-            fg_muted: Color::new(0.376, 0.376, 0.420, 1.0), // #60606b
-            fg_dim: Color::new(0.565, 0.565, 0.627, 1.0), // #9090a0
+            fg_muted: Color::new(0.290, 0.290, 0.337, 1.0), // #4a4a56
+            fg_dim: Color::new(0.345, 0.345, 0.380, 1.0), // #585861 — 6.7:1 on white
             fg_label: Color::new(0.220, 0.220, 0.271, 1.0), // #383845
 
             accent: Color::new(0.200, 0.471, 0.941, 1.0), // #3378f0
             accent_dim: Color::new(0.200, 0.471, 0.941, 0.15),
             accent_hover: Color::new(0.376, 0.557, 0.961, 1.0), // #608ef5
+            focus_ring_color: Color::new(0.200, 0.471, 0.941, 0.50),
 
             green: Color::new(0.094, 0.631, 0.247, 1.0), // #18a13f
             amber: Color::new(0.737, 0.482, 0.020, 1.0), // #bc7b05
@@ -324,6 +420,25 @@ impl Theme {
             toast_info_bg: Color::new(0.886, 0.918, 0.996, 1.0), // light blue
             toast_warning_bg: Color::new(0.996, 0.957, 0.886, 1.0), // light amber
 
+            elevation_low: Elevation {
+                blur: 6.0,
+                dx: 0.0,
+                dy: 2.0,
+                color: Color::new(0.0, 0.0, 0.0, 0.12),
+            },
+            elevation_medium: Elevation {
+                blur: 12.0,
+                dx: 0.0,
+                dy: 4.0,
+                color: Color::new(0.0, 0.0, 0.0, 0.18),
+            },
+            elevation_high: Elevation {
+                blur: 24.0,
+                dx: 0.0,
+                dy: 8.0,
+                color: Color::new(0.0, 0.0, 0.0, 0.28),
+            },
+
             ..Self::layout_defaults()
         }
     }
@@ -351,6 +466,7 @@ impl Theme {
             accent: yellow,
             accent_dim: Color::new(1.0, 1.0, 0.0, 0.3),
             accent_hover: cyan,
+            focus_ring_color: Color::new(1.0, 1.0, 0.0, 0.70),
 
             green,
             amber: yellow,
@@ -388,9 +504,9 @@ impl Theme {
             text_xs: 12.0,
             text_sm: 14.0,
             text_base: 16.0,
-            text_lg: 18.0,
+            text_lg: 19.0,
             text_xl: 22.0,
-            text_2xl: 24.0,
+            text_2xl: 28.0,
             button_height: 40.0,
             item_height: 36.0,
             corner_radius: 2.0,
@@ -435,6 +551,7 @@ impl Theme {
         t.scrollbar_min_thumb *= factor;
         t.scroll_speed *= factor;
         // scroll_friction is a ratio, not a size — don't scale it.
+        t.scroll_fade_height *= factor;
         t.tab_indicator_height *= factor;
         t.table_header_height *= factor;
         t.column_resize_handle_width *= factor;
@@ -457,6 +574,8 @@ impl Theme {
         t.text_xl *= factor;
         t.text_2xl *= factor;
         t.line_spacing *= factor;
+        t.letter_spacing *= factor;
+        t.header_letter_spacing *= factor;
         t.breakpoint_compact *= factor;
         t.breakpoint_expanded *= factor;
         t.form_label_gap *= factor;
@@ -473,9 +592,16 @@ impl Theme {
         t.badge_pad_x *= factor;
         t.badge_pad_y *= factor;
         t.chip_pad_y *= factor;
+        t.spacing_unit *= factor;
+        t.content_spacing *= factor;
+        t.card_gap *= factor;
+        t.section_gap *= factor;
         t.modal_margin *= factor;
         t.modal_close_btn_size *= factor;
         // hover_duration_ms, modal_max_height_ratio, modal_shadow_alpha, modal_vertical_offset are ratios — don't scale.
+        t.elevation_low = scale_elevation(t.elevation_low, factor);
+        t.elevation_medium = scale_elevation(t.elevation_medium, factor);
+        t.elevation_high = scale_elevation(t.elevation_high, factor);
         t
     }
 
@@ -560,6 +686,7 @@ impl Theme {
             scrollbar_min_thumb: snap.scrollbar_min_thumb,
             scroll_speed: snap.scroll_speed,
             scroll_friction: snap.scroll_friction,
+            scroll_fade_height: snap.scroll_fade_height,
             tab_indicator_height: snap.tab_indicator_height,
             tab_fade_duration_ms: snap.tab_fade_duration_ms,
             table_header_height: snap.table_header_height,
@@ -587,6 +714,8 @@ impl Theme {
             text_xl: snap.text_xl,
             text_2xl: snap.text_2xl,
             line_spacing: snap.line_spacing,
+            letter_spacing: snap.letter_spacing,
+            header_letter_spacing: snap.header_letter_spacing,
             breakpoint_compact: snap.breakpoint_compact,
             breakpoint_expanded: snap.breakpoint_expanded,
             form_label_gap: snap.form_label_gap,
@@ -599,6 +728,9 @@ impl Theme {
             disabled_dash_gap: snap.disabled_dash_gap,
             disabled_dash_thickness: snap.disabled_dash_thickness,
             hover_duration_ms: snap.hover_duration_ms,
+            press_duration_ms: snap.press_duration_ms,
+            press_darken: snap.press_darken,
+            focus_ring_color: lerp_color(a.focus_ring_color, b.focus_ring_color, t),
             checkbox_size: snap.checkbox_size,
             radio_size: snap.radio_size,
             radio_dot_size: snap.radio_dot_size,
@@ -607,12 +739,20 @@ impl Theme {
             badge_pad_x: snap.badge_pad_x,
             badge_pad_y: snap.badge_pad_y,
             chip_pad_y: snap.chip_pad_y,
+            spacing_unit: snap.spacing_unit,
+            content_spacing: snap.content_spacing,
+            card_gap: snap.card_gap,
+            section_gap: snap.section_gap,
             modal_max_height_ratio: snap.modal_max_height_ratio,
             modal_shadow_alpha: snap.modal_shadow_alpha,
             modal_margin: snap.modal_margin,
             modal_close_btn_size: snap.modal_close_btn_size,
             modal_vertical_offset: snap.modal_vertical_offset,
             fg_on_accent: lerp_color(a.fg_on_accent, b.fg_on_accent, t),
+
+            elevation_low: lerp_elevation(&a.elevation_low, &b.elevation_low, t),
+            elevation_medium: lerp_elevation(&a.elevation_medium, &b.elevation_medium, t),
+            elevation_high: lerp_elevation(&a.elevation_high, &b.elevation_high, t),
         }
     }
 
@@ -640,6 +780,37 @@ impl Theme {
             StyleState::Active => darken(base, 0.03),
             StyleState::Disabled => desaturate(base, 0.6),
         }
+    }
+
+    /// Check key foreground/background pairings for WCAG AA compliance.
+    ///
+    /// Returns a list of warnings for pairs that fail the 4.5:1 contrast
+    /// requirement for normal-sized text. Disabled colors are excluded
+    /// (WCAG exempts disabled controls).
+    #[cfg(debug_assertions)]
+    pub fn audit_contrast(&self) -> Vec<String> {
+        let pairs: &[(&str, Color, Color)] = &[
+            ("fg on bg_base", self.fg, self.bg_base),
+            ("fg on bg_surface", self.fg, self.bg_surface),
+            ("fg_muted on bg_base", self.fg_muted, self.bg_base),
+            ("fg_muted on bg_surface", self.fg_muted, self.bg_surface),
+            ("fg_dim on bg_base", self.fg_dim, self.bg_base),
+            ("fg_dim on bg_input", self.fg_dim, self.bg_input),
+            ("fg_label on bg_base", self.fg_label, self.bg_base),
+            ("fg_label on bg_surface", self.fg_label, self.bg_surface),
+            ("fg_on_accent on accent", self.fg_on_accent, self.accent),
+            ("tooltip_fg on tooltip_bg", self.tooltip_fg, self.tooltip_bg),
+        ];
+        let mut warnings = Vec::new();
+        for &(name, fg, bg) in pairs {
+            let ratio = fg.contrast_ratio(bg);
+            if ratio < 4.5 {
+                warnings.push(format!(
+                    "{name}: contrast {ratio:.1}:1 fails WCAG AA (need 4.5:1)"
+                ));
+            }
+        }
+        warnings
     }
 
     /// Resolve a `TextSize` to a concrete pixel value.
@@ -693,7 +864,7 @@ impl Theme {
             button_height: 36.0,
             small_button_height: 28.0,
             small_button_min_w: 80.0,
-            focus_ring_expand: 2.0,
+            focus_ring_expand: 1.0,
             dropdown_gap: 2.0,
             label_pad_y: 4.0,
             heading_font_size: 20.0,
@@ -702,7 +873,7 @@ impl Theme {
             drop_zone_dash: 8.0,
             drop_zone_dash_gap: 6.0,
             drop_zone_dash_thickness: 1.5,
-            progress_bar_height: 3.0,
+            progress_bar_height: 4.0,
             status_dot_radius: 4.0,
             toast_w: 300.0,
             toast_h: 36.0,
@@ -713,7 +884,7 @@ impl Theme {
 
             tooltip_delay_ms: 500,
             tooltip_font_size: 12.0,
-            tooltip_padding: 6.0,
+            tooltip_padding: 8.0,
             tooltip_bg: Color::new(0.0, 0.0, 0.0, 1.0),
             tooltip_fg: Color::new(0.0, 0.0, 0.0, 1.0),
 
@@ -723,6 +894,7 @@ impl Theme {
             scrollbar_min_thumb: 20.0,
             scroll_speed: 40.0,
             scroll_friction: 0.92,
+            scroll_fade_height: 16.0,
 
             tab_indicator_height: 2.0,
             tab_fade_duration_ms: 150.0,
@@ -732,7 +904,7 @@ impl Theme {
             column_resize_handle_width: 6.0,
             column_resize_min_width: 40.0,
 
-            tree_indent: 20.0,
+            tree_indent: 24.0,
             tree_expand_duration_ms: 200.0,
 
             toggle_width: 36.0,
@@ -756,17 +928,19 @@ impl Theme {
             text_xs: 10.0,
             text_sm: 12.0,
             text_base: 14.0,
-            text_lg: 16.0,
+            text_lg: 17.0,
             text_xl: 20.0,
-            text_2xl: 28.0,
+            text_2xl: 24.0,
 
             line_spacing: 2.0,
+            letter_spacing: 0.0,
+            header_letter_spacing: 1.5,
 
             breakpoint_compact: 600.0,
             breakpoint_expanded: 1200.0,
 
             form_label_gap: 4.0,
-            form_helper_gap: 2.0,
+            form_helper_gap: 4.0,
             form_helper_font_size: 12.0,
 
             toast_info_bg: Color::new(0.0, 0.0, 0.0, 1.0),
@@ -780,15 +954,22 @@ impl Theme {
             disabled_dash_thickness: 1.0,
 
             hover_duration_ms: 100.0,
+            press_duration_ms: 60.0,
+            press_darken: 0.10,
+            focus_ring_color: Color::new(0.0, 0.0, 0.0, 0.0),
 
             checkbox_size: 16.0,
             radio_size: 16.0,
             radio_dot_size: 6.0,
             slider_track_height: 4.0,
             split_pane_divider: 5.0,
-            badge_pad_x: 6.0,
-            badge_pad_y: 2.0,
+            badge_pad_x: 8.0,
+            badge_pad_y: 4.0,
             chip_pad_y: 4.0,
+            spacing_unit: 4.0,
+            content_spacing: 8.0,
+            card_gap: 16.0,
+            section_gap: 24.0,
 
             modal_max_height_ratio: 0.8,
             modal_shadow_alpha: 0.3,
@@ -797,6 +978,10 @@ impl Theme {
             modal_vertical_offset: 0.15,
 
             fg_on_accent: Color::new(1.0, 1.0, 1.0, 1.0),
+
+            elevation_low: Elevation::NONE,
+            elevation_medium: Elevation::NONE,
+            elevation_high: Elevation::NONE,
         }
     }
 }
@@ -895,6 +1080,18 @@ impl ThemeBuilder {
         self.base.padding = p;
         self
     }
+    pub fn content_spacing(mut self, v: f32) -> Self {
+        self.base.content_spacing = v;
+        self
+    }
+    pub fn card_gap(mut self, v: f32) -> Self {
+        self.base.card_gap = v;
+        self
+    }
+    pub fn section_gap(mut self, v: f32) -> Self {
+        self.base.section_gap = v;
+        self
+    }
 
     /// Derive accent, accent_dim, and accent_hover from an HSL hue (0-360 degrees).
     pub fn accent_from_hue(mut self, hue_deg: f32) -> Self {
@@ -903,6 +1100,23 @@ impl ThemeBuilder {
         self.base.accent_dim = Color::new(r, g, b, 0.18);
         let (rh, gh, bh) = hsl_to_rgb(hue_deg, 0.75, 0.72);
         self.base.accent_hover = Color::new(rh, gh, bh, 1.0);
+        self
+    }
+
+    pub fn focus_ring_color(mut self, c: Color) -> Self {
+        self.base.focus_ring_color = c;
+        self
+    }
+    pub fn elevation_low(mut self, e: Elevation) -> Self {
+        self.base.elevation_low = e;
+        self
+    }
+    pub fn elevation_medium(mut self, e: Elevation) -> Self {
+        self.base.elevation_medium = e;
+        self
+    }
+    pub fn elevation_high(mut self, e: Elevation) -> Self {
+        self.base.elevation_high = e;
         self
     }
 

@@ -119,7 +119,8 @@ impl<'f> Ui<'f> {
             text,
             rect.x,
             rect.y,
-            self.theme.fg_dim,
+            self.theme.fg_muted,
+            self.theme.header_letter_spacing,
             self.frame,
             self.gpu,
             self.resources,
@@ -208,18 +209,37 @@ impl<'f> Ui<'f> {
         for span in &rich.spans {
             let size = span.size.unwrap_or(font_size);
             let color = span.color.unwrap_or(fg);
-            let style: u8 = if span.bold { 1 } else { 0 };
-            let advance = self.text.draw_text_styled(
-                span.text,
-                pen_x,
-                rect.y,
-                size,
-                color,
-                style,
-                self.frame,
-                self.gpu,
-                self.resources,
-            );
+            let style: u8 = if span.weight.is_some_and(|w| w.needs_faux_bold()) || span.bold {
+                1
+            } else {
+                0
+            };
+            let ls = span.letter_spacing.unwrap_or(0.0);
+            let advance = if ls != 0.0 {
+                self.text.draw_text_spaced(
+                    span.text,
+                    pen_x,
+                    rect.y,
+                    size,
+                    color,
+                    ls,
+                    self.frame,
+                    self.gpu,
+                    self.resources,
+                )
+            } else {
+                self.text.draw_text_styled(
+                    span.text,
+                    pen_x,
+                    rect.y,
+                    size,
+                    color,
+                    style,
+                    self.frame,
+                    self.gpu,
+                    self.resources,
+                )
+            };
             pen_x += advance;
         }
     }
@@ -238,6 +258,7 @@ impl<'f> Ui<'f> {
             bold: bool,
             size: Option<f32>,
             width: f32,
+            weight: Option<esox_font::FontWeight>,
         }
 
         let space_width = self.text.measure_text(" ", font_size);
@@ -254,6 +275,7 @@ impl<'f> Ui<'f> {
                     bold: span.bold,
                     size: span.size,
                     width: w,
+                    weight: span.weight,
                 });
             }
         }
@@ -302,7 +324,11 @@ impl<'f> Ui<'f> {
                 }
                 let size = word.size.unwrap_or(font_size);
                 let color = word.color.unwrap_or(fg);
-                let style: u8 = if word.bold { 1 } else { 0 };
+                let style: u8 = if word.weight.is_some_and(|w| w.needs_faux_bold()) || word.bold {
+                    1
+                } else {
+                    0
+                };
                 let advance = self.text.draw_text_styled(
                     word.text,
                     pen_x,

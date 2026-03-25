@@ -16,9 +16,9 @@
 //! ui.small_button(id!("ok"), "OK");
 //! ```
 
-use esox_gfx::Color;
+use esox_gfx::{Color, ShapeBuilder};
 
-use crate::id::HOVER_SALT;
+use crate::id::{HOVER_SALT, PRESS_SALT};
 use crate::paint;
 use crate::response::Response;
 use crate::state::{A11yNode, A11yRole, WidgetKind};
@@ -71,14 +71,25 @@ impl<'f> Ui<'f> {
             paint::draw_focus_ring(
                 self.frame,
                 rect,
-                self.theme.accent_dim,
+                self.theme.focus_ring_color,
                 corner_radius,
                 self.theme.focus_ring_expand,
             );
         }
 
+        // Press animation.
+        let press_t = if disabled {
+            0.0
+        } else {
+            self.state.hover_t(
+                id ^ PRESS_SALT,
+                response.pressed,
+                self.theme.press_duration_ms,
+            )
+        };
+
         // Background.
-        let bg = if disabled {
+        let mut bg = if disabled {
             self.theme.disabled_bg
         } else {
             let t = self.state.hover_t(
@@ -88,6 +99,10 @@ impl<'f> Ui<'f> {
             );
             paint::lerp_color(bg_color, self.theme.accent_hover, t)
         };
+        if press_t > 0.0 {
+            let d = self.theme.press_darken * press_t;
+            bg = Color::new(bg.r * (1.0 - d), bg.g * (1.0 - d), bg.b * (1.0 - d), bg.a);
+        }
         paint::draw_rounded_rect(self.frame, rect, bg, corner_radius);
 
         // Dashed border when disabled.
@@ -108,11 +123,12 @@ impl<'f> Ui<'f> {
         } else {
             fg_color
         };
+        let press_offset = press_t * 1.0;
         let label_w = self.text.measure_text(label, font_size);
         self.text.draw_ui_text(
             label,
             rect.x + (rect.w - label_w) / 2.0,
-            rect.y + (rect.h - font_size) / 2.0,
+            rect.y + (rect.h - font_size) / 2.0 + press_offset,
             text_color,
             self.frame,
             self.gpu,
@@ -184,6 +200,17 @@ impl<'f> Ui<'f> {
             paint::draw_rounded_border(self.frame, rect, border, self.theme.corner_radius);
         }
 
+        // Press animation.
+        let press_t = if disabled {
+            0.0
+        } else {
+            self.state.hover_t(
+                id ^ PRESS_SALT,
+                response.pressed,
+                self.theme.press_duration_ms,
+            )
+        };
+
         // Label.
         let label_w = self.text.measure_text(label, self.theme.font_size);
         let text_color = if disabled {
@@ -193,10 +220,11 @@ impl<'f> Ui<'f> {
         } else {
             self.theme.fg_muted
         };
+        let press_offset = press_t * 1.0;
         self.text.draw_ui_text(
             label,
             rect.x + (rect.w - label_w) / 2.0,
-            rect.y + (rect.h - self.theme.font_size) / 2.0,
+            rect.y + (rect.h - self.theme.font_size) / 2.0 + press_offset,
             text_color,
             self.frame,
             self.gpu,
@@ -256,13 +284,24 @@ impl<'f> Ui<'f> {
             paint::draw_focus_ring(
                 self.frame,
                 rect,
-                self.theme.accent_dim,
+                self.theme.focus_ring_color,
                 self.theme.corner_radius,
                 self.theme.focus_ring_expand,
             );
         }
 
-        let bg = if disabled {
+        // Press animation.
+        let press_t = if disabled {
+            0.0
+        } else {
+            self.state.hover_t(
+                id ^ PRESS_SALT,
+                response.pressed,
+                self.theme.press_duration_ms,
+            )
+        };
+
+        let mut bg = if disabled {
             self.theme.disabled_bg
         } else {
             let t = self.state.hover_t(
@@ -272,6 +311,10 @@ impl<'f> Ui<'f> {
             );
             paint::lerp_color(bg_normal, bg_hover, t)
         };
+        if press_t > 0.0 {
+            let d = self.theme.press_darken * press_t;
+            bg = Color::new(bg.r * (1.0 - d), bg.g * (1.0 - d), bg.b * (1.0 - d), bg.a);
+        }
         paint::draw_rounded_rect(self.frame, rect, bg, self.theme.corner_radius);
 
         if disabled {
@@ -290,11 +333,12 @@ impl<'f> Ui<'f> {
         } else {
             text_color
         };
+        let press_offset = press_t * 1.0;
         let label_w = self.text.measure_text(label, self.theme.font_size);
         self.text.draw_ui_text(
             label,
             rect.x + (rect.w - label_w) / 2.0,
-            rect.y + (rect.h - self.theme.font_size) / 2.0,
+            rect.y + (rect.h - self.theme.font_size) / 2.0 + press_offset,
             tc,
             self.frame,
             self.gpu,
@@ -329,8 +373,19 @@ impl<'f> Ui<'f> {
             children: Vec::new(),
         });
 
+        // Press animation.
+        let press_t = if disabled {
+            0.0
+        } else {
+            self.state.hover_t(
+                id ^ PRESS_SALT,
+                response.pressed,
+                self.theme.press_duration_ms,
+            )
+        };
+
         // Background.
-        let bg = if disabled {
+        let mut bg = if disabled {
             self.theme.disabled_bg
         } else {
             let t = self.state.hover_t(
@@ -345,6 +400,10 @@ impl<'f> Ui<'f> {
                 bg_color.a,
             )
         };
+        if press_t > 0.0 {
+            let d = self.theme.press_darken * press_t;
+            bg = Color::new(bg.r * (1.0 - d), bg.g * (1.0 - d), bg.b * (1.0 - d), bg.a);
+        }
         paint::draw_rounded_rect(self.frame, rect, bg, self.theme.corner_radius);
 
         let text_color = if disabled {
@@ -352,16 +411,211 @@ impl<'f> Ui<'f> {
         } else {
             self.theme.fg
         };
+        let press_offset = press_t * 1.0;
         let label_w = self.text.measure_text(label, self.theme.font_size);
         self.text.draw_ui_text(
             label,
             rect.x + (rect.w - label_w) / 2.0,
-            rect.y + (rect.h - self.theme.font_size) / 2.0,
+            rect.y + (rect.h - self.theme.font_size) / 2.0 + press_offset,
             text_color,
             self.frame,
             self.gpu,
             self.resources,
         );
+
+        response
+    }
+
+    /// Draw an outlined button — visible border, no fill. Good for secondary
+    /// actions where you want a clear container without the weight of a filled
+    /// button.
+    pub fn outlined_button(&mut self, id: u64, label: &str) -> Response {
+        let label_w = self.text.measure_text(label, self.theme.font_size);
+        let btn_w = (label_w + self.theme.input_padding * 4.0).max(self.theme.small_button_min_w);
+        let rect = self.allocate_rect_keyed(id, btn_w, self.theme.button_height);
+        self.register_widget(id, rect, WidgetKind::Button);
+
+        let response = self.widget_response(id, rect);
+        let disabled = response.disabled;
+
+        self.push_a11y_node(A11yNode {
+            id,
+            role: A11yRole::Button,
+            label: label.to_string(),
+            value: None,
+            rect,
+            focused: response.focused,
+            disabled,
+            expanded: None,
+            selected: None,
+            checked: None,
+            value_range: None,
+            children: Vec::new(),
+        });
+
+        if response.focused && !disabled {
+            paint::draw_focus_ring(
+                self.frame,
+                rect,
+                self.theme.focus_ring_color,
+                self.theme.corner_radius,
+                self.theme.focus_ring_expand,
+            );
+        }
+
+        let press_t = if disabled {
+            0.0
+        } else {
+            self.state.hover_t(
+                id ^ PRESS_SALT,
+                response.pressed,
+                self.theme.press_duration_ms,
+            )
+        };
+
+        // Border — always visible, transitions to accent on hover.
+        if disabled {
+            paint::draw_dashed_border(
+                self.frame,
+                rect,
+                self.theme.disabled_border,
+                self.theme.disabled_dash_len,
+                self.theme.disabled_dash_gap,
+                self.theme.disabled_dash_thickness,
+            );
+        } else {
+            let hover_t = self.state.hover_t(
+                id ^ HOVER_SALT,
+                response.hovered,
+                self.theme.hover_duration_ms,
+            );
+            let border = paint::lerp_color(self.theme.border, self.theme.accent, hover_t);
+            paint::draw_rounded_border(self.frame, rect, border, self.theme.corner_radius);
+        }
+
+        // Label.
+        let text_color = if disabled {
+            self.theme.disabled_fg
+        } else {
+            let hover_t = self.state.hover_t(
+                id ^ HOVER_SALT,
+                response.hovered,
+                self.theme.hover_duration_ms,
+            );
+            paint::lerp_color(self.theme.fg, self.theme.accent, hover_t)
+        };
+        let press_offset = press_t * 1.0;
+        self.text.draw_ui_text(
+            label,
+            rect.x + (rect.w - label_w) / 2.0,
+            rect.y + (rect.h - self.theme.font_size) / 2.0 + press_offset,
+            text_color,
+            self.frame,
+            self.gpu,
+            self.resources,
+        );
+
+        response
+    }
+
+    /// Draw a text-only button — no border, no fill, just colored text. An
+    /// underline appears on hover. Ideal for tertiary or inline actions.
+    pub fn text_button(&mut self, id: u64, label: &str) -> Response {
+        let label_w = self.text.measure_text(label, self.theme.font_size);
+        let btn_w = (label_w + self.theme.input_padding * 4.0).max(self.theme.small_button_min_w);
+        let rect = self.allocate_rect_keyed(id, btn_w, self.theme.small_button_height);
+        self.register_widget(id, rect, WidgetKind::Button);
+
+        let response = self.widget_response(id, rect);
+        let disabled = response.disabled;
+
+        self.push_a11y_node(A11yNode {
+            id,
+            role: A11yRole::Button,
+            label: label.to_string(),
+            value: None,
+            rect,
+            focused: response.focused,
+            disabled,
+            expanded: None,
+            selected: None,
+            checked: None,
+            value_range: None,
+            children: Vec::new(),
+        });
+
+        if response.focused && !disabled {
+            paint::draw_focus_ring(
+                self.frame,
+                rect,
+                self.theme.focus_ring_color,
+                self.theme.corner_radius,
+                self.theme.focus_ring_expand,
+            );
+        }
+
+        let press_t = if disabled {
+            0.0
+        } else {
+            self.state.hover_t(
+                id ^ PRESS_SALT,
+                response.pressed,
+                self.theme.press_duration_ms,
+            )
+        };
+
+        let hover_t = if disabled {
+            0.0
+        } else {
+            self.state.hover_t(
+                id ^ HOVER_SALT,
+                response.hovered,
+                self.theme.hover_duration_ms,
+            )
+        };
+
+        // Label.
+        let mut text_color = if disabled {
+            self.theme.disabled_fg
+        } else {
+            paint::lerp_color(self.theme.accent, self.theme.accent_hover, hover_t)
+        };
+        if press_t > 0.0 {
+            let d = self.theme.press_darken * press_t;
+            text_color = Color::new(
+                text_color.r * (1.0 - d),
+                text_color.g * (1.0 - d),
+                text_color.b * (1.0 - d),
+                text_color.a,
+            );
+        }
+        let text_x = rect.x + (rect.w - label_w) / 2.0;
+        let text_y = rect.y + (rect.h - self.theme.font_size) / 2.0;
+        self.text.draw_ui_text(
+            label,
+            text_x,
+            text_y,
+            text_color,
+            self.frame,
+            self.gpu,
+            self.resources,
+        );
+
+        // Underline on hover.
+        if hover_t > 0.0 && !disabled {
+            let underline_y = text_y + self.theme.font_size + 1.0;
+            let underline_color = Color::new(
+                text_color.r,
+                text_color.g,
+                text_color.b,
+                text_color.a * hover_t,
+            );
+            self.frame.push(
+                ShapeBuilder::rect(text_x, underline_y, label_w, 1.0)
+                    .color(underline_color)
+                    .build(),
+            );
+        }
 
         response
     }

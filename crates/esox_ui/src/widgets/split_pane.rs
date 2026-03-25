@@ -187,6 +187,25 @@ impl<'f> Ui<'f> {
             .build(),
         );
 
+        // Draw a 1px center line when idle so the divider is always visible.
+        if !is_dragging && !divider_hovered {
+            if horizontal {
+                let cx = divider_rect.x + divider_rect.w / 2.0;
+                self.frame.push(
+                    ShapeBuilder::rect(cx, divider_rect.y, 1.0, divider_rect.h)
+                        .color(self.theme.border)
+                        .build(),
+                );
+            } else {
+                let cy = divider_rect.y + divider_rect.h / 2.0;
+                self.frame.push(
+                    ShapeBuilder::rect(divider_rect.x, cy, divider_rect.w, 1.0)
+                        .color(self.theme.border)
+                        .build(),
+                );
+            }
+        }
+
         // --- Draw first panel (left / top) ---
         let saved_cursor = self.cursor;
         let saved_region = self.region;

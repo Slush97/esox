@@ -16,6 +16,7 @@ pub mod label;
 pub mod menu_bar;
 pub mod modal;
 pub mod number_input;
+pub mod pagination;
 pub mod paragraph;
 pub mod progress_bar;
 pub mod radio;

@@ -213,7 +213,7 @@ impl TextRenderer {
         resources: &mut RenderResources,
     ) -> f32 {
         let glyphs = self.resolve_glyphs(text, size);
-        self.render_glyphs(&glyphs, x, y, size, color, 0, frame, gpu, resources)
+        self.render_glyphs(&glyphs, x, y, size, color, 0, 0.0, frame, gpu, resources)
     }
 
     /// Draw text with a style byte (bit 0 = bold via faux emboldening).
@@ -232,7 +232,53 @@ impl TextRenderer {
         resources: &mut RenderResources,
     ) -> f32 {
         let glyphs = self.resolve_glyphs(text, size);
-        self.render_glyphs(&glyphs, x, y, size, color, style, frame, gpu, resources)
+        self.render_glyphs(
+            &glyphs, x, y, size, color, style, 0.0, frame, gpu, resources,
+        )
+    }
+
+    /// Draw text with extra letter spacing between glyphs.
+    #[allow(clippy::too_many_arguments)]
+    pub fn draw_text_spaced(
+        &mut self,
+        text: &str,
+        x: f32,
+        y: f32,
+        size: f32,
+        color: Color,
+        letter_spacing: f32,
+        frame: &mut Frame,
+        gpu: &GpuContext,
+        resources: &mut RenderResources,
+    ) -> f32 {
+        let glyphs = self.resolve_glyphs(text, size);
+        self.render_glyphs(
+            &glyphs,
+            x,
+            y,
+            size,
+            color,
+            0,
+            letter_spacing,
+            frame,
+            gpu,
+            resources,
+        )
+    }
+
+    /// Measure text width with extra letter spacing.
+    pub fn measure_text_spaced(&mut self, text: &str, size: f32, letter_spacing: f32) -> f32 {
+        if text.is_empty() {
+            return 0.0;
+        }
+        let base = self.measure_text(text, size);
+        let glyphs = self.resolve_glyphs(text, size);
+        let glyph_count = glyphs.len();
+        if glyph_count > 1 {
+            base + letter_spacing * (glyph_count as f32 - 1.0)
+        } else {
+            base
+        }
     }
 
     /// Draw text at the standard UI font size (14px).
@@ -251,8 +297,7 @@ impl TextRenderer {
         self.draw_text(text, x, y, 14.0, color, frame, gpu, resources)
     }
 
-    /// Draw text at the header font size (11px).
-    // Convenience wrapper — delegates to draw_text with a fixed size.
+    /// Draw text at the header font size (11px) with header letter spacing.
     #[allow(clippy::too_many_arguments)]
     pub fn draw_header_text(
         &mut self,
@@ -260,11 +305,22 @@ impl TextRenderer {
         x: f32,
         y: f32,
         color: Color,
+        letter_spacing: f32,
         frame: &mut Frame,
         gpu: &GpuContext,
         resources: &mut RenderResources,
     ) -> f32 {
-        self.draw_text(text, x, y, 11.0, color, frame, gpu, resources)
+        self.draw_text_spaced(
+            text,
+            x,
+            y,
+            11.0,
+            color,
+            letter_spacing,
+            frame,
+            gpu,
+            resources,
+        )
     }
 
     /// Measure text width without drawing. Zero-clone cache fast path.
@@ -509,6 +565,7 @@ impl TextRenderer {
             size,
             color,
             0,
+            0.0,
             frame,
             gpu,
             resources,
@@ -571,6 +628,7 @@ impl TextRenderer {
                     size,
                     color,
                     0,
+                    0.0,
                     frame,
                     gpu,
                     resources,
@@ -597,6 +655,7 @@ impl TextRenderer {
                     size,
                     color,
                     0,
+                    0.0,
                     frame,
                     gpu,
                     resources,
@@ -634,6 +693,7 @@ impl TextRenderer {
                     size,
                     color,
                     0,
+                    0.0,
                     frame,
                     gpu,
                     resources,
@@ -655,6 +715,7 @@ impl TextRenderer {
                     size,
                     color,
                     0,
+                    0.0,
                     frame,
                     gpu,
                     resources,
@@ -725,6 +786,7 @@ impl TextRenderer {
     /// atlas allocation, eviction, and GPU upload. Returns total advance width.
     // Core renderer — parameter count reflects distinct rendering inputs.
     #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments)]
     fn render_glyphs(
         &mut self,
         glyphs: &[ShapedGlyph],
@@ -733,6 +795,7 @@ impl TextRenderer {
         size: f32,
         color: Color,
         style: u8,
+        letter_spacing: f32,
         frame: &mut Frame,
         gpu: &GpuContext,
         resources: &mut RenderResources,
@@ -754,7 +817,7 @@ impl TextRenderer {
             let cached = match self.get_or_insert_with_eviction(key, size, bold) {
                 Some(c) => c,
                 None => {
-                    pen_x += glyph.x_advance;
+                    pen_x += glyph.x_advance + letter_spacing;
                     continue;
                 }
             };
@@ -769,7 +832,7 @@ impl TextRenderer {
                 frame.push(make_textured_quad(gx, gy, gw, gh, uv, color));
             }
 
-            pen_x += glyph.x_advance;
+            pen_x += glyph.x_advance + letter_spacing;
         }
 
         self.flush_uploads(gpu, resources);

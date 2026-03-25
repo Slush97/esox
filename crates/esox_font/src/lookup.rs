@@ -64,6 +64,30 @@ impl SystemFontDb {
         Self { fc_available }
     }
 
+    /// Look up a font by family name, weight, and italic flag.
+    ///
+    /// Uses fontconfig's weight property for more precise matching than the
+    /// simple `FontStyle` enum.
+    pub fn query_family_weighted(
+        &self,
+        family: &str,
+        weight: FontWeight,
+        italic: bool,
+    ) -> Option<FontMatch> {
+        let weight_name = weight.fc_name();
+        let style_str = if italic {
+            &format!("{weight_name} Italic")
+        } else {
+            weight_name
+        };
+
+        if self.fc_available {
+            self.query_fc_match(family, style_str)
+        } else {
+            self.query_probe(family)
+        }
+    }
+
     /// Look up a font by family name and style.
     pub fn query_family(&self, family: &str, style: FontStyle) -> Option<FontMatch> {
         let style_str = match style {
@@ -317,6 +341,55 @@ pub enum FontStyle {
     /// Bold weight, italic.
     BoldItalic,
 }
+
+/// Font weight for system font queries.
+///
+/// Maps to OpenType/fontconfig weight values. Used for querying specific
+/// weight variants of a font family.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[repr(u16)]
+pub enum FontWeight {
+    Light = 300,
+    #[default]
+    Regular = 400,
+    Medium = 500,
+    SemiBold = 600,
+    Bold = 700,
+    ExtraBold = 800,
+}
+
+impl FontWeight {
+    /// Encode as a 3-bit index for glyph key style bits.
+    pub fn style_bits(self) -> u8 {
+        match self {
+            Self::Light => 0,
+            Self::Regular => 1,
+            Self::Medium => 2,
+            Self::SemiBold => 3,
+            Self::Bold => 4,
+            Self::ExtraBold => 5,
+        }
+    }
+
+    /// Whether this weight should use faux bold when the resolved font file
+    /// is a regular weight.
+    pub fn needs_faux_bold(self) -> bool {
+        matches!(self, Self::SemiBold | Self::Bold | Self::ExtraBold)
+    }
+
+    /// Fontconfig weight name for fc-match queries.
+    pub fn fc_name(self) -> &'static str {
+        match self {
+            Self::Light => "Light",
+            Self::Regular => "Regular",
+            Self::Medium => "Medium",
+            Self::SemiBold => "DemiBold",
+            Self::Bold => "Bold",
+            Self::ExtraBold => "ExtraBold",
+        }
+    }
+}
+
 
 /// Resolve a font family name to raw font data.
 ///

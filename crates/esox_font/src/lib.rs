@@ -29,7 +29,7 @@ pub mod shaper;
 pub use cache::{CachedGlyph, GlyphCache};
 pub use face::FontFace;
 pub use fallback::FontFallbackChain;
-pub use lookup::{FontStyle, SystemFontDb};
+pub use lookup::{FontStyle, FontWeight, SystemFontDb};
 pub use rasterizer::GlyphRasterizer;
 pub use shaper::TextShaper;
 
