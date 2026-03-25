@@ -57,8 +57,43 @@ cargo test --workspace
 
 ## Git Practices
 
-- Branch from `main` for all work
-- Write clear commit messages: imperative mood, explain the "why"
-- One concern per commit — don't mix unrelated changes
-- Run `cargo fmt --all && cargo clippy --workspace` before every commit
-- Don't commit generated files, build artifacts, or editor configs
+### Branching
+- Branch from `main` for all work: `feature/<name>`, `fix/<name>`, `refactor/<name>`
+- Keep branches focused — one feature or fix per branch
+- Rebase onto `main` before opening a PR to keep history linear
+
+### Commits
+- **Atomic commits**: One logical change per commit — don't mix unrelated changes
+- **Imperative mood**: "Add contrast utility" not "Added contrast utility"
+- **Explain the why**: The diff shows *what* changed; the message explains *why*
+- **Format**: Short subject line (<72 chars), blank line, then body if needed
+- **Pre-commit checks**: Run `cargo fmt --all && cargo clippy --workspace -- -D warnings && cargo test --workspace` before every commit
+- Don't commit generated files, build artifacts, editor configs, or `.env` files
+
+### Commit Message Format
+```
+<type>: <short summary>
+
+<optional body — explain motivation, trade-offs, what was considered>
+```
+
+Types: `feat`, `fix`, `refactor`, `perf`, `test`, `docs`, `chore`, `ci`
+
+Examples:
+```
+feat: add WCAG contrast ratio utility to theme module
+fix: re-enable frame-skip when no damage detected
+perf: shrink text QuadInstance path to 80 bytes
+refactor: extract glyph batching into separate pass
+```
+
+### Pull Requests
+- PR title matches the primary commit type and summary
+- Description includes: what changed, why, and how to test
+- Link related issues
+- Keep PRs small enough to review in one sitting — split large work into stacked PRs if needed
+
+### Code Review
+- All changes to `main` go through PR review
+- CI must pass (fmt, clippy, tests) before merge
+- Squash-merge feature branches to keep `main` history clean
