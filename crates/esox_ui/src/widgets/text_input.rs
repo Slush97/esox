@@ -197,7 +197,7 @@ impl<'f> Ui<'f> {
             paint::draw_focus_ring(
                 self.frame,
                 rect,
-                self.theme.accent_dim,
+                self.theme.focus_ring_color,
                 self.theme.corner_radius,
                 self.theme.focus_ring_expand, // smaller expand for text inputs
             );
@@ -211,16 +211,17 @@ impl<'f> Ui<'f> {
             self.theme.corner_radius,
         );
 
-        // Border — respects validation status.
-        let border_color = if response.focused {
-            self.theme.accent
-        } else {
-            match status {
-                Some(FieldStatus::Error) => self.theme.red,
-                Some(FieldStatus::Success) => self.theme.green,
-                Some(FieldStatus::Warning) => self.theme.amber,
-                _ => self.theme.border,
-            }
+        // Border — validation status takes precedence, then animated focus, then default.
+        let focus_t = self.state.hover_t(
+            id ^ crate::id::FOCUS_SALT,
+            response.focused,
+            self.theme.hover_duration_ms,
+        );
+        let border_color = match status {
+            Some(FieldStatus::Error) => self.theme.red,
+            Some(FieldStatus::Success) => self.theme.green,
+            Some(FieldStatus::Warning) => self.theme.amber,
+            _ => paint::lerp_color(self.theme.border, self.theme.accent, focus_t),
         };
         paint::draw_rounded_border(self.frame, rect, border_color, self.theme.corner_radius);
 
@@ -270,13 +271,17 @@ impl<'f> Ui<'f> {
             }
         }
 
-        // Text content.
+        // Text content — use error color when validation fails.
+        let text_color = match status {
+            Some(FieldStatus::Error) => self.theme.red,
+            _ => self.theme.fg,
+        };
         if !input.text.is_empty() {
             self.text.draw_ui_text(
                 &input.text,
                 text_x - scroll,
                 text_y,
-                self.theme.fg,
+                text_color,
                 self.frame,
                 self.gpu,
                 self.resources,

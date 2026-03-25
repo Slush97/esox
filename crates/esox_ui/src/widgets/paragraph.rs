@@ -59,6 +59,7 @@ impl<'f> Ui<'f> {
             clicked: false,
             right_clicked: false,
             hovered,
+            pressed: false,
             focused: false,
             changed: false,
             disabled: false,

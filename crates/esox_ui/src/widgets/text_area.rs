@@ -263,7 +263,7 @@ impl<'f> Ui<'f> {
             paint::draw_focus_ring(
                 self.frame,
                 rect,
-                self.theme.accent_dim,
+                self.theme.focus_ring_color,
                 self.theme.corner_radius,
                 self.theme.focus_ring_expand,
             );
@@ -277,12 +277,13 @@ impl<'f> Ui<'f> {
             self.theme.corner_radius,
         );
 
-        // Border.
-        let border_color = if response.focused {
-            self.theme.accent
-        } else {
-            self.theme.border
-        };
+        // Border — animated focus transition.
+        let focus_t = self.state.hover_t(
+            id ^ crate::id::FOCUS_SALT,
+            response.focused,
+            self.theme.hover_duration_ms,
+        );
+        let border_color = paint::lerp_color(self.theme.border, self.theme.accent, focus_t);
         paint::draw_rounded_border(self.frame, rect, border_color, self.theme.corner_radius);
 
         // Set GPU clip.
@@ -762,7 +763,7 @@ impl<'f> Ui<'f> {
             paint::draw_focus_ring(
                 self.frame,
                 rect,
-                self.theme.accent_dim,
+                self.theme.focus_ring_color,
                 self.theme.corner_radius,
                 self.theme.focus_ring_expand,
             );

@@ -11,6 +11,8 @@ pub struct Response {
     pub hovered: bool,
     /// The widget currently has keyboard focus.
     pub focused: bool,
+    /// The mouse button is currently held down over this widget.
+    pub pressed: bool,
     /// The widget's value changed this frame.
     pub changed: bool,
     /// The widget is disabled (no interaction).
@@ -28,6 +30,7 @@ mod tests {
         assert!(!r.right_clicked);
         assert!(!r.hovered);
         assert!(!r.focused);
+        assert!(!r.pressed);
         assert!(!r.changed);
         assert!(!r.disabled);
     }

@@ -371,21 +371,17 @@ impl<'f> Ui<'f> {
 
         let dd = &deferred.dd_rect;
 
-        // Shadow.
-        self.frame.push(
-            ShapeBuilder::rect(dd.x - 1.0, dd.y - 1.0, dd.w + 2.0, dd.h + 2.0)
-                .color(self.theme.shadow)
-                .border_radius(BorderRadius::uniform(corner_r))
-                .build(),
-        );
-
-        // Background.
-        self.frame.push(
-            ShapeBuilder::rect(dd.x, dd.y, dd.w, dd.h)
+        // Background + elevation shadow.
+        {
+            let elev = &self.theme.elevation_medium;
+            let mut sb = ShapeBuilder::rect(dd.x, dd.y, dd.w, dd.h)
                 .color(self.theme.bg_raised)
-                .border_radius(BorderRadius::uniform(corner_r))
-                .build(),
-        );
+                .border_radius(BorderRadius::uniform(corner_r));
+            if elev.blur >= 0.001 {
+                sb = sb.shadow(elev.blur, elev.dx, elev.dy).color2(elev.color);
+            }
+            self.frame.push(sb.build());
+        }
 
         // Border.
         paint::draw_rounded_border(self.frame, *dd, self.theme.border, corner_r);

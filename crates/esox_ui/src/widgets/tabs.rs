@@ -16,7 +16,7 @@
 use esox_gfx::ShapeBuilder;
 use esox_input::{Key, NamedKey};
 
-use crate::id::fnv1a_mix;
+use crate::id::{fnv1a_mix, TAB_SLIDE_SALT};
 use crate::layout::Rect;
 use crate::paint;
 use crate::response::Response;
@@ -24,6 +24,7 @@ use crate::state::{Easing, TabState, WidgetKind};
 use crate::Ui;
 
 const TAB_FADE_SALT: u64 = 0xFADE_7AB5_0000_0001;
+const TAB_SLIDE_W_SALT: u64 = 0x7AB5_01D7_0000_0002;
 
 impl<'f> Ui<'f> {
     /// Tab bar + content area. Closure draws content for the selected tab.
@@ -91,7 +92,7 @@ impl<'f> Ui<'f> {
             paint::draw_focus_ring(
                 self.frame,
                 bar_rect,
-                self.theme.accent_dim,
+                self.theme.focus_ring_color,
                 self.theme.corner_radius,
                 self.theme.focus_ring_expand,
             );
@@ -104,11 +105,22 @@ impl<'f> Ui<'f> {
                 .build(),
         );
 
+        // Pre-compute tab positions for the slide animation.
+        let tab_positions: Vec<(f32, f32)> = {
+            let mut positions = Vec::with_capacity(labels.len());
+            let mut x = bar_rect.x;
+            for label in labels {
+                let text_w = self.text.measure_text(label, font_size);
+                let tab_w = text_w + pad * 2.0;
+                positions.push((x, tab_w));
+                x += tab_w;
+            }
+            positions
+        };
+
         // Draw each tab.
-        let mut tab_x = bar_rect.x;
         for (i, label) in labels.iter().enumerate() {
-            let text_w = self.text.measure_text(label, font_size);
-            let tab_w = text_w + pad * 2.0;
+            let (tab_x, tab_w) = tab_positions[i];
             let tab_rect = Rect::new(tab_x, bar_rect.y, tab_w, bar_height);
             let tab_id = fnv1a_mix(id, i as u64);
 
@@ -170,22 +182,27 @@ impl<'f> Ui<'f> {
                 self.gpu,
                 self.resources,
             );
+        }
 
-            // Selected indicator.
-            if selected {
-                self.frame.push(
-                    ShapeBuilder::rect(
-                        tab_x,
-                        bar_rect.y + bar_height - indicator_h,
-                        tab_w,
-                        indicator_h,
-                    )
-                    .color(self.theme.accent)
-                    .build(),
-                );
-            }
-
-            tab_x += tab_w;
+        // Sliding indicator bar — animates between tab positions.
+        if !tab_positions.is_empty() && state.selected < tab_positions.len() {
+            let (target_x, target_w) = tab_positions[state.selected];
+            let anim_x =
+                self.state
+                    .anim_t(id ^ TAB_SLIDE_SALT, target_x, 200.0, Easing::EaseOutCubic);
+            let anim_w =
+                self.state
+                    .anim_t(id ^ TAB_SLIDE_W_SALT, target_w, 200.0, Easing::EaseOutCubic);
+            self.frame.push(
+                ShapeBuilder::rect(
+                    anim_x,
+                    bar_rect.y + bar_height - indicator_h,
+                    anim_w,
+                    indicator_h,
+                )
+                .color(self.theme.accent)
+                .build(),
+            );
         }
 
         response.focused = bar_focused;

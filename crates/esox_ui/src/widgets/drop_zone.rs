@@ -20,7 +20,7 @@ impl<'f> Ui<'f> {
             paint::draw_focus_ring(
                 self.frame,
                 rect,
-                self.theme.accent_dim,
+                self.theme.focus_ring_color,
                 self.theme.corner_radius,
                 self.theme.focus_ring_expand,
             );

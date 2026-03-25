@@ -128,6 +128,35 @@ impl<'f> Ui<'f> {
             f(self, i);
         }
 
+        // --- Scroll edge gradient fades (drawn while container clip is still active) ---
+        let fade_h = self.theme.scroll_fade_height;
+        if fade_h > 0.0 {
+            let bg = self.theme.bg_base;
+            if offset > 0.5 {
+                paint::draw_scroll_fade(
+                    self.frame,
+                    Rect::new(container.x, container.y, content_width, fade_h),
+                    bg,
+                    bg.with_alpha(0.0),
+                    std::f32::consts::FRAC_PI_2,
+                );
+            }
+            if offset < max_scroll - 0.5 {
+                paint::draw_scroll_fade(
+                    self.frame,
+                    Rect::new(
+                        container.x,
+                        container.y + visible_height - fade_h,
+                        content_width,
+                        fade_h,
+                    ),
+                    bg.with_alpha(0.0),
+                    bg,
+                    std::f32::consts::FRAC_PI_2,
+                );
+            }
+        }
+
         // Restore layout state.
         self.cursor = saved_cursor;
         self.cursor.y = container.y + container.h + saved_spacing;
@@ -159,6 +188,7 @@ impl<'f> Ui<'f> {
             clicked: false,
             right_clicked: false,
             hovered,
+            pressed: false,
             focused: false,
             changed: false,
             disabled: false,
@@ -186,9 +216,8 @@ pub(crate) fn draw_scrollbar(
     let track_y = container.y;
     let track_h = visible_height;
 
-    // Track background.
+    // Track rect for hit testing (no visible background — modern scrollbar style).
     let track_rect = Rect::new(track_x, track_y, scrollbar_w, track_h);
-    paint::draw_rounded_rect(frame, track_rect, theme.bg_raised, scrollbar_w / 2.0);
 
     // Thumb.
     let thumb_h = (visible_height / content_height * track_h)

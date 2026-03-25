@@ -38,6 +38,18 @@ pub const HOVER_SALT: u64 = 0x9e3779b97f4a7c15;
 /// user-provided widget ID.
 pub const SCROLL_CONTENT_SALT: u64 = 0x6a09e667f3bcc908;
 
+/// XOR salt for press-state animation IDs.
+pub const PRESS_SALT: u64 = 0xd1b54a32d192ed03;
+
+/// XOR salt for checkbox check animation IDs.
+pub const CHECK_SALT: u64 = 0xa4e7c3f1b8d20956;
+
+/// XOR salt for tab indicator slide animation IDs.
+pub const TAB_SLIDE_SALT: u64 = 0x7b3f9e15c4a8d062;
+
+/// XOR salt for focus border animation IDs.
+pub const FOCUS_SALT: u64 = 0xe8b42d6f93a5c178;
+
 /// Compile-time widget ID from a string literal.
 /// `id!("my_widget")` → a `u64` constant, zero runtime cost.
 #[macro_export]

@@ -324,7 +324,7 @@ impl<'f> Ui<'f> {
             paint::draw_focus_ring(
                 self.frame,
                 rect,
-                self.theme.accent_dim,
+                self.theme.focus_ring_color,
                 self.theme.corner_radius,
                 self.theme.focus_ring_expand,
             );
@@ -538,20 +538,17 @@ impl<'f> Ui<'f> {
             let dd_w = anchor.w;
             let dd_h = item_h;
 
-            // Shadow.
-            self.frame.push(
-                ShapeBuilder::rect(dd_x - 1.0, dd_y - 1.0, dd_w + 2.0, dd_h + 2.0)
-                    .color(self.theme.shadow)
-                    .border_radius(BorderRadius::uniform(self.theme.corner_radius))
-                    .build(),
-            );
-            // Background.
-            self.frame.push(
-                ShapeBuilder::rect(dd_x, dd_y, dd_w, dd_h)
+            // Background + elevation shadow.
+            {
+                let elev = &self.theme.elevation_medium;
+                let mut sb = ShapeBuilder::rect(dd_x, dd_y, dd_w, dd_h)
                     .color(self.theme.bg_surface)
-                    .border_radius(BorderRadius::uniform(self.theme.corner_radius))
-                    .build(),
-            );
+                    .border_radius(BorderRadius::uniform(self.theme.corner_radius));
+                if elev.blur >= 0.001 {
+                    sb = sb.shadow(elev.blur, elev.dx, elev.dy).color2(elev.color);
+                }
+                self.frame.push(sb.build());
+            }
             paint::draw_rounded_border(
                 self.frame,
                 Rect::new(dd_x, dd_y, dd_w, dd_h),
@@ -592,21 +589,17 @@ impl<'f> Ui<'f> {
             // (it will defocus the combobox, and the next frame will close).
         }
 
-        // Shadow.
-        self.frame.push(
-            ShapeBuilder::rect(dd_x - 1.0, dd_y - 1.0, dd_w + 2.0, dd_h + 2.0)
-                .color(self.theme.shadow)
-                .border_radius(BorderRadius::uniform(self.theme.corner_radius))
-                .build(),
-        );
-
-        // Background.
-        self.frame.push(
-            ShapeBuilder::rect(dd_x, dd_y, dd_w, dd_h)
+        // Background + elevation shadow.
+        {
+            let elev = &self.theme.elevation_medium;
+            let mut sb = ShapeBuilder::rect(dd_x, dd_y, dd_w, dd_h)
                 .color(self.theme.bg_surface)
-                .border_radius(BorderRadius::uniform(self.theme.corner_radius))
-                .build(),
-        );
+                .border_radius(BorderRadius::uniform(self.theme.corner_radius));
+            if elev.blur >= 0.001 {
+                sb = sb.shadow(elev.blur, elev.dx, elev.dy).color2(elev.color);
+            }
+            self.frame.push(sb.build());
+        }
 
         // Border.
         paint::draw_rounded_border(

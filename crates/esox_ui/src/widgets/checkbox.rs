@@ -1,9 +1,11 @@
 //! Checkbox widget — boolean toggle with a box + checkmark.
 
-use crate::id::HOVER_SALT;
+use esox_gfx::Color;
+
+use crate::id::{CHECK_SALT, HOVER_SALT};
 use crate::paint;
 use crate::response::Response;
-use crate::state::{A11yNode, A11yRole, InputState, WidgetKind};
+use crate::state::{A11yNode, A11yRole, Easing, InputState, WidgetKind};
 use crate::Ui;
 
 impl<'f> Ui<'f> {
@@ -57,7 +59,7 @@ impl<'f> Ui<'f> {
             paint::draw_focus_ring(
                 self.frame,
                 box_rect,
-                self.theme.accent_dim,
+                self.theme.focus_ring_color,
                 self.theme.corner_radius,
                 self.theme.focus_ring_expand,
             );
@@ -99,15 +101,22 @@ impl<'f> Ui<'f> {
             paint::draw_rounded_border(self.frame, box_rect, border, self.theme.corner_radius);
         }
 
-        // Checkmark glyph.
-        if checked {
+        // Checkmark glyph — animated fade in/out.
+        let check_t = self.animate_bool(id ^ CHECK_SALT, checked, 120.0, Easing::EaseOutCubic);
+        if check_t > 0.001 {
             let check = "\u{2713}";
             let check_w = self.text.measure_text(check, 12.0);
-            let check_color = if disabled {
+            let base_color = if disabled {
                 self.theme.disabled_fg
             } else {
                 self.theme.fg
             };
+            let check_color = Color::new(
+                base_color.r,
+                base_color.g,
+                base_color.b,
+                base_color.a * check_t,
+            );
             self.text.draw_ui_text(
                 check,
                 box_x + (self.theme.checkbox_size - check_w) / 2.0,

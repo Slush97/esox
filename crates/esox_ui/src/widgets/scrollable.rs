@@ -105,6 +105,39 @@ impl<'f> Ui<'f> {
         self.scroll_depth -= 1;
         self.tree_build.close_container();
 
+        // --- Scroll edge gradient fades (drawn while container clip is still active) ---
+        let fade_h = self.theme.scroll_fade_height;
+        if fade_h > 0.0 {
+            let bg = self.theme.bg_base;
+            let content_w = container.w - self.theme.scrollbar_width;
+            let max_scroll_est = (content_height - visible_height).max(0.0);
+            // Top fade: visible when scrolled down.
+            if scroll_offset > 0.5 {
+                paint::draw_scroll_fade(
+                    self.frame,
+                    Rect::new(container.x, container.y, content_w, fade_h),
+                    bg,
+                    bg.with_alpha(0.0),
+                    std::f32::consts::FRAC_PI_2,
+                );
+            }
+            // Bottom fade: visible when content extends below viewport.
+            if scroll_offset < max_scroll_est - 0.5 {
+                paint::draw_scroll_fade(
+                    self.frame,
+                    Rect::new(
+                        container.x,
+                        container.y + visible_height - fade_h,
+                        content_w,
+                        fade_h,
+                    ),
+                    bg.with_alpha(0.0),
+                    bg,
+                    std::f32::consts::FRAC_PI_2,
+                );
+            }
+        }
+
         // --- Restore layout state ---
         self.cursor = saved_cursor;
         // Advance cursor past the container (allocate_rect already did this, but
@@ -166,12 +199,12 @@ impl<'f> Ui<'f> {
             let track_y = container.y;
             let track_h = visible_height;
 
-            // Track background (subtle).
+            // Track rect for hit testing (no visible background — modern scrollbar style).
             let track_rect = Rect::new(track_x, track_y, scrollbar_w, track_h);
             paint::draw_rounded_rect(
                 self.frame,
                 track_rect,
-                self.theme.bg_raised,
+                esox_gfx::Color::TRANSPARENT,
                 scrollbar_w / 2.0,
             );
 
@@ -250,6 +283,7 @@ impl<'f> Ui<'f> {
             clicked: false,
             right_clicked: false,
             hovered: hovered_container,
+            pressed: false,
             focused: false,
             changed: false,
             disabled: false,
@@ -368,7 +402,7 @@ impl<'f> Ui<'f> {
             paint::draw_rounded_rect(
                 self.frame,
                 track_rect,
-                self.theme.bg_raised,
+                esox_gfx::Color::TRANSPARENT,
                 scrollbar_w / 2.0,
             );
 
@@ -401,6 +435,7 @@ impl<'f> Ui<'f> {
             clicked: false,
             right_clicked: false,
             hovered: hovered_container,
+            pressed: false,
             focused: false,
             changed: false,
             disabled: false,
@@ -522,7 +557,7 @@ impl<'f> Ui<'f> {
             paint::draw_rounded_rect(
                 self.frame,
                 track_rect,
-                self.theme.bg_raised,
+                esox_gfx::Color::TRANSPARENT,
                 scrollbar_w / 2.0,
             );
 
@@ -557,7 +592,7 @@ impl<'f> Ui<'f> {
             paint::draw_rounded_rect(
                 self.frame,
                 track_rect,
-                self.theme.bg_raised,
+                esox_gfx::Color::TRANSPARENT,
                 scrollbar_w / 2.0,
             );
 
@@ -600,6 +635,7 @@ impl<'f> Ui<'f> {
             clicked: false,
             right_clicked: false,
             hovered: hovered_container,
+            pressed: false,
             focused: false,
             changed: false,
             disabled: false,
