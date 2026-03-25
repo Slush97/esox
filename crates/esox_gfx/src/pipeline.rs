@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::sync::mpsc;
 
 use crate::error::Error;
-use crate::primitive::{QuadInstance, ShaderId};
+use crate::primitive::{QuadInstance, ShaderId, TextQuadInstance};
 
 /// Holds the core wgpu state: instance, adapter, device, queue, and surface.
 pub struct GpuContext {
@@ -247,16 +247,12 @@ impl PipelineRegistry {
                 immediate_size: 0,
             });
 
-        let pipelines = [
+        // SDF 2D and 3D pipelines use the full 9-attribute vertex layout.
+        let full_pipelines = [
             (
                 crate::primitive::PIPELINE_SDF_2D,
                 SDF_2D_FRAGMENT_SOURCE,
                 "quad_sdf_2d",
-            ),
-            (
-                crate::primitive::PIPELINE_TEXT,
-                TEXT_FRAGMENT_SOURCE,
-                "quad_text",
             ),
             (
                 crate::primitive::PIPELINE_3D,
@@ -265,7 +261,7 @@ impl PipelineRegistry {
             ),
         ];
 
-        for (id, frag_source, label) in pipelines {
+        for (id, frag_source, label) in full_pipelines {
             let full_source = format!("{SHADER_PREAMBLE}\n{frag_source}");
             let shader = gpu
                 .device
@@ -315,6 +311,61 @@ impl PipelineRegistry {
                 PipelineHandle {
                     pipeline,
                     label: label.to_string(),
+                },
+            );
+        }
+
+        // Text pipeline uses the compact 4-attribute vertex layout (64 bytes/instance).
+        {
+            let full_source = format!("{TEXT_SHADER_PREAMBLE}\n{TEXT_FRAGMENT_SOURCE}");
+            let shader = gpu
+                .device
+                .create_shader_module(wgpu::ShaderModuleDescriptor {
+                    label: Some("quad_text"),
+                    source: wgpu::ShaderSource::Wgsl(full_source.into()),
+                });
+
+            let pipeline = gpu
+                .device
+                .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                    label: Some("quad_text"),
+                    layout: Some(&pipeline_layout),
+                    vertex: wgpu::VertexState {
+                        module: &shader,
+                        entry_point: Some("vs_main"),
+                        buffers: &[quad_vertex_layout(), text_instance_vertex_layout()],
+                        compilation_options: wgpu::PipelineCompilationOptions::default(),
+                    },
+                    fragment: Some(wgpu::FragmentState {
+                        module: &shader,
+                        entry_point: Some("fs_main"),
+                        targets: &[Some(wgpu::ColorTargetState {
+                            format: gpu.config.format,
+                            blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
+                            write_mask: wgpu::ColorWrites::ALL,
+                        })],
+                        compilation_options: wgpu::PipelineCompilationOptions::default(),
+                    }),
+                    primitive: wgpu::PrimitiveState {
+                        topology: wgpu::PrimitiveTopology::TriangleStrip,
+                        strip_index_format: None,
+                        ..Default::default()
+                    },
+                    depth_stencil: Some(depth_stencil_state_read_only()),
+                    multisample: wgpu::MultisampleState {
+                        count: gpu.sample_count,
+                        mask: !0,
+                        alpha_to_coverage_enabled: false,
+                    },
+                    multiview_mask: None,
+                    cache: None,
+                });
+
+            self.pipelines.insert(
+                crate::primitive::PIPELINE_TEXT,
+                PipelineHandle {
+                    pipeline,
+                    label: "quad_text".to_string(),
                 },
             );
         }
@@ -919,18 +970,58 @@ pub fn spawn_pipeline_compilation(
                 wake();
             };
 
-            // 3 alpha-blended scene pipelines.
+            // Helper: compile the text pipeline with compact 4-attribute vertex layout.
+            let compile_text = |frag_source: &str, label: &str, sc: u32| -> wgpu::RenderPipeline {
+                let full_source = format!("{TEXT_SHADER_PREAMBLE}\n{frag_source}");
+                let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                    label: Some(label),
+                    source: wgpu::ShaderSource::Wgsl(full_source.into()),
+                });
+
+                let ds = Some(depth_stencil_state_read_only());
+
+                device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                    label: Some(label),
+                    layout: Some(&pipeline_layout),
+                    vertex: wgpu::VertexState {
+                        module: &shader,
+                        entry_point: Some("vs_main"),
+                        buffers: &[quad_vertex_layout(), text_instance_vertex_layout()],
+                        compilation_options: wgpu::PipelineCompilationOptions::default(),
+                    },
+                    fragment: Some(wgpu::FragmentState {
+                        module: &shader,
+                        entry_point: Some("fs_main"),
+                        targets: &[Some(wgpu::ColorTargetState {
+                            format,
+                            blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
+                            write_mask: wgpu::ColorWrites::ALL,
+                        })],
+                        compilation_options: wgpu::PipelineCompilationOptions::default(),
+                    }),
+                    primitive: wgpu::PrimitiveState {
+                        topology: wgpu::PrimitiveTopology::TriangleStrip,
+                        strip_index_format: None,
+                        ..Default::default()
+                    },
+                    depth_stencil: ds,
+                    multisample: wgpu::MultisampleState {
+                        count: sc,
+                        mask: !0,
+                        alpha_to_coverage_enabled: false,
+                    },
+                    multiview_mask: None,
+                    cache: None,
+                })
+            };
+
+            // Alpha-blended scene pipelines (SDF + 3D use full layout).
             let alpha_blend = Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING);
             for (id, frag, label) in [
                 (
                     crate::primitive::PIPELINE_SDF_2D,
                     SDF_2D_FRAGMENT_SOURCE,
                     "quad_sdf_2d",
-                ),
-                (
-                    crate::primitive::PIPELINE_TEXT,
-                    TEXT_FRAGMENT_SOURCE,
-                    "quad_text",
                 ),
                 (
                     crate::primitive::PIPELINE_3D,
@@ -940,6 +1031,13 @@ pub fn spawn_pipeline_compilation(
             ] {
                 let p = compile_scene(frag, label, alpha_blend, false, sample_count, true);
                 send(id, label, p);
+            }
+
+            // Text pipeline (compact 4-attribute layout).
+            {
+                let label = "quad_text";
+                let p = compile_text(TEXT_FRAGMENT_SOURCE, label, sample_count);
+                send(crate::primitive::PIPELINE_TEXT, label, p);
             }
 
             // Opaque SDF 2D (no blend, depth write).
@@ -1032,11 +1130,6 @@ pub fn spawn_pipeline_compilation(
                         "quad_sdf_2d_no_msaa",
                     ),
                     (
-                        crate::primitive::PIPELINE_TEXT,
-                        TEXT_FRAGMENT_SOURCE,
-                        "quad_text_no_msaa",
-                    ),
-                    (
                         crate::primitive::PIPELINE_3D,
                         RAYMARCHED_3D_FRAGMENT_SOURCE,
                         "quad_3d_no_msaa",
@@ -1044,6 +1137,17 @@ pub fn spawn_pipeline_compilation(
                 ] {
                     let p = compile_scene(frag, label, alpha_blend, false, 1, false);
                     send(ShaderId(id.0 + NO_MSAA_PIPELINE_OFFSET), label, p);
+                }
+
+                // Text no-MSAA uses compact layout.
+                {
+                    let label = "quad_text_no_msaa";
+                    let p = compile_text(TEXT_FRAGMENT_SOURCE, label, 1);
+                    send(
+                        ShaderId(crate::primitive::PIPELINE_TEXT.0 + NO_MSAA_PIPELINE_OFFSET),
+                        label,
+                        p,
+                    );
                 }
 
                 {
@@ -1432,6 +1536,39 @@ fn instance_vertex_layout() -> wgpu::VertexBufferLayout<'static> {
     }
 }
 
+/// Instance vertex attributes for TextQuadInstance (4 vec4 fields, locations 1–4).
+const TEXT_INSTANCE_VERTEX_ATTRIBUTES: [wgpu::VertexAttribute; 4] = [
+    wgpu::VertexAttribute {
+        offset: 0,
+        shader_location: 1,
+        format: wgpu::VertexFormat::Float32x4,
+    },
+    wgpu::VertexAttribute {
+        offset: 16,
+        shader_location: 2,
+        format: wgpu::VertexFormat::Float32x4,
+    },
+    wgpu::VertexAttribute {
+        offset: 32,
+        shader_location: 3,
+        format: wgpu::VertexFormat::Float32x4,
+    },
+    wgpu::VertexAttribute {
+        offset: 48,
+        shader_location: 4,
+        format: wgpu::VertexFormat::Float32x4,
+    },
+];
+
+/// Vertex buffer layout for TextQuadInstance (buffer slot 1, per-instance, 64 bytes).
+fn text_instance_vertex_layout() -> wgpu::VertexBufferLayout<'static> {
+    wgpu::VertexBufferLayout {
+        array_stride: size_of::<TextQuadInstance>() as u64,
+        step_mode: wgpu::VertexStepMode::Instance,
+        attributes: &TEXT_INSTANCE_VERTEX_ATTRIBUTES,
+    }
+}
+
 /// GPU resources for the instanced quad pipeline.
 pub struct RenderResources {
     /// Bind group layout for recreating bind groups.
@@ -1456,6 +1593,10 @@ pub struct RenderResources {
     sampler: wgpu::Sampler,
     /// Linear sampler for smooth texture sampling.
     linear_sampler: wgpu::Sampler,
+    /// Dedicated buffer for compact text instances (64 bytes each).
+    text_instance_buffer: wgpu::Buffer,
+    /// Capacity of the text instance buffer (in TextQuadInstances).
+    text_instance_capacity: u32,
     /// Consecutive frames where instance count < capacity/4 (for shrink hysteresis).
     pub underutilization_frames: u32,
     /// Monotonic counter incremented when bind group inputs change.
@@ -1497,6 +1638,14 @@ impl RenderResources {
             create_instance_buf("quad_instance_buffer_0"),
             create_instance_buf("quad_instance_buffer_1"),
         ];
+
+        // Text instance buffer (compact 64-byte instances).
+        let text_instance_buffer = gpu.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("text_instance_buffer"),
+            size: (initial_capacity as usize * size_of::<TextQuadInstance>()) as u64,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
 
         // Uniform buffer (32 bytes).
         let uniform_buffer = gpu.device.create_buffer(&wgpu::BufferDescriptor {
@@ -1595,6 +1744,8 @@ impl RenderResources {
             instance_buffers,
             instance_capacities: [initial_capacity; 2],
             current_buffer_index: 0,
+            text_instance_buffer,
+            text_instance_capacity: initial_capacity,
             uniform_buffer,
             bind_group,
             placeholder_texture,
@@ -1620,6 +1771,27 @@ impl RenderResources {
     /// Get the capacity of the currently active instance buffer.
     pub fn current_instance_capacity(&self) -> u32 {
         self.instance_capacities[self.current_buffer_index]
+    }
+
+    /// Get the text instance buffer.
+    pub fn text_instance_buffer(&self) -> &wgpu::Buffer {
+        &self.text_instance_buffer
+    }
+
+    /// Get the capacity of the text instance buffer.
+    pub fn text_instance_capacity(&self) -> u32 {
+        self.text_instance_capacity
+    }
+
+    /// Resize the text instance buffer if needed (grow only).
+    pub fn resize_text_buffer(&mut self, device: &wgpu::Device, new_cap: u32) {
+        self.text_instance_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("text_instance_buffer"),
+            size: (new_cap as usize * size_of::<TextQuadInstance>()) as u64,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        self.text_instance_capacity = new_cap;
     }
 
     /// Flip to the other instance buffer (ping-pong).
@@ -1816,6 +1988,76 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     out.clip_rect = in.inst_clip_rect;
     out.color2 = in.inst_color2;
     out.extra = in.inst_extra;
+
+    return out;
+}
+";
+
+/// Shader preamble for the text pipeline (compact 4-attribute vertex input).
+///
+/// Same uniforms, bindings, and `VertexOutput` as the full preamble, but with
+/// only 4 instance attributes (rect, uv, color, flags) matching `TextQuadInstance`.
+const TEXT_SHADER_PREAMBLE: &str = r"
+// ── Uniforms ──
+
+struct FrameUniforms {
+    viewport: vec4<f32>,
+    time: vec4<f32>,
+}
+
+@group(0) @binding(0) var<uniform> uniforms: FrameUniforms;
+@group(0) @binding(1) var atlas_texture: texture_2d_array<f32>;
+@group(0) @binding(2) var atlas_sampler: sampler;
+@group(0) @binding(3) var linear_sampler: sampler;
+@group(0) @binding(4) var image_texture: texture_2d_array<f32>;
+
+// ── Vertex I/O (compact text) ──
+
+struct VertexInput {
+    @location(0) quad_pos: vec2<f32>,
+    @location(1) inst_rect: vec4<f32>,
+    @location(2) inst_uv: vec4<f32>,
+    @location(3) inst_color: vec4<f32>,
+    @location(4) inst_flags: vec4<f32>,
+}
+
+struct VertexOutput {
+    @builtin(position) clip_position: vec4<f32>,
+    @location(0) color: vec4<f32>,
+    @location(1) local_pos: vec2<f32>,
+    @location(2) rect_size: vec2<f32>,
+    @location(3) border_radius: vec4<f32>,
+    @location(4) sdf_params: vec4<f32>,
+    @location(5) flags: vec4<f32>,
+    @location(6) uv: vec2<f32>,
+    @location(7) rect_origin: vec2<f32>,
+    @location(8) clip_rect: vec4<f32>,
+    @location(9) color2: vec4<f32>,
+    @location(10) extra: vec4<f32>,
+}
+
+@vertex
+fn vs_main(in: VertexInput) -> VertexOutput {
+    var out: VertexOutput;
+
+    let pixel_x = in.inst_rect.x + in.quad_pos.x * in.inst_rect.z;
+    let pixel_y = in.inst_rect.y + in.quad_pos.y * in.inst_rect.w;
+
+    let ndc_x = pixel_x * uniforms.viewport.z * 2.0 - 1.0;
+    let ndc_y = 1.0 - pixel_y * uniforms.viewport.w * 2.0;
+
+    out.clip_position = vec4<f32>(ndc_x, ndc_y, 0.0, 1.0);
+    out.color = in.inst_color;
+    out.local_pos = in.quad_pos;
+    out.rect_size = in.inst_rect.zw;
+    out.border_radius = vec4<f32>(0.0);
+    out.sdf_params = vec4<f32>(0.0);
+    out.flags = in.inst_flags;
+    out.uv = mix(in.inst_uv.xy, in.inst_uv.zw, in.quad_pos);
+    out.rect_origin = in.inst_rect.xy;
+    out.clip_rect = vec4<f32>(0.0);
+    out.color2 = vec4<f32>(0.0);
+    out.extra = vec4<f32>(0.0);
 
     return out;
 }

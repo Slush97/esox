@@ -62,7 +62,8 @@ pub use pipeline::{
 pub use primitive::{
     BlendMode, BorderRadius, PIPELINE_3D, PIPELINE_SDF_2D, PIPELINE_SDF_2D_ADDITIVE,
     PIPELINE_SDF_2D_MULTIPLY, PIPELINE_SDF_2D_OPAQUE, PIPELINE_SDF_2D_SCREEN, PIPELINE_TEXT,
-    Primitive, QuadInstance, Rect, ShaderId, ShaderParams, ShapeType, USER_SHADER_ID_MIN, UvRect,
+    Primitive, QuadInstance, Rect, ShaderId, ShaderParams, ShapeType, TextQuadInstance,
+    USER_SHADER_ID_MIN, UvRect,
 };
 pub use scene::{
     MAX_BATCH_PRIMITIVES, MAX_NODES, Node, NodeContent, NodeId, ResolvedPrimitive, Scene,

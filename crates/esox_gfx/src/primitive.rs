@@ -558,6 +558,34 @@ pub struct QuadInstance {
     pub extra: [f32; 4],
 }
 
+/// Compact GPU-ready instance for text/image quads (64 bytes).
+///
+/// Used by `PIPELINE_TEXT` to halve GPU upload bandwidth for glyphs, which
+/// don't need border radii, SDF params, gradients, or secondary colors.
+#[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+#[repr(C)]
+pub struct TextQuadInstance {
+    /// Position and size: [x, y, width, height].
+    pub rect: [f32; 4],
+    /// UV coordinates: [u0, v0, u1, v1].
+    pub uv: [f32; 4],
+    /// RGBA color (linear, premultiplied).
+    pub color: [f32; 4],
+    /// Flags: [shape_type, color_flag, opacity, atlas_layer].
+    pub flags: [f32; 4],
+}
+
+impl From<&QuadInstance> for TextQuadInstance {
+    fn from(q: &QuadInstance) -> Self {
+        Self {
+            rect: q.rect,
+            uv: q.uv,
+            color: q.color,
+            flags: q.flags,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -565,6 +593,31 @@ mod tests {
     #[test]
     fn quad_instance_is_144_bytes() {
         assert_eq!(size_of::<QuadInstance>(), 144);
+    }
+
+    #[test]
+    fn text_quad_instance_is_64_bytes() {
+        assert_eq!(size_of::<TextQuadInstance>(), 64);
+    }
+
+    #[test]
+    fn text_quad_from_quad_preserves_fields() {
+        let q = QuadInstance {
+            rect: [10.0, 20.0, 30.0, 40.0],
+            uv: [0.1, 0.2, 0.3, 0.4],
+            color: [1.0, 0.5, 0.0, 1.0],
+            flags: [7.0, 0.0, 1.0, 3.0],
+            border_radius: [0.0; 4],
+            sdf_params: [0.0; 4],
+            clip_rect: [0.0; 4],
+            color2: [0.0; 4],
+            extra: [0.0; 4],
+        };
+        let t = TextQuadInstance::from(&q);
+        assert_eq!(t.rect, q.rect);
+        assert_eq!(t.uv, q.uv);
+        assert_eq!(t.color, q.color);
+        assert_eq!(t.flags, q.flags);
     }
 
     #[test]
