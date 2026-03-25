@@ -9,6 +9,7 @@ members = [
     "examples/demo",
     "examples/layout_showcase",
     "examples/material_showcase",
+    "examples/google_showcase",
 ]
 
 [workspace.package]
