@@ -987,6 +987,8 @@ pub struct UiState {
     pub(crate) mouse_moved: bool,
     /// Rects of widgets with active animations, for targeted animation damage.
     pub(crate) anim_rects: HashMap<u64, Rect>,
+    /// Whether the most recently completed frame had any damage (latched before reset).
+    frame_had_damage: bool,
 }
 
 /// IME (Input Method Editor) composition state.
@@ -1058,6 +1060,7 @@ impl UiState {
             prev_max_scroll: HashMap::new(),
             mouse_moved: false,
             anim_rects: HashMap::new(),
+            frame_had_damage: true,
         }
     }
 
@@ -1281,12 +1284,14 @@ impl UiState {
             || self.spinner_active
     }
 
-    /// Whether the damage tracker indicates a redraw is needed.
+    /// Whether the most recently completed frame had any damage.
     ///
-    /// This is a frame-skip check: returns `false` when nothing changed
-    /// since the last frame, allowing the platform to skip GPU submission.
+    /// This is a frame-skip check: returns `false` when nothing changed,
+    /// allowing the platform to skip GPU submission. The value is latched
+    /// in `end_frame()` before `damage.reset()` so it remains valid after
+    /// `on_redraw()` returns.
     pub fn needs_redraw(&self) -> bool {
-        self.damage.is_full_invalidation() || self.damage.regions().is_some_and(|r| !r.is_empty())
+        self.frame_had_damage
     }
 
     /// Get or update a hover animation, returning the current interpolation value.
@@ -1569,6 +1574,9 @@ impl UiState {
             .find(|(r, _, _)| r.contains(self.mouse.x, self.mouse.y))
             .map(|(_, id, _)| *id);
         self.prev_focused = self.focused;
+        // Latch damage state before reset so the platform can check it after on_redraw().
+        self.frame_had_damage = self.damage.is_full_invalidation()
+            || self.damage.regions().is_some_and(|r| !r.is_empty());
         // Reset damage tracker for next frame.
         self.damage.reset();
     }
