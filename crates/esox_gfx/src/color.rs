@@ -105,6 +105,54 @@ impl Color {
             linear_to_srgb(self.b),
         ]
     }
+
+    /// WCAG 2.1 relative luminance, treating RGB as sRGB-space floats.
+    ///
+    /// Theme colors are authored as sRGB-space values via `Color::new()`,
+    /// so this converts each channel from sRGB to linear before computing
+    /// `L = 0.2126·R + 0.7152·G + 0.0722·B`.
+    pub fn relative_luminance(self) -> f32 {
+        0.2126 * srgb_float_to_linear(self.r)
+            + 0.7152 * srgb_float_to_linear(self.g)
+            + 0.0722 * srgb_float_to_linear(self.b)
+    }
+
+    /// WCAG 2.1 contrast ratio between two colors.
+    ///
+    /// Returns a value between 1.0 (identical) and 21.0 (black on white).
+    pub fn contrast_ratio(self, other: Color) -> f32 {
+        let l1 = self.relative_luminance();
+        let l2 = other.relative_luminance();
+        let (lighter, darker) = if l1 > l2 { (l1, l2) } else { (l2, l1) };
+        (lighter + 0.05) / (darker + 0.05)
+    }
+
+    /// Whether this foreground color on the given background meets WCAG AA.
+    ///
+    /// Requires 4.5:1 for normal text, 3.0:1 for large text (≥18px or ≥14px bold).
+    pub fn meets_wcag_aa(self, bg: Color, large_text: bool) -> bool {
+        let threshold = if large_text { 3.0 } else { 4.5 };
+        self.contrast_ratio(bg) >= threshold
+    }
+
+    /// Whether this foreground color on the given background meets WCAG AAA.
+    ///
+    /// Requires 7.0:1 for normal text, 4.5:1 for large text.
+    pub fn meets_wcag_aaa(self, bg: Color, large_text: bool) -> bool {
+        let threshold = if large_text { 4.5 } else { 7.0 };
+        self.contrast_ratio(bg) >= threshold
+    }
+}
+
+/// Convert an sRGB-space float (0.0–1.0) to linear.
+///
+/// Same transfer curve as [`srgb_to_linear`] but operates on floats directly.
+fn srgb_float_to_linear(s: f32) -> f32 {
+    if s <= 0.04045 {
+        s / 12.92
+    } else {
+        ((s + 0.055) / 1.055).powf(2.4)
+    }
 }
 
 /// Convert a single sRGB byte to a linear float.
@@ -251,5 +299,49 @@ mod tests {
     fn pod_layout() {
         // Color must be 16 bytes (4 × f32) for GPU upload.
         assert_eq!(size_of::<Color>(), 16);
+    }
+
+    #[test]
+    fn contrast_ratio_black_on_white() {
+        let ratio = Color::BLACK.contrast_ratio(Color::WHITE);
+        assert!((ratio - 21.0).abs() < 0.1, "expected ~21:1, got {ratio}");
+    }
+
+    #[test]
+    fn contrast_ratio_white_on_white() {
+        let ratio = Color::WHITE.contrast_ratio(Color::WHITE);
+        assert!((ratio - 1.0).abs() < 0.01, "expected ~1:1, got {ratio}");
+    }
+
+    #[test]
+    fn contrast_ratio_is_symmetric() {
+        let a = Color::new(0.5, 0.3, 0.1, 1.0);
+        let b = Color::new(0.9, 0.9, 0.9, 1.0);
+        assert!((a.contrast_ratio(b) - b.contrast_ratio(a)).abs() < 1e-6);
+    }
+
+    #[test]
+    fn meets_wcag_aa_black_on_white() {
+        assert!(Color::BLACK.meets_wcag_aa(Color::WHITE, false));
+        assert!(Color::BLACK.meets_wcag_aa(Color::WHITE, true));
+    }
+
+    #[test]
+    fn meets_wcag_aaa_black_on_white() {
+        assert!(Color::BLACK.meets_wcag_aaa(Color::WHITE, false));
+        assert!(Color::BLACK.meets_wcag_aaa(Color::WHITE, true));
+    }
+
+    #[test]
+    fn low_contrast_fails_wcag_aa() {
+        // Light gray on white — poor contrast.
+        let light_gray = Color::new(0.85, 0.85, 0.85, 1.0);
+        assert!(!light_gray.meets_wcag_aa(Color::WHITE, false));
+    }
+
+    #[test]
+    fn relative_luminance_bounds() {
+        assert!(Color::BLACK.relative_luminance() < 0.01);
+        assert!((Color::WHITE.relative_luminance() - 1.0).abs() < 0.01);
     }
 }
