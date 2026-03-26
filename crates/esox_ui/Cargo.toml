@@ -5,9 +5,14 @@ edition = "2021" # TODO: migrate to 2024 (reserved `gen` keyword, pattern bindin
 license.workspace = true
 description = "Immediate-mode GPU widget toolkit for native Linux applications"
 
+[features]
+default = []
+markup = ["dep:esox_markup"]
+
 [dependencies]
 esox_gfx = { workspace = true }
 esox_font = { workspace = true }
+esox_markup = { workspace = true, optional = true }
 image = { workspace = true }
 wgpu = { workspace = true }
 esox_input = { workspace = true }

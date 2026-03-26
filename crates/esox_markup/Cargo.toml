@@ -1,0 +1,11 @@
+[package]
+name = "esox_markup"
+description = "Indentation-based UI markup language for esox"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+
+[dev-dependencies]

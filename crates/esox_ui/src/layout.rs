@@ -269,7 +269,7 @@ impl Spacing {
 // ── Grid layout types ──
 
 /// A single grid track (row or column) size definition.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum GridTrack {
     /// Fixed size in logical pixels.
     Fixed(f32),

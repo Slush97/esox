@@ -36,6 +36,8 @@
 
 pub mod a11y;
 pub mod id;
+#[cfg(feature = "markup")]
+pub mod interpret;
 pub mod layout;
 pub mod layout_tree;
 pub mod paint;

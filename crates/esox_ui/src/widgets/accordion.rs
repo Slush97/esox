@@ -28,7 +28,7 @@ impl<'f> Ui<'f> {
         id: u64,
         sections: &[&str],
         open_index: &mut Option<usize>,
-        content: impl Fn(&mut Self, usize),
+        mut content: impl FnMut(&mut Self, usize),
     ) {
         for (i, &title) in sections.iter().enumerate() {
             let section_id = fnv1a_mix(id, i as u64);
