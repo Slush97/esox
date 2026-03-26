@@ -104,10 +104,11 @@ impl<'f> Ui<'f> {
             let text_x = rect.x + pad;
             let text_y = rect.y + pad;
             if input.text.is_empty() {
-                self.text.draw_ui_text(
+                self.text.draw_text(
                     placeholder,
                     text_x,
                     text_y,
+                    font_size,
                     self.theme.disabled_fg,
                     self.frame,
                     self.gpu,
@@ -121,10 +122,11 @@ impl<'f> Ui<'f> {
                     let ls = line_start_of_nth(&input.text, i);
                     let le = line_end(&input.text, ls);
                     let line = &input.text[ls..le];
-                    self.text.draw_ui_text(
+                    self.text.draw_text(
                         line,
                         text_x,
                         text_y + i as f32 * lh,
+                        font_size,
                         self.theme.disabled_fg,
                         self.frame,
                         self.gpu,
@@ -295,10 +297,11 @@ impl<'f> Ui<'f> {
 
         if input.text.is_empty() && !response.focused {
             // Placeholder.
-            self.text.draw_ui_text(
+            self.text.draw_text(
                 placeholder,
                 text_x,
                 text_y,
+                font_size,
                 self.theme.fg_dim,
                 self.frame,
                 self.gpu,
@@ -339,10 +342,11 @@ impl<'f> Ui<'f> {
             }
 
             // Text.
-            self.text.draw_ui_text(
+            self.text.draw_text(
                 line,
                 text_x,
                 ly,
+                font_size,
                 self.theme.fg,
                 self.frame,
                 self.gpu,
@@ -370,10 +374,11 @@ impl<'f> Ui<'f> {
                         .build(),
                 );
                 // Preedit text.
-                self.text.draw_ui_text(
+                self.text.draw_text(
                     &self.state.ime.preedit,
                     cx,
                     cy,
+                    font_size,
                     self.theme.fg_dim,
                     self.frame,
                     self.gpu,
@@ -516,10 +521,11 @@ impl<'f> Ui<'f> {
             let text_x = rect.x + pad;
             let text_y = rect.y + pad;
             if input.text.is_empty() {
-                self.text.draw_ui_text(
+                self.text.draw_text(
                     placeholder,
                     text_x,
                     text_y,
+                    font_size,
                     self.theme.disabled_fg,
                     self.frame,
                     self.gpu,
@@ -530,10 +536,11 @@ impl<'f> Ui<'f> {
                     build_visual_lines(&input.text, self.text, font_size, content_width);
                 for (i, vl) in visual_lines.iter().take(rows).enumerate() {
                     let line = &input.text[vl.text_start..vl.text_end];
-                    self.text.draw_ui_text(
+                    self.text.draw_text(
                         line,
                         text_x,
                         text_y + i as f32 * lh,
+                        font_size,
                         self.theme.disabled_fg,
                         self.frame,
                         self.gpu,
@@ -788,10 +795,11 @@ impl<'f> Ui<'f> {
         let text_y = rect.y + pad;
 
         if input.text.is_empty() && !response.focused {
-            self.text.draw_ui_text(
+            self.text.draw_text(
                 placeholder,
                 text_x,
                 text_y,
+                font_size,
                 self.theme.fg_dim,
                 self.frame,
                 self.gpu,
@@ -836,10 +844,11 @@ impl<'f> Ui<'f> {
                 }
             }
 
-            self.text.draw_ui_text(
+            self.text.draw_text(
                 line,
                 text_x,
                 ly,
+                font_size,
                 self.theme.fg,
                 self.frame,
                 self.gpu,
@@ -865,10 +874,11 @@ impl<'f> Ui<'f> {
                         .color(self.theme.fg_dim)
                         .build(),
                 );
-                self.text.draw_ui_text(
+                self.text.draw_text(
                     &self.state.ime.preedit,
                     cx,
                     cy,
+                    font_size,
                     self.theme.fg_dim,
                     self.frame,
                     self.gpu,

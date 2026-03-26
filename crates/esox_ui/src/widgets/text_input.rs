@@ -64,6 +64,8 @@ impl<'f> Ui<'f> {
             children: Vec::new(),
         });
 
+        let fs = self.theme.font_size;
+
         if disabled {
             // ── Disabled draw ──
             paint::draw_rounded_rect(
@@ -81,22 +83,24 @@ impl<'f> Ui<'f> {
                 self.theme.disabled_dash_thickness,
             );
             let text_x = rect.x + self.theme.input_padding;
-            let text_y = rect.y + (rect.h - self.theme.font_size) / 2.0;
+            let text_y = rect.y + (rect.h - fs) / 2.0;
             if input.text.is_empty() {
-                self.text.draw_ui_text(
+                self.text.draw_text(
                     placeholder,
                     text_x,
                     text_y,
+                    fs,
                     self.theme.disabled_fg,
                     self.frame,
                     self.gpu,
                     self.resources,
                 );
             } else {
-                self.text.draw_ui_text(
+                self.text.draw_text(
                     &input.text,
                     text_x,
                     text_y,
+                    fs,
                     self.theme.disabled_fg,
                     self.frame,
                     self.gpu,
@@ -226,15 +230,16 @@ impl<'f> Ui<'f> {
         paint::draw_rounded_border(self.frame, rect, border_color, self.theme.corner_radius);
 
         let text_x = rect.x + self.theme.input_padding;
-        let text_y = rect.y + (rect.h - self.theme.font_size) / 2.0;
+        let text_y = rect.y + (rect.h - fs) / 2.0;
         let inner_w = rect.w - self.theme.input_padding * 2.0;
 
         if input.text.is_empty() && !response.focused {
             // Placeholder.
-            self.text.draw_ui_text(
+            self.text.draw_text(
                 placeholder,
                 text_x,
                 text_y,
+                fs,
                 self.theme.fg_dim,
                 self.frame,
                 self.gpu,
@@ -247,14 +252,8 @@ impl<'f> Ui<'f> {
 
         // Selection highlight.
         if let Some((sel_start, sel_end)) = input.selection {
-            let sel_x0 = self
-                .text
-                .measure_text(&input.text[..sel_start], self.theme.font_size)
-                - scroll;
-            let sel_x1 = self
-                .text
-                .measure_text(&input.text[..sel_end], self.theme.font_size)
-                - scroll;
+            let sel_x0 = self.text.measure_cursor_x(&input.text, fs, sel_start) - scroll;
+            let sel_x1 = self.text.measure_cursor_x(&input.text, fs, sel_end) - scroll;
             let sel_left = sel_x0.max(0.0);
             let sel_right = sel_x1.min(inner_w);
             if sel_right > sel_left {
@@ -277,10 +276,11 @@ impl<'f> Ui<'f> {
             _ => self.theme.fg,
         };
         if !input.text.is_empty() {
-            self.text.draw_ui_text(
+            self.text.draw_text(
                 &input.text,
                 text_x - scroll,
                 text_y,
+                fs,
                 text_color,
                 self.frame,
                 self.gpu,
@@ -290,13 +290,9 @@ impl<'f> Ui<'f> {
 
         // IME preedit rendering.
         if response.focused && !self.state.ime.preedit.is_empty() {
-            let cursor_x_in_text = self
-                .text
-                .measure_text(&input.text[..input.cursor], self.theme.font_size);
+            let cursor_x_in_text = self.text.measure_cursor_x(&input.text, fs, input.cursor);
             let preedit_x = text_x + cursor_x_in_text - scroll;
-            let preedit_w = self
-                .text
-                .measure_text(&self.state.ime.preedit, self.theme.font_size);
+            let preedit_w = self.text.measure_text(&self.state.ime.preedit, fs);
             // Underline.
             self.frame.push(
                 ShapeBuilder::rect(
@@ -309,10 +305,11 @@ impl<'f> Ui<'f> {
                 .build(),
             );
             // Preedit text.
-            self.text.draw_ui_text(
+            self.text.draw_text(
                 &self.state.ime.preedit,
                 preedit_x,
                 text_y,
+                fs,
                 self.theme.fg_dim,
                 self.frame,
                 self.gpu,
@@ -322,28 +319,22 @@ impl<'f> Ui<'f> {
 
         // Cursor.
         if response.focused && self.state.cursor_blink {
-            let cursor_x_in_text = self
-                .text
-                .measure_text(&input.text[..input.cursor], self.theme.font_size);
+            let cursor_x_in_text = self.text.measure_cursor_x(&input.text, fs, input.cursor);
             let cx = text_x + cursor_x_in_text - scroll;
             // Offset cursor past preedit if active.
             let preedit_offset = if !self.state.ime.preedit.is_empty() {
-                self.text
-                    .measure_text(&self.state.ime.preedit, self.theme.font_size)
+                self.text.measure_text(&self.state.ime.preedit, fs)
             } else {
                 0.0
             };
             let cx = cx + preedit_offset;
             if cx >= text_x - 1.0 && cx <= text_x + inner_w + 1.0 {
+                let line_h = self.text.line_height(fs);
+                let cursor_top = rect.y + (rect.h - line_h) / 2.0;
                 self.frame.push(
-                    ShapeBuilder::rect(
-                        cx,
-                        rect.y + self.theme.label_pad_y + 2.0,
-                        self.theme.cursor_width,
-                        rect.h - self.theme.label_pad_y * 2.0 - 4.0,
-                    )
-                    .color(self.theme.fg)
-                    .build(),
+                    ShapeBuilder::rect(cx, cursor_top, self.theme.cursor_width, line_h)
+                        .color(self.theme.fg)
+                        .build(),
                 );
             }
         }
@@ -458,7 +449,7 @@ fn update_scroll(
     inner_w: f32,
     font_size: f32,
 ) {
-    let cursor_x = text.measure_text(&input.text[..input.cursor], font_size);
+    let cursor_x = text.measure_cursor_x(&input.text, font_size, input.cursor);
     if cursor_x - input.scroll_offset > inner_w {
         input.scroll_offset = cursor_x - inner_w;
     }

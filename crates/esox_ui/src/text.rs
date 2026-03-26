@@ -832,6 +832,27 @@ impl TextRenderer {
         }
     }
 
+    /// Measure the advance of the full text up to byte offset `cursor`.
+    ///
+    /// Unlike [`Self::measure_text`] on a substring, this shapes the **entire**
+    /// text and sums advances only for glyphs whose cluster is before `cursor`.
+    /// This avoids kerning/shaping drift between substring measurement and
+    /// full-text rendering.
+    pub fn measure_cursor_x(&mut self, text: &str, size: f32, cursor: usize) -> f32 {
+        if text.is_empty() || cursor == 0 {
+            return 0.0;
+        }
+        let glyphs = self.resolve_glyphs(text, size);
+        let mut advance = 0.0_f32;
+        for glyph in &glyphs {
+            if (glyph.cluster as usize) >= cursor {
+                break;
+            }
+            advance += glyph.x_advance;
+        }
+        advance
+    }
+
     /// Map a pixel x-offset to the nearest byte offset in `text`.
     ///
     /// Uses the cached shaped run to walk glyph advances in O(glyphs) without
