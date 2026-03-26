@@ -346,6 +346,37 @@ impl Frame {
         }
     }
 
+    /// Apply a 2D transform (translate + scale) to instances in range `[start, end)`.
+    ///
+    /// Scaling is applied relative to `center_x, center_y` — the visual center
+    /// of the group — so that content scales from its midpoint.
+    #[allow(clippy::too_many_arguments)] // Transform parameters are inherently multi-dimensional.
+    pub fn transform_instances(
+        &mut self,
+        start: usize,
+        end: usize,
+        dx: f32,
+        dy: f32,
+        sx: f32,
+        sy: f32,
+        center_x: f32,
+        center_y: f32,
+    ) {
+        let end = end.min(self.instances.len());
+        for inst in &mut self.instances[start..end] {
+            // Scale relative to center.
+            if (sx - 1.0).abs() > 1e-6 || (sy - 1.0).abs() > 1e-6 {
+                inst.rect[0] = center_x + (inst.rect[0] - center_x) * sx;
+                inst.rect[1] = center_y + (inst.rect[1] - center_y) * sy;
+                inst.rect[2] *= sx;
+                inst.rect[3] *= sy;
+            }
+            // Translate.
+            inst.rect[0] += dx;
+            inst.rect[1] += dy;
+        }
+    }
+
     /// Set the active clip rect. All subsequent `push()` / `extend_instances()` calls
     /// will stamp this clip onto every instance. Pass `None` to disable.
     pub fn set_active_clip(&mut self, clip: Option<[f32; 4]>) {

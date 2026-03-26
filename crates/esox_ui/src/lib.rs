@@ -62,7 +62,7 @@ pub use state::{
 pub use text::{TextRenderer, TruncationMode};
 pub use theme::{
     Elevation, Gradient, SpacingScale, StyleState, TextAlign, TextDecoration, TextSize,
-    TextTransform, Theme, ThemeBuilder, ThemeTransition, WidgetStyle,
+    TextTransform, Theme, ThemeBuilder, ThemeTransition, Transform2D, WidgetStyle,
 };
 pub use widgets::form::FieldStatus;
 pub use widgets::image::{ImageCache, ImageHandle};
@@ -1432,6 +1432,35 @@ impl<'f> Ui<'f> {
         self.style_stack.push(style);
         f(self);
         self.style_stack.pop();
+    }
+
+    /// Run a closure with a 2D transform applied to all emitted GPU instances.
+    ///
+    /// Translation is always applied. Scaling is relative to the visual center
+    /// of the content emitted by the closure.
+    pub fn with_transform(&mut self, t: theme::Transform2D, f: impl FnOnce(&mut Self)) {
+        let start = self.frame.instance_len();
+        let start_y = self.cursor.y;
+        f(self);
+        let end = self.frame.instance_len();
+
+        if start == end {
+            return;
+        }
+
+        let center_x = self.region.x + self.region.w * 0.5;
+        let center_y = (start_y + self.cursor.y) * 0.5;
+
+        self.frame.transform_instances(
+            start,
+            end,
+            t.translate_x,
+            t.translate_y,
+            t.scale_x,
+            t.scale_y,
+            center_x,
+            center_y,
+        );
     }
 
     /// Run a closure with GPU clipping: children that overflow the current

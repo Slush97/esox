@@ -98,6 +98,46 @@ pub enum SpacingScale {
     Custom(f32),
 }
 
+/// 2D transform applied to a widget's GPU output.
+#[derive(Debug, Clone, Copy)]
+pub struct Transform2D {
+    pub translate_x: f32,
+    pub translate_y: f32,
+    pub scale_x: f32,
+    pub scale_y: f32,
+}
+
+impl Default for Transform2D {
+    fn default() -> Self {
+        Self {
+            translate_x: 0.0,
+            translate_y: 0.0,
+            scale_x: 1.0,
+            scale_y: 1.0,
+        }
+    }
+}
+
+impl Transform2D {
+    /// Translation only.
+    pub fn translate(x: f32, y: f32) -> Self {
+        Self {
+            translate_x: x,
+            translate_y: y,
+            ..Self::default()
+        }
+    }
+
+    /// Uniform scale.
+    pub fn scale(s: f32) -> Self {
+        Self {
+            scale_x: s,
+            scale_y: s,
+            ..Self::default()
+        }
+    }
+}
+
 /// Text decoration style.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TextDecoration {
@@ -176,6 +216,10 @@ pub struct WidgetStyle {
     pub text_decoration: Option<TextDecoration>,
     /// Text transformation (uppercase, lowercase, capitalize).
     pub text_transform: Option<TextTransform>,
+
+    // ── Phase 5 additions ──
+    /// 2D transform (translate, scale) applied to GPU output.
+    pub transform: Option<Transform2D>,
 }
 
 /// Complete UI theme — all visual properties in one place.

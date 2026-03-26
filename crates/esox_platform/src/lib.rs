@@ -300,6 +300,22 @@ pub(crate) fn convert_cursor_icon(icon: esox_input::CursorIcon) -> winit::window
         esox_input::CursorIcon::ColResize => winit::window::CursorIcon::ColResize,
         esox_input::CursorIcon::RowResize => winit::window::CursorIcon::RowResize,
         esox_input::CursorIcon::NotAllowed => winit::window::CursorIcon::NotAllowed,
+        esox_input::CursorIcon::Crosshair => winit::window::CursorIcon::Crosshair,
+        esox_input::CursorIcon::Move => winit::window::CursorIcon::Move,
+        esox_input::CursorIcon::NResize => winit::window::CursorIcon::NResize,
+        esox_input::CursorIcon::SResize => winit::window::CursorIcon::SResize,
+        esox_input::CursorIcon::EResize => winit::window::CursorIcon::EResize,
+        esox_input::CursorIcon::WResize => winit::window::CursorIcon::WResize,
+        esox_input::CursorIcon::NeResize => winit::window::CursorIcon::NeResize,
+        esox_input::CursorIcon::NwResize => winit::window::CursorIcon::NwResize,
+        esox_input::CursorIcon::SeResize => winit::window::CursorIcon::SeResize,
+        esox_input::CursorIcon::SwResize => winit::window::CursorIcon::SwResize,
+        esox_input::CursorIcon::Wait => winit::window::CursorIcon::Wait,
+        esox_input::CursorIcon::Progress => winit::window::CursorIcon::Progress,
+        esox_input::CursorIcon::Help => winit::window::CursorIcon::Help,
+        esox_input::CursorIcon::ZoomIn => winit::window::CursorIcon::ZoomIn,
+        esox_input::CursorIcon::ZoomOut => winit::window::CursorIcon::ZoomOut,
+        esox_input::CursorIcon::Copy => winit::window::CursorIcon::Copy,
     }
 }
 
