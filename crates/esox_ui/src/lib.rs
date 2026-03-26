@@ -59,8 +59,8 @@ pub use state::{
 };
 pub use text::{TextRenderer, TruncationMode};
 pub use theme::{
-    Elevation, SpacingScale, StyleState, TextAlign, TextSize, Theme, ThemeBuilder, ThemeTransition,
-    WidgetStyle,
+    Elevation, Gradient, SpacingScale, StyleState, TextAlign, TextSize, Theme, ThemeBuilder,
+    ThemeTransition, WidgetStyle,
 };
 pub use widgets::form::FieldStatus;
 pub use widgets::image::{ImageCache, ImageHandle};
@@ -1318,6 +1318,24 @@ impl<'f> Ui<'f> {
         self.style_stack.pop();
     }
 
+    /// Run a closure with GPU clipping: children that overflow the current
+    /// region are visually clipped (like CSS `overflow: hidden`).
+    pub fn clip_children(&mut self, f: impl FnOnce(&mut Self)) {
+        let clip_rect =
+            layout::Rect::new(self.cursor.x, self.cursor.y, self.region.w, self.region.h);
+        let saved_clip = self.frame.active_clip();
+        let gpu_clip = match saved_clip {
+            Some(prev) => {
+                let prev_rect = layout::Rect::new(prev[0], prev[1], prev[2], prev[3]);
+                clip_rect.intersect(&prev_rect).unwrap_or(clip_rect)
+            }
+            None => clip_rect,
+        };
+        self.frame.set_active_clip(Some(gpu_clip.to_clip_array()));
+        f(self);
+        self.frame.set_active_clip(saved_clip);
+    }
+
     /// Resolve foreground color: style stack override or theme default.
     pub(crate) fn resolve_fg(&self) -> Color {
         for s in self.style_stack.iter().rev() {
@@ -1492,6 +1510,33 @@ impl<'f> Ui<'f> {
             }
         }
         None
+    }
+
+    /// Resolve gradient override from the style stack.
+    #[allow(dead_code)]
+    pub(crate) fn resolve_gradient(&self) -> Option<theme::Gradient> {
+        for s in self.style_stack.iter().rev() {
+            if let Some(g) = s.gradient {
+                return Some(g);
+            }
+        }
+        None
+    }
+
+    /// Resolve per-corner border radius: style stack override, or uniform from corner_radius.
+    #[allow(dead_code)]
+    pub(crate) fn resolve_border_radius(&self) -> esox_gfx::BorderRadius {
+        for s in self.style_stack.iter().rev() {
+            if let Some([tl, tr, bl, br]) = s.per_corner_radius {
+                return esox_gfx::BorderRadius {
+                    top_left: tl,
+                    top_right: tr,
+                    bottom_left: bl,
+                    bottom_right: br,
+                };
+            }
+        }
+        esox_gfx::BorderRadius::uniform(self.resolve_corner_radius())
     }
 
     /// Access the theme.

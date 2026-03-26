@@ -98,6 +98,17 @@ pub enum SpacingScale {
     Custom(f32),
 }
 
+/// Background gradient applied to a widget rectangle.
+#[derive(Debug, Clone, Copy)]
+pub enum Gradient {
+    /// Linear gradient at the given angle (radians).
+    Linear { end_color: Color, angle: f32 },
+    /// Radial gradient from center to edge.
+    Radial { end_color: Color },
+    /// Conic (angular) gradient.
+    Conic { end_color: Color, start_angle: f32 },
+}
+
 /// Per-widget style overrides, pushed onto a stack via `Ui::with_style`.
 #[derive(Debug, Clone, Default)]
 pub struct WidgetStyle {
@@ -135,6 +146,12 @@ pub struct WidgetStyle {
     pub width: Option<f32>,
     /// Horizontal text alignment for label-type widgets.
     pub text_align: Option<TextAlign>,
+
+    // ── Phase 2 additions ──
+    /// Background gradient (applied over `bg` color).
+    pub gradient: Option<Gradient>,
+    /// Per-corner border radius `[top_left, top_right, bottom_left, bottom_right]`.
+    pub per_corner_radius: Option<[f32; 4]>,
 }
 
 /// Complete UI theme — all visual properties in one place.

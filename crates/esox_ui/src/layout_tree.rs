@@ -17,6 +17,8 @@ pub enum Overflow {
     Visible,
     /// Children are measured at intrinsic height (for scroll containers).
     Scroll,
+    /// Children are visually clipped to the container bounds (no scrollbar).
+    Hidden,
 }
 
 // ── Node identity ──

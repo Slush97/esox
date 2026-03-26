@@ -13,7 +13,7 @@
 //! });
 //! ```
 
-use esox_gfx::Color;
+use esox_gfx::{BorderRadius, Color};
 
 use crate::layout::Rect;
 use crate::paint;
@@ -66,7 +66,7 @@ impl<'a, 'f> ContainerBuilder<'a, 'f> {
     /// Draw the container with the given content closure.
     pub fn show(self, f: impl FnOnce(&mut Ui<'f>)) {
         let bg = self.bg.unwrap_or(self.ui.theme.bg_raised);
-        let radius = self.radius;
+        let radius = BorderRadius::uniform(self.radius);
         let pad = self.pad;
         let content_spacing = self.ui.theme.content_spacing;
         let card_gap = self.ui.theme.card_gap;
@@ -88,6 +88,7 @@ impl<'a, 'f> ContainerBuilder<'a, 'f> {
         let container_rect =
             Rect::new(self.ui.region.x, start_y, self.ui.region.w, end_y - start_y);
 
+        // Replace placeholder with styled background.
         self.ui.frame.replace_instance(
             placeholder_idx,
             esox_gfx::ShapeBuilder::rect(
@@ -97,7 +98,7 @@ impl<'a, 'f> ContainerBuilder<'a, 'f> {
                 container_rect.h,
             )
             .color(bg)
-            .border_radius(esox_gfx::BorderRadius::uniform(radius))
+            .border_radius(radius)
             .build(),
         );
 
@@ -110,10 +111,30 @@ impl<'a, 'f> ContainerBuilder<'a, 'f> {
                     container_rect.h,
                 )
                 .color(border_color)
-                .border_radius(esox_gfx::BorderRadius::uniform(radius))
+                .border_radius(radius)
                 .stroke(self.border_width)
                 .build(),
             );
+        }
+
+        if let Some(ref elev) = self.elevation {
+            if elev.blur > 0.001 {
+                // Re-draw background with shadow (replaces the placeholder).
+                self.ui.frame.replace_instance(
+                    placeholder_idx,
+                    esox_gfx::ShapeBuilder::rect(
+                        container_rect.x,
+                        container_rect.y,
+                        container_rect.w,
+                        container_rect.h,
+                    )
+                    .color(bg)
+                    .border_radius(radius)
+                    .shadow(elev.blur, elev.dx, elev.dy)
+                    .color2(elev.color)
+                    .build(),
+                );
+            }
         }
 
         self.ui.cursor.y += card_gap;

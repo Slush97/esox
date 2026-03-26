@@ -3,7 +3,7 @@
 use esox_gfx::{BorderRadius, Color, Frame, ShapeBuilder};
 
 use crate::layout::Rect;
-use crate::theme::Elevation;
+use crate::theme::{Elevation, Gradient};
 
 /// Draw a 1px solid border around a rectangle (non-rounded).
 pub fn draw_border(frame: &mut Frame, rect: Rect, color: Color) {
@@ -153,6 +153,105 @@ pub fn draw_dashed_border(
                 .build(),
         );
         dy += dash + gap;
+    }
+}
+
+/// Draw a fully-styled rectangle with gradient, shadow, border, and opacity.
+///
+/// This is the primary drawing function for widgets that need per-widget
+/// visual customization. All parameters are optional via the resolver system.
+#[allow(clippy::too_many_arguments)] // Visual properties are inherently multi-dimensional.
+pub fn draw_styled_rect(
+    frame: &mut Frame,
+    rect: Rect,
+    bg: Color,
+    gradient: Option<Gradient>,
+    radius: BorderRadius,
+    border_color: Option<Color>,
+    border_width: f32,
+    elevation: Option<&Elevation>,
+    opacity: f32,
+) {
+    // Background fill (with optional gradient and shadow).
+    let mut builder = ShapeBuilder::rect(rect.x, rect.y, rect.w, rect.h)
+        .color(bg)
+        .border_radius(radius)
+        .opacity(opacity);
+
+    if let Some(grad) = gradient {
+        builder = match grad {
+            Gradient::Linear { end_color, angle } => builder.linear_gradient(end_color, angle),
+            Gradient::Radial { end_color } => builder.radial_gradient(end_color),
+            Gradient::Conic {
+                end_color,
+                start_angle,
+            } => builder.conic_gradient(end_color, start_angle),
+        };
+    }
+
+    if let Some(elev) = elevation {
+        if elev.blur > 0.001 {
+            builder = builder
+                .shadow(elev.blur, elev.dx, elev.dy)
+                .color2(elev.color);
+        }
+    }
+
+    frame.push(builder.build());
+
+    // Border stroke (separate shape so it layers on top).
+    if let Some(bc) = border_color {
+        if border_width > 0.0 {
+            frame.push(
+                ShapeBuilder::rect(rect.x, rect.y, rect.w, rect.h)
+                    .color(bc)
+                    .border_radius(radius)
+                    .stroke(border_width)
+                    .opacity(opacity)
+                    .build(),
+            );
+        }
+    }
+}
+
+/// Draw per-side borders as thin rectangles.
+///
+/// Each side is optional: pass `Some((color, width))` to draw, `None` to skip.
+pub fn draw_per_side_border(
+    frame: &mut Frame,
+    rect: Rect,
+    top: Option<(Color, f32)>,
+    right: Option<(Color, f32)>,
+    bottom: Option<(Color, f32)>,
+    left: Option<(Color, f32)>,
+) {
+    if let Some((color, width)) = top {
+        frame.push(
+            ShapeBuilder::rect(rect.x, rect.y, rect.w, width)
+                .color(color)
+                .build(),
+        );
+    }
+    if let Some((color, width)) = bottom {
+        frame.push(
+            ShapeBuilder::rect(rect.x, rect.y + rect.h - width, rect.w, width)
+                .color(color)
+                .build(),
+        );
+    }
+    if let Some((color, width)) = left {
+        frame.push(
+            ShapeBuilder::rect(rect.x, rect.y, width, rect.h)
+                .color(color)
+                .build(),
+        );
+    }
+    if let Some((color, width)) = right {
+        frame.push(
+            ShapeBuilder::rect(rect.x + rect.w - width, rect.y, width, rect.h)
+                .color(color)
+                .build(),
+        );
     }
 }
 

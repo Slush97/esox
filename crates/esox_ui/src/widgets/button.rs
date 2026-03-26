@@ -44,6 +44,11 @@ impl<'f> Ui<'f> {
         let font_size = self.resolve_font_size();
         let bg_color = self.resolve_bg();
         let fg_color = self.resolve_fg();
+        let border_width = self.resolve_border_width();
+        let opacity = self.resolve_opacity();
+        let gradient = self.resolve_gradient();
+        let elevation = self.resolve_elevation().cloned();
+        let border_radius = self.resolve_border_radius();
 
         let rect = self.allocate_rect_keyed(id, btn_w, height);
         self.register_widget(id, rect, WidgetKind::Button);
@@ -103,7 +108,18 @@ impl<'f> Ui<'f> {
             let d = self.theme.press_darken * press_t;
             bg = Color::new(bg.r * (1.0 - d), bg.g * (1.0 - d), bg.b * (1.0 - d), bg.a);
         }
-        paint::draw_rounded_rect(self.frame, rect, bg, corner_radius);
+
+        paint::draw_styled_rect(
+            self.frame,
+            rect,
+            bg,
+            if disabled { None } else { gradient },
+            border_radius,
+            None, // button has no border stroke (accent fill only)
+            border_width,
+            if disabled { None } else { elevation.as_ref() },
+            opacity,
+        );
 
         // Dashed border when disabled.
         if disabled {
