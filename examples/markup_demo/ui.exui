@@ -12,7 +12,7 @@ page padding=24 max-width=700
   space amount=8
 
   // Tabs for different sections
-  tabs labels=["Widgets", "Form", "Layout"] bind=main-tabs
+  tabs labels=["Widgets", "Form", "Layout", "Animation"] bind=main-tabs
 
     // ── Tab 0: Widgets ──────────────────────────────────────────
     col gap=12
@@ -159,3 +159,42 @@ page padding=24 max-width=700
           breadcrumb segments=["Home", "Settings", "Account"] action=navigate
           space amount=12
           stepper labels=["Cart", "Shipping", "Payment", "Done"] current=1 action=step
+
+    // ── Tab 3: Animation ─────────────────────────────────────────
+    col gap=12
+
+      card
+        section "Markup Transitions"
+          label.muted "Progress with transition=value (cycles automatically)"
+          progress bind=anim-progress transition=value duration=500 easing=ease-out-cubic
+          space amount=8
+          label.muted "Progress with spring physics"
+          progress bind=anim-spring transition=value spring=bouncy
+
+      card
+        section "Color Transitions"
+          label.muted "These cards transition bg color every 2 seconds"
+          columns weights=[1, 1, 1] gap=8
+            card bind=color-card-a transition=all duration=600 easing=ease-in-out-cubic
+              label "Card A"
+            card bind=color-card-b transition=all duration=600 spring=gentle
+              label "Card B"
+            card bind=color-card-c transition=all duration=800 easing=ease-out-bounce
+              label "Card C"
+
+      card
+        section "Easing Comparison"
+          label.muted "Each bar uses a different easing curve"
+          label "EaseOutCubic"
+          progress bind=ease-cubic transition=value duration=800 easing=ease-out-cubic
+          label "EaseOutBounce"
+          progress bind=ease-bounce transition=value duration=800 easing=ease-out-bounce
+          label "EaseOutBack"
+          progress bind=ease-back transition=value duration=800 easing=ease-out-back
+          label "EaseOutExpo"
+          progress bind=ease-expo transition=value duration=800 easing=ease-out-expo
+          label "Spring (bouncy)"
+          progress bind=ease-spring transition=value spring=bouncy
+
+      // This section is rendered by Rust code in main.rs for
+      // keyframe and spring API demos (see "Animation API" below).
