@@ -12,7 +12,7 @@ page padding=24 max-width=700
   space amount=8
 
   // Tabs for different sections
-  tabs labels=["Widgets", "Form", "Layout", "Animation"] bind=main-tabs
+  tabs labels=["Widgets", "Form", "Layout", "Animation", "Veil P0"] bind=main-tabs
 
     // ── Tab 0: Widgets ──────────────────────────────────────────
     col gap=12
@@ -198,3 +198,48 @@ page padding=24 max-width=700
 
       // This section is rendered by Rust code in main.rs for
       // keyframe and spring API demos (see "Animation API" below).
+
+    // ── Tab 4: Veil P0 ───────────────────────────────────────────
+    col gap=12
+
+      card
+        section "Avatar Status Dots"
+          row gap=16 align=center
+            avatar "JD" size=48 status=online
+            avatar "AB" size=48 status=idle
+            avatar "MK" size=48 status=dnd
+            avatar "ZZ" size=48 status=offline
+          space amount=4
+          label.muted "Avatars with status=online|idle|dnd|offline"
+
+      card
+        section "Code Block"
+          code-block language="rust" "fn main() {\n    let msg = \"Hello, Veil!\";\n    println!(\"{msg}\");\n}"
+          space amount=8
+          code-block "$ cargo run --release"
+
+      card
+        section "Blockquote"
+          blockquote
+            label "The best way to predict the future is to invent it."
+            label.muted "— Alan Kay"
+          space amount=8
+          blockquote accent=#e53935
+            label "Warning: this operation cannot be undone." color=#e53935
+          space amount=8
+          blockquote
+            label "Outer quote with nested reply:"
+            blockquote accent=#666666
+              label.muted "Inner quote — like a reply chain."
+
+      card
+        section "Spoiler"
+          label "Click to reveal hidden content:"
+          space amount=6
+          spoiler bind=spoiler-demo-1
+            label "The cake is a lie."
+          space amount=8
+          spoiler bind=spoiler-demo-2
+            label "Spoiler with a code block:"
+            space amount=4
+            code-block "secret_key = \"hunter2\""
