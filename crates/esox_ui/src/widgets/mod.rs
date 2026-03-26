@@ -1,6 +1,10 @@
 //! Widget implementations as methods on `Ui`.
 
+pub mod accordion;
+pub mod alert;
+pub mod avatar;
 pub mod badge;
+pub mod breadcrumb;
 pub mod button;
 pub mod checkbox;
 pub mod chip;
@@ -20,9 +24,11 @@ pub mod pagination;
 pub mod paragraph;
 pub mod progress_bar;
 pub mod radio;
+pub mod rating;
 pub mod scrollable;
 pub mod select;
 pub mod separator;
+pub mod skeleton;
 pub mod slider;
 pub mod spinner;
 pub mod split_pane;
