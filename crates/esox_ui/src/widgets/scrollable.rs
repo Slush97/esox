@@ -105,9 +105,14 @@ impl<'f> Ui<'f> {
         self.scroll_depth -= 1;
         self.tree_build.close_container();
 
-        // --- Scroll edge gradient fades (drawn while container clip is still active) ---
+        // --- Scroll edge gradient fades ---
+        // Use the container's own clip (not the parent-intersected gpu_clip) so
+        // fade overlays aren't incorrectly shrunk by ancestor clips.
         let fade_h = self.theme.scroll_fade_height;
         if fade_h > 0.0 {
+            self.frame
+                .set_active_clip(Some(container_clip.to_clip_array()));
+
             let bg = self.theme.bg_base;
             let content_w = container.w - self.theme.scrollbar_width;
             let max_scroll_est = (content_height - visible_height).max(0.0);

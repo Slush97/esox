@@ -128,9 +128,14 @@ impl<'f> Ui<'f> {
             f(self, i);
         }
 
-        // --- Scroll edge gradient fades (drawn while container clip is still active) ---
+        // --- Scroll edge gradient fades ---
+        // Use the container's own clip (not the parent-intersected gpu_clip) so
+        // fade overlays aren't incorrectly shrunk by ancestor clips.
         let fade_h = self.theme.scroll_fade_height;
         if fade_h > 0.0 {
+            self.frame
+                .set_active_clip(Some(container_clip.to_clip_array()));
+
             let bg = self.theme.bg_base;
             if offset > 0.5 {
                 paint::draw_scroll_fade(
