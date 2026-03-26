@@ -88,19 +88,27 @@ impl<'a, 'f> ContainerBuilder<'a, 'f> {
         let container_rect =
             Rect::new(self.ui.region.x, start_y, self.ui.region.w, end_y - start_y);
 
-        // Replace placeholder with styled background.
-        self.ui.frame.replace_instance(
-            placeholder_idx,
-            esox_gfx::ShapeBuilder::rect(
-                container_rect.x,
-                container_rect.y,
-                container_rect.w,
-                container_rect.h,
-            )
-            .color(bg)
-            .border_radius(radius)
-            .build(),
-        );
+        // Replace placeholder with styled background + elevation shadow.
+        let elev = self
+            .elevation
+            .as_ref()
+            .unwrap_or(&self.ui.theme.elevation_low);
+        let mut bg_shape = esox_gfx::ShapeBuilder::rect(
+            container_rect.x,
+            container_rect.y,
+            container_rect.w,
+            container_rect.h,
+        )
+        .color(bg)
+        .border_radius(radius);
+        if elev.blur > 0.001 {
+            bg_shape = bg_shape
+                .shadow(elev.blur, elev.dx, elev.dy)
+                .color2(elev.color);
+        }
+        self.ui
+            .frame
+            .replace_instance(placeholder_idx, bg_shape.build());
 
         if let Some(border_color) = self.border_color {
             self.ui.frame.push(
@@ -115,26 +123,6 @@ impl<'a, 'f> ContainerBuilder<'a, 'f> {
                 .stroke(self.border_width)
                 .build(),
             );
-        }
-
-        if let Some(ref elev) = self.elevation {
-            if elev.blur > 0.001 {
-                // Re-draw background with shadow (replaces the placeholder).
-                self.ui.frame.replace_instance(
-                    placeholder_idx,
-                    esox_gfx::ShapeBuilder::rect(
-                        container_rect.x,
-                        container_rect.y,
-                        container_rect.w,
-                        container_rect.h,
-                    )
-                    .color(bg)
-                    .border_radius(radius)
-                    .shadow(elev.blur, elev.dx, elev.dy)
-                    .color2(elev.color)
-                    .build(),
-                );
-            }
         }
 
         self.ui.cursor.y += card_gap;
@@ -202,14 +190,19 @@ impl<'f> Ui<'f> {
 
         let card_rect = Rect::new(self.region.x, start_y, self.region.w, end_y - start_y);
 
-        // Replace placeholder with the correctly-sized background.
-        self.frame.replace_instance(
-            placeholder_idx,
+        // Replace placeholder with the correctly-sized background + elevation shadow.
+        let elev = &self.theme.elevation_low;
+        let mut bg_shape =
             esox_gfx::ShapeBuilder::rect(card_rect.x, card_rect.y, card_rect.w, card_rect.h)
                 .color(bg)
-                .border_radius(esox_gfx::BorderRadius::uniform(radius))
-                .build(),
-        );
+                .border_radius(esox_gfx::BorderRadius::uniform(radius));
+        if elev.blur > 0.001 {
+            bg_shape = bg_shape
+                .shadow(elev.blur, elev.dx, elev.dy)
+                .color2(elev.color);
+        }
+        self.frame
+            .replace_instance(placeholder_idx, bg_shape.build());
 
         // Subtle border for edge definition.
         paint::draw_rounded_border(self.frame, card_rect, border_color, radius);
@@ -243,18 +236,22 @@ impl<'f> Ui<'f> {
 
         let surface_rect = Rect::new(self.region.x, start_y, self.region.w, end_y - start_y);
 
-        self.frame.replace_instance(
-            placeholder_idx,
-            esox_gfx::ShapeBuilder::rect(
-                surface_rect.x,
-                surface_rect.y,
-                surface_rect.w,
-                surface_rect.h,
-            )
-            .color(bg)
-            .border_radius(esox_gfx::BorderRadius::uniform(radius))
-            .build(),
-        );
+        let elev = &self.theme.elevation_low;
+        let mut bg_shape = esox_gfx::ShapeBuilder::rect(
+            surface_rect.x,
+            surface_rect.y,
+            surface_rect.w,
+            surface_rect.h,
+        )
+        .color(bg)
+        .border_radius(esox_gfx::BorderRadius::uniform(radius));
+        if elev.blur > 0.001 {
+            bg_shape = bg_shape
+                .shadow(elev.blur, elev.dx, elev.dy)
+                .color2(elev.color);
+        }
+        self.frame
+            .replace_instance(placeholder_idx, bg_shape.build());
 
         self.cursor.y += self.theme.card_gap;
     }
