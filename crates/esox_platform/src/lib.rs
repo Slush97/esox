@@ -300,6 +300,22 @@ pub(crate) fn convert_cursor_icon(icon: esox_input::CursorIcon) -> winit::window
         esox_input::CursorIcon::ColResize => winit::window::CursorIcon::ColResize,
         esox_input::CursorIcon::RowResize => winit::window::CursorIcon::RowResize,
         esox_input::CursorIcon::NotAllowed => winit::window::CursorIcon::NotAllowed,
+        esox_input::CursorIcon::Crosshair => winit::window::CursorIcon::Crosshair,
+        esox_input::CursorIcon::Move => winit::window::CursorIcon::Move,
+        esox_input::CursorIcon::NResize => winit::window::CursorIcon::NResize,
+        esox_input::CursorIcon::SResize => winit::window::CursorIcon::SResize,
+        esox_input::CursorIcon::EResize => winit::window::CursorIcon::EResize,
+        esox_input::CursorIcon::WResize => winit::window::CursorIcon::WResize,
+        esox_input::CursorIcon::NeResize => winit::window::CursorIcon::NeResize,
+        esox_input::CursorIcon::NwResize => winit::window::CursorIcon::NwResize,
+        esox_input::CursorIcon::SeResize => winit::window::CursorIcon::SeResize,
+        esox_input::CursorIcon::SwResize => winit::window::CursorIcon::SwResize,
+        esox_input::CursorIcon::Wait => winit::window::CursorIcon::Wait,
+        esox_input::CursorIcon::Progress => winit::window::CursorIcon::Progress,
+        esox_input::CursorIcon::Help => winit::window::CursorIcon::Help,
+        esox_input::CursorIcon::ZoomIn => winit::window::CursorIcon::ZoomIn,
+        esox_input::CursorIcon::ZoomOut => winit::window::CursorIcon::ZoomOut,
+        esox_input::CursorIcon::Copy => winit::window::CursorIcon::Copy,
     }
 }
 
@@ -1609,32 +1625,121 @@ impl ApplicationHandler<AppUserEvent> for App {
                     self.delegate
                         .on_redraw(gpu, resources, &mut self.frame, &self.perf);
 
-                    let elapsed = self.start_time.elapsed().as_secs_f32();
-                    let delta = elapsed - self.last_frame_elapsed;
-                    self.last_frame_elapsed = elapsed;
-                    let uniforms = esox_gfx::FrameUniforms {
-                        viewport: [
-                            gpu.config.width as f32,
-                            gpu.config.height as f32,
-                            1.0 / gpu.config.width as f32,
-                            1.0 / gpu.config.height as f32,
-                        ],
-                        time: [elapsed, delta, (self.frame_number % (1 << 23)) as f32, 0.0],
-                    };
+                    // Frame-skip: if no damage was detected during the frame and
+                    // no continuous animation is running, skip GPU submission.
+                    let skip_gpu =
+                        !self.delegate.needs_redraw() && !self.delegate.needs_continuous_redraw();
 
-                    let registry = match self.pipeline_registry.as_ref() {
-                        Some(r) => r,
-                        None => {
-                            tracing::error!("pipeline registry not initialized; skipping frame");
-                            return;
+                    if skip_gpu {
+                        self.perf.end_frame(0, 0);
+                        self.frame_number += 1;
+                        self.redraw_pending = false;
+                        tracing::trace!("frame skipped (no damage)");
+                    } else {
+                        let elapsed = self.start_time.elapsed().as_secs_f32();
+                        let delta = elapsed - self.last_frame_elapsed;
+                        self.last_frame_elapsed = elapsed;
+                        let uniforms = esox_gfx::FrameUniforms {
+                            viewport: [
+                                gpu.config.width as f32,
+                                gpu.config.height as f32,
+                                1.0 / gpu.config.width as f32,
+                                1.0 / gpu.config.height as f32,
+                            ],
+                            time: [elapsed, delta, (self.frame_number % (1 << 23)) as f32, 0.0],
+                        };
+
+                        let registry = match self.pipeline_registry.as_ref() {
+                            Some(r) => r,
+                            None => {
+                                tracing::error!(
+                                    "pipeline registry not initialized; skipping frame"
+                                );
+                                return;
+                            }
+                        };
+
+                        // Acquire surface early so 3D pre-render can target it.
+                        let surface = match gpu.acquire_surface() {
+                            Ok(s) => s,
+                            Err(e) => {
+                                tracing::error!("surface acquisition failed: {e}");
+                                self.consecutive_render_failures += 1;
+                                if self.consecutive_render_failures >= 3 {
+                                    tracing::error!("3 consecutive render failures, exiting");
+                                    self.write_perf_report();
+                                    event_loop.exit();
+                                }
+                                return;
+                            }
+                        };
+
+                        // Call pre-render (3D pass) — default is no-op.
+                        let pre_render_bufs = self.delegate.on_pre_render(gpu, &surface.view);
+                        let has_pre_render = !pre_render_bufs.is_empty();
+
+                        // Submit 3D command buffers before the 2D pass.
+                        if has_pre_render {
+                            gpu.queue.submit(pre_render_bufs);
                         }
-                    };
 
-                    // Acquire surface early so 3D pre-render can target it.
-                    let surface = match gpu.acquire_surface() {
-                        Ok(s) => s,
-                        Err(e) => {
-                            tracing::error!("surface acquisition failed: {e}");
+                        // Choose load op: Load if 3D was rendered, Clear otherwise.
+                        let color_load_op = if has_pre_render {
+                            esox_gfx::ColorLoadOp::Load
+                        } else {
+                            let bg = &self.clear_color;
+                            esox_gfx::ColorLoadOp::Clear(wgpu::Color {
+                                r: bg.r as f64,
+                                g: bg.g as f64,
+                                b: bg.b as f64,
+                                a: bg.a as f64,
+                            })
+                        };
+
+                        let pp = if self.delegate.post_process_enabled() {
+                            if let Some(offscreen) = self.offscreen.as_ref() {
+                                let mut params = self.delegate.post_process_params();
+                                params.time = elapsed;
+                                offscreen.update_params(&gpu.queue, &params);
+                            }
+                            self.offscreen
+                                .as_ref()
+                                .map(|offscreen| esox_gfx::PostProcessPass {
+                                    offscreen,
+                                    pipeline_id: esox_gfx::PIPELINE_POST_PROCESS,
+                                    bloom: self.bloom_pass.as_ref(),
+                                })
+                        } else {
+                            None
+                        };
+
+                        // Create screenshot capture buffer if requested.
+                        let screenshot_capture = if self.screenshot_pending {
+                            self.screenshot_pending = false;
+                            Some(esox_gfx::ScreenshotCapture::new(
+                                &gpu.device,
+                                gpu.config.width,
+                                gpu.config.height,
+                                gpu.config.format,
+                            ))
+                        } else {
+                            None
+                        };
+
+                        if let Err(e) = esox_gfx::FrameEncoder::encode_and_submit_with_surface(
+                            gpu,
+                            resources,
+                            &mut self.frame,
+                            &uniforms,
+                            registry,
+                            surface,
+                            color_load_op,
+                            pp,
+                            self.msaa_view.as_ref(),
+                            self.depth_view.as_ref(),
+                            screenshot_capture.as_ref(),
+                        ) {
+                            tracing::error!("render error: {e}");
                             self.consecutive_render_failures += 1;
                             if self.consecutive_render_failures >= 3 {
                                 tracing::error!("3 consecutive render failures, exiting");
@@ -1643,98 +1748,23 @@ impl ApplicationHandler<AppUserEvent> for App {
                             }
                             return;
                         }
-                    };
+                        self.consecutive_render_failures = 0;
 
-                    // Call pre-render (3D pass) — default is no-op.
-                    let pre_render_bufs = self.delegate.on_pre_render(gpu, &surface.view);
-                    let has_pre_render = !pre_render_bufs.is_empty();
-
-                    // Submit 3D command buffers before the 2D pass.
-                    if has_pre_render {
-                        gpu.queue.submit(pre_render_bufs);
-                    }
-
-                    // Choose load op: Load if 3D was rendered, Clear otherwise.
-                    let color_load_op = if has_pre_render {
-                        esox_gfx::ColorLoadOp::Load
-                    } else {
-                        let bg = &self.clear_color;
-                        esox_gfx::ColorLoadOp::Clear(wgpu::Color {
-                            r: bg.r as f64,
-                            g: bg.g as f64,
-                            b: bg.b as f64,
-                            a: bg.a as f64,
-                        })
-                    };
-
-                    let pp = if self.delegate.post_process_enabled() {
-                        if let Some(offscreen) = self.offscreen.as_ref() {
-                            let mut params = self.delegate.post_process_params();
-                            params.time = elapsed;
-                            offscreen.update_params(&gpu.queue, &params);
+                        // Save screenshot on a background thread.
+                        if let Some(capture) = screenshot_capture {
+                            let device = gpu.device.clone();
+                            let path = screenshot_path();
+                            std::thread::spawn(move || {
+                                capture.save_blocking(&device, path);
+                            });
                         }
-                        self.offscreen
-                            .as_ref()
-                            .map(|offscreen| esox_gfx::PostProcessPass {
-                                offscreen,
-                                pipeline_id: esox_gfx::PIPELINE_POST_PROCESS,
-                                bloom: self.bloom_pass.as_ref(),
-                            })
-                    } else {
-                        None
-                    };
 
-                    // Create screenshot capture buffer if requested.
-                    let screenshot_capture = if self.screenshot_pending {
-                        self.screenshot_pending = false;
-                        Some(esox_gfx::ScreenshotCapture::new(
-                            &gpu.device,
-                            gpu.config.width,
-                            gpu.config.height,
-                            gpu.config.format,
-                        ))
-                    } else {
-                        None
-                    };
-
-                    if let Err(e) = esox_gfx::FrameEncoder::encode_and_submit_with_surface(
-                        gpu,
-                        resources,
-                        &mut self.frame,
-                        &uniforms,
-                        registry,
-                        surface,
-                        color_load_op,
-                        pp,
-                        self.msaa_view.as_ref(),
-                        self.depth_view.as_ref(),
-                        screenshot_capture.as_ref(),
-                    ) {
-                        tracing::error!("render error: {e}");
-                        self.consecutive_render_failures += 1;
-                        if self.consecutive_render_failures >= 3 {
-                            tracing::error!("3 consecutive render failures, exiting");
-                            self.write_perf_report();
-                            event_loop.exit();
-                        }
-                        return;
+                        // Read counts after encoding (build_batches runs inside the encoder).
+                        let instance_count = self.frame.instance_count();
+                        let batch_count = self.frame.batch_count() as u32;
+                        self.perf.end_frame(instance_count, batch_count);
+                        self.frame_number += 1;
                     }
-                    self.consecutive_render_failures = 0;
-
-                    // Save screenshot on a background thread.
-                    if let Some(capture) = screenshot_capture {
-                        let device = gpu.device.clone();
-                        let path = screenshot_path();
-                        std::thread::spawn(move || {
-                            capture.save_blocking(&device, path);
-                        });
-                    }
-
-                    // Read counts after encoding (build_batches runs inside the encoder).
-                    let instance_count = self.frame.instance_count();
-                    let batch_count = self.frame.batch_count() as u32;
-                    self.perf.end_frame(instance_count, batch_count);
-                    self.frame_number += 1;
                 }
                 // Check if the delegate wants to exit.
                 if self.delegate.should_exit() {

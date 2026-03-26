@@ -12,7 +12,7 @@ use esox_font::{
 };
 use esox_gfx::{
     AtlasAllocator, AtlasId, AtlasTexture, Color, Frame, GpuContext, QuadInstance, RenderResources,
-    ShapeType, ShelfAllocator, UvRect,
+    ShapeBuilder, ShapeType, ShelfAllocator, UvRect,
 };
 
 /// Text truncation mode for overflow handling.
@@ -26,8 +26,10 @@ pub enum TruncationMode {
     Middle,
 }
 
-/// Initial atlas dimensions in texels. Grows on demand when full.
-const ATLAS_SIZE: u32 = 256;
+/// Initial atlas dimensions in texels. Must be large enough to hold all unique
+/// (glyph, size, style) combinations used within a single frame — mid-frame
+/// eviction corrupts UV coordinates already pushed to the instance buffer.
+const ATLAS_SIZE: u32 = 1024;
 
 // ── Shaped-run cache ────────────────────────────────────────────────────────
 
@@ -152,6 +154,10 @@ impl ShapeCache {
 /// pushing textured quads to the frame.
 pub struct TextRenderer {
     face: FontFace,
+    /// Dedicated bold variant face (if available on the system).
+    bold_face: Option<FontFace>,
+    /// Dedicated italic variant face (if available on the system).
+    italic_face: Option<FontFace>,
     shaper: TextShaper,
     rasterizer: GlyphRasterizer,
     cache: GlyphCache,
@@ -178,14 +184,31 @@ impl TextRenderer {
 
         tracing::info!(family = %font_data.family, "loaded UI font");
 
-        let face = FontFace::from_bytes(FontId(0), font_data.data)
+        let face = FontFace::from_bytes(FontId(0), font_data.data.clone())
             .map_err(|e| format!("failed to load font face: {e}"))?;
+
+        // Attempt to load bold and italic variants from the same family.
+        let bold_face = db
+            .query_family(&font_data.family, FontStyle::Bold)
+            .and_then(|m| FontFace::from_bytes(FontId(100), m.data).ok());
+        let italic_face = db
+            .query_family(&font_data.family, FontStyle::Italic)
+            .and_then(|m| FontFace::from_bytes(FontId(101), m.data).ok());
+
+        if bold_face.is_some() {
+            tracing::debug!("loaded bold variant for UI font");
+        }
+        if italic_face.is_some() {
+            tracing::debug!("loaded italic variant for UI font");
+        }
 
         let allocator = ShelfAllocator::new(AtlasId(0), ATLAS_SIZE, ATLAS_SIZE);
         let atlas = AtlasTexture::new(&gpu.device, ATLAS_SIZE, ATLAS_SIZE, "ui_glyph_atlas");
 
         Ok(Self {
             face,
+            bold_face,
+            italic_face,
             shaper: TextShaper::new(),
             rasterizer: GlyphRasterizer::new(),
             cache: GlyphCache::new(),
@@ -194,6 +217,37 @@ impl TextRenderer {
             atlas_bound: false,
             shape_cache: ShapeCache::new(),
         })
+    }
+
+    // ── Font loading ──────────────────────────────────────────────────
+
+    /// Load a custom font from a file path, replacing the primary UI font.
+    pub fn load_font(&mut self, path: &std::path::Path) -> Result<(), String> {
+        let data = std::fs::read(path).map_err(|e| format!("failed to read font file: {e}"))?;
+        let face = FontFace::from_bytes(FontId(0), data)
+            .map_err(|e| format!("failed to parse font: {e}"))?;
+        self.face = face;
+        // Clear shape cache since glyph metrics may differ.
+        self.shape_cache = ShapeCache::new();
+        Ok(())
+    }
+
+    /// Load a custom bold variant font from a file path.
+    pub fn load_bold_font(&mut self, path: &std::path::Path) -> Result<(), String> {
+        let data = std::fs::read(path).map_err(|e| format!("failed to read font file: {e}"))?;
+        let face = FontFace::from_bytes(FontId(100), data)
+            .map_err(|e| format!("failed to parse font: {e}"))?;
+        self.bold_face = Some(face);
+        Ok(())
+    }
+
+    /// Load a custom italic variant font from a file path.
+    pub fn load_italic_font(&mut self, path: &std::path::Path) -> Result<(), String> {
+        let data = std::fs::read(path).map_err(|e| format!("failed to read font file: {e}"))?;
+        let face = FontFace::from_bytes(FontId(101), data)
+            .map_err(|e| format!("failed to parse font: {e}"))?;
+        self.italic_face = Some(face);
+        Ok(())
     }
 
     // ── Public API ──────────────────────────────────────────────────────
@@ -213,7 +267,7 @@ impl TextRenderer {
         resources: &mut RenderResources,
     ) -> f32 {
         let glyphs = self.resolve_glyphs(text, size);
-        self.render_glyphs(&glyphs, x, y, size, color, 0, frame, gpu, resources)
+        self.render_glyphs(&glyphs, x, y, size, color, 0, 0.0, frame, gpu, resources)
     }
 
     /// Draw text with a style byte (bit 0 = bold via faux emboldening).
@@ -232,7 +286,106 @@ impl TextRenderer {
         resources: &mut RenderResources,
     ) -> f32 {
         let glyphs = self.resolve_glyphs(text, size);
-        self.render_glyphs(&glyphs, x, y, size, color, style, frame, gpu, resources)
+        self.render_glyphs(
+            &glyphs, x, y, size, color, style, 0.0, frame, gpu, resources,
+        )
+    }
+
+    /// Draw text with extra letter spacing between glyphs.
+    #[allow(clippy::too_many_arguments)]
+    pub fn draw_text_spaced(
+        &mut self,
+        text: &str,
+        x: f32,
+        y: f32,
+        size: f32,
+        color: Color,
+        letter_spacing: f32,
+        frame: &mut Frame,
+        gpu: &GpuContext,
+        resources: &mut RenderResources,
+    ) -> f32 {
+        let glyphs = self.resolve_glyphs(text, size);
+        self.render_glyphs(
+            &glyphs,
+            x,
+            y,
+            size,
+            color,
+            0,
+            letter_spacing,
+            frame,
+            gpu,
+            resources,
+        )
+    }
+
+    /// Draw text with underline and/or strikethrough decoration.
+    ///
+    /// Renders the glyphs first, then overlays thin rectangles using the font's
+    /// `underline_offset`, `strikeout_offset`, and `stroke_size` metrics.
+    #[allow(clippy::too_many_arguments)]
+    pub fn draw_text_decorated(
+        &mut self,
+        text: &str,
+        x: f32,
+        y: f32,
+        size: f32,
+        color: Color,
+        decoration: crate::theme::TextDecoration,
+        frame: &mut Frame,
+        gpu: &GpuContext,
+        resources: &mut RenderResources,
+    ) -> f32 {
+        let advance = self.draw_text(text, x, y, size, color, frame, gpu, resources);
+
+        if matches!(decoration, crate::theme::TextDecoration::None) || advance <= 0.0 {
+            return advance;
+        }
+
+        let metrics = self.face.metrics(size);
+        let thickness = metrics.stroke_size.max(1.0);
+
+        if matches!(
+            decoration,
+            crate::theme::TextDecoration::Underline | crate::theme::TextDecoration::Both
+        ) {
+            let uy = y + metrics.ascent - metrics.underline_offset;
+            frame.push(
+                ShapeBuilder::rect(x, uy, advance, thickness)
+                    .color(color)
+                    .build(),
+            );
+        }
+
+        if matches!(
+            decoration,
+            crate::theme::TextDecoration::Strikethrough | crate::theme::TextDecoration::Both
+        ) {
+            let sy = y + metrics.ascent - metrics.strikeout_offset;
+            frame.push(
+                ShapeBuilder::rect(x, sy, advance, thickness)
+                    .color(color)
+                    .build(),
+            );
+        }
+
+        advance
+    }
+
+    /// Measure text width with extra letter spacing.
+    pub fn measure_text_spaced(&mut self, text: &str, size: f32, letter_spacing: f32) -> f32 {
+        if text.is_empty() {
+            return 0.0;
+        }
+        let base = self.measure_text(text, size);
+        let glyphs = self.resolve_glyphs(text, size);
+        let glyph_count = glyphs.len();
+        if glyph_count > 1 {
+            base + letter_spacing * (glyph_count as f32 - 1.0)
+        } else {
+            base
+        }
     }
 
     /// Draw text at the standard UI font size (14px).
@@ -251,8 +404,7 @@ impl TextRenderer {
         self.draw_text(text, x, y, 14.0, color, frame, gpu, resources)
     }
 
-    /// Draw text at the header font size (11px).
-    // Convenience wrapper — delegates to draw_text with a fixed size.
+    /// Draw text at the header font size (11px) with header letter spacing.
     #[allow(clippy::too_many_arguments)]
     pub fn draw_header_text(
         &mut self,
@@ -260,11 +412,22 @@ impl TextRenderer {
         x: f32,
         y: f32,
         color: Color,
+        letter_spacing: f32,
         frame: &mut Frame,
         gpu: &GpuContext,
         resources: &mut RenderResources,
     ) -> f32 {
-        self.draw_text(text, x, y, 11.0, color, frame, gpu, resources)
+        self.draw_text_spaced(
+            text,
+            x,
+            y,
+            11.0,
+            color,
+            letter_spacing,
+            frame,
+            gpu,
+            resources,
+        )
     }
 
     /// Measure text width without drawing. Zero-clone cache fast path.
@@ -509,6 +672,7 @@ impl TextRenderer {
             size,
             color,
             0,
+            0.0,
             frame,
             gpu,
             resources,
@@ -571,6 +735,7 @@ impl TextRenderer {
                     size,
                     color,
                     0,
+                    0.0,
                     frame,
                     gpu,
                     resources,
@@ -597,6 +762,7 @@ impl TextRenderer {
                     size,
                     color,
                     0,
+                    0.0,
                     frame,
                     gpu,
                     resources,
@@ -634,6 +800,7 @@ impl TextRenderer {
                     size,
                     color,
                     0,
+                    0.0,
                     frame,
                     gpu,
                     resources,
@@ -655,6 +822,7 @@ impl TextRenderer {
                     size,
                     color,
                     0,
+                    0.0,
                     frame,
                     gpu,
                     resources,
@@ -662,6 +830,27 @@ impl TextRenderer {
                 prefix_advance + ew + suffix_accum
             }
         }
+    }
+
+    /// Measure the advance of the full text up to byte offset `cursor`.
+    ///
+    /// Unlike [`Self::measure_text`] on a substring, this shapes the **entire**
+    /// text and sums advances only for glyphs whose cluster is before `cursor`.
+    /// This avoids kerning/shaping drift between substring measurement and
+    /// full-text rendering.
+    pub fn measure_cursor_x(&mut self, text: &str, size: f32, cursor: usize) -> f32 {
+        if text.is_empty() || cursor == 0 {
+            return 0.0;
+        }
+        let glyphs = self.resolve_glyphs(text, size);
+        let mut advance = 0.0_f32;
+        for glyph in &glyphs {
+            if (glyph.cluster as usize) >= cursor {
+                break;
+            }
+            advance += glyph.x_advance;
+        }
+        advance
     }
 
     /// Map a pixel x-offset to the nearest byte offset in `text`.
@@ -725,6 +914,7 @@ impl TextRenderer {
     /// atlas allocation, eviction, and GPU upload. Returns total advance width.
     // Core renderer — parameter count reflects distinct rendering inputs.
     #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments)]
     fn render_glyphs(
         &mut self,
         glyphs: &[ShapedGlyph],
@@ -733,6 +923,7 @@ impl TextRenderer {
         size: f32,
         color: Color,
         style: u8,
+        letter_spacing: f32,
         frame: &mut Frame,
         gpu: &GpuContext,
         resources: &mut RenderResources,
@@ -754,7 +945,7 @@ impl TextRenderer {
             let cached = match self.get_or_insert_with_eviction(key, size, bold) {
                 Some(c) => c,
                 None => {
-                    pen_x += glyph.x_advance;
+                    pen_x += glyph.x_advance + letter_spacing;
                     continue;
                 }
             };
@@ -769,7 +960,7 @@ impl TextRenderer {
                 frame.push(make_textured_quad(gx, gy, gw, gh, uv, color));
             }
 
-            pen_x += glyph.x_advance;
+            pen_x += glyph.x_advance + letter_spacing;
         }
 
         self.flush_uploads(gpu, resources);

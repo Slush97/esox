@@ -679,9 +679,23 @@ impl HoverAnim {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Easing {
     Linear,
+    EaseInQuad,
+    EaseOutQuad,
+    EaseInOutQuad,
+    EaseInCubic,
     EaseOutCubic,
     EaseInOutCubic,
+    EaseInQuart,
+    EaseOutQuart,
+    EaseInOutQuart,
+    EaseInExpo,
     EaseOutExpo,
+    EaseInOutExpo,
+    EaseOutBack,
+    EaseOutBounce,
+    /// Custom cubic bezier curve, matching CSS `cubic-bezier(x1, y1, x2, y2)`.
+    /// Control points are clamped to valid ranges (x in 0..1).
+    CubicBezier(f32, f32, f32, f32),
 }
 
 impl Easing {
@@ -689,12 +703,46 @@ impl Easing {
         let t = t.clamp(0.0, 1.0);
         match self {
             Easing::Linear => t,
+
+            // Quadratic
+            Easing::EaseInQuad => t * t,
+            Easing::EaseOutQuad => 1.0 - (1.0 - t) * (1.0 - t),
+            Easing::EaseInOutQuad => {
+                if t < 0.5 {
+                    2.0 * t * t
+                } else {
+                    1.0 - (-2.0 * t + 2.0).powi(2) / 2.0
+                }
+            }
+
+            // Cubic
+            Easing::EaseInCubic => t * t * t,
             Easing::EaseOutCubic => 1.0 - (1.0 - t).powi(3),
             Easing::EaseInOutCubic => {
                 if t < 0.5 {
                     4.0 * t * t * t
                 } else {
                     1.0 - (-2.0 * t + 2.0).powi(3) / 2.0
+                }
+            }
+
+            // Quartic
+            Easing::EaseInQuart => t * t * t * t,
+            Easing::EaseOutQuart => 1.0 - (1.0 - t).powi(4),
+            Easing::EaseInOutQuart => {
+                if t < 0.5 {
+                    8.0 * t * t * t * t
+                } else {
+                    1.0 - (-2.0 * t + 2.0).powi(4) / 2.0
+                }
+            }
+
+            // Exponential
+            Easing::EaseInExpo => {
+                if t.abs() < f32::EPSILON {
+                    0.0
+                } else {
+                    2.0f32.powf(10.0 * t - 10.0)
                 }
             }
             Easing::EaseOutExpo => {
@@ -704,8 +752,97 @@ impl Easing {
                     1.0 - 2.0f32.powf(-10.0 * t)
                 }
             }
+            Easing::EaseInOutExpo => {
+                if t.abs() < f32::EPSILON {
+                    0.0
+                } else if (t - 1.0).abs() < f32::EPSILON {
+                    1.0
+                } else if t < 0.5 {
+                    2.0f32.powf(20.0 * t - 10.0) / 2.0
+                } else {
+                    (2.0 - 2.0f32.powf(-20.0 * t + 10.0)) / 2.0
+                }
+            }
+
+            // Back (slight overshoot)
+            Easing::EaseOutBack => {
+                let c1: f32 = 1.70158;
+                let c3 = c1 + 1.0;
+                let t1 = t - 1.0;
+                1.0 + c3 * t1 * t1 * t1 + c1 * t1 * t1
+            }
+
+            // Bounce
+            Easing::EaseOutBounce => ease_out_bounce(t),
+
+            // Custom cubic bezier (CSS-style)
+            Easing::CubicBezier(x1, y1, x2, y2) => cubic_bezier_sample(x1, y1, x2, y2, t),
         }
     }
+}
+
+/// Bounce easing helper — four-segment quadratic bounce.
+fn ease_out_bounce(t: f32) -> f32 {
+    let n1: f32 = 7.5625;
+    let d1: f32 = 2.75;
+    if t < 1.0 / d1 {
+        n1 * t * t
+    } else if t < 2.0 / d1 {
+        let t = t - 1.5 / d1;
+        n1 * t * t + 0.75
+    } else if t < 2.5 / d1 {
+        let t = t - 2.25 / d1;
+        n1 * t * t + 0.9375
+    } else {
+        let t = t - 2.625 / d1;
+        n1 * t * t + 0.984375
+    }
+}
+
+/// Solve a CSS-style cubic bezier curve.
+///
+/// Given control points (x1, y1) and (x2, y2), find the y value at the given
+/// x (time) position. Uses Newton's method to invert the x(t) parametric
+/// curve, then evaluates y(t).
+fn cubic_bezier_sample(x1: f32, y1: f32, x2: f32, y2: f32, x: f32) -> f32 {
+    // Clamp x control points to [0, 1] per CSS spec.
+    let x1 = x1.clamp(0.0, 1.0);
+    let x2 = x2.clamp(0.0, 1.0);
+
+    // Edge cases.
+    if x <= 0.0 {
+        return 0.0;
+    }
+    if x >= 1.0 {
+        return 1.0;
+    }
+
+    // Newton's method to find t for given x.
+    let mut t = x; // initial guess
+    for _ in 0..8 {
+        let xt = bezier_component(x1, x2, t);
+        let dx = bezier_derivative(x1, x2, t);
+        if dx.abs() < 1e-7 {
+            break;
+        }
+        t -= (xt - x) / dx;
+        t = t.clamp(0.0, 1.0);
+    }
+
+    bezier_component(y1, y2, t)
+}
+
+/// Evaluate one component of a cubic bezier at parameter t.
+/// B(t) = 3(1-t)^2*t*p1 + 3(1-t)*t^2*p2 + t^3
+fn bezier_component(p1: f32, p2: f32, t: f32) -> f32 {
+    let mt = 1.0 - t;
+    3.0 * mt * mt * t * p1 + 3.0 * mt * t * t * p2 + t * t * t
+}
+
+/// Derivative of one component of a cubic bezier at parameter t.
+fn bezier_derivative(p1: f32, p2: f32, t: f32) -> f32 {
+    let mt = 1.0 - t;
+    3.0 * mt * mt * p1 + 6.0 * mt * t * (p2 - p1) + 3.0 * t * t * (1.0 - p2)
 }
 
 /// General-purpose animation state.
@@ -730,6 +867,304 @@ impl Anim {
     pub fn is_settled(&self) -> bool {
         (self.from - self.to).abs() < 0.001
             || self.start.elapsed().as_millis() as f32 >= self.duration_ms
+    }
+}
+
+/// Spring dynamics configuration.
+///
+/// Controls the feel of spring-based animations. Higher stiffness makes the
+/// spring snap faster; higher damping reduces oscillation. A damping ratio of
+/// 1.0 is critically damped (no overshoot).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SpringConfig {
+    /// Spring stiffness (force per unit displacement). Typical range: 100–1000.
+    pub stiffness: f32,
+    /// Damping coefficient (force per unit velocity). Typical range: 10–100.
+    pub damping: f32,
+    /// Mass of the simulated object. Almost always 1.0.
+    pub mass: f32,
+}
+
+impl SpringConfig {
+    /// Snappy spring — fast, no overshoot. Good for toggles and hover effects.
+    pub const SNAPPY: Self = Self {
+        stiffness: 400.0,
+        damping: 30.0,
+        mass: 1.0,
+    };
+
+    /// Gentle spring — smooth, slightly slower. Good for layout transitions.
+    pub const GENTLE: Self = Self {
+        stiffness: 170.0,
+        damping: 20.0,
+        mass: 1.0,
+    };
+
+    /// Bouncy spring — visible overshoot. Good for enter/exit animations.
+    pub const BOUNCY: Self = Self {
+        stiffness: 300.0,
+        damping: 12.0,
+        mass: 1.0,
+    };
+
+    /// Stiff spring — very fast settle. Good for micro-interactions.
+    pub const STIFF: Self = Self {
+        stiffness: 700.0,
+        damping: 40.0,
+        mass: 1.0,
+    };
+
+    pub const fn new(stiffness: f32, damping: f32) -> Self {
+        Self {
+            stiffness,
+            damping,
+            mass: 1.0,
+        }
+    }
+
+    /// Damping ratio: < 1.0 underdamped (bouncy), 1.0 critical, > 1.0 overdamped.
+    pub fn damping_ratio(&self) -> f32 {
+        self.damping / (2.0 * (self.stiffness * self.mass).sqrt())
+    }
+}
+
+/// Velocity-based spring animation state.
+///
+/// Unlike duration-based `Anim`, a spring settles naturally based on physics.
+/// It supports smooth retargeting — changing the target mid-flight preserves
+/// velocity for a natural feel.
+pub struct SpringAnim {
+    pub value: f32,
+    pub velocity: f32,
+    pub target: f32,
+    pub config: SpringConfig,
+    pub last_tick: Instant,
+    /// Whether this spring was queried this frame (for cleanup).
+    pub(crate) queried: bool,
+}
+
+impl SpringAnim {
+    /// Create a new spring, starting settled at `initial`.
+    pub fn new(initial: f32, config: SpringConfig) -> Self {
+        Self {
+            value: initial,
+            velocity: 0.0,
+            target: initial,
+            config,
+            last_tick: Instant::now(),
+            queried: true,
+        }
+    }
+
+    /// Advance the spring simulation and return the current value.
+    pub fn tick(&mut self) -> f32 {
+        let now = Instant::now();
+        let dt = now.duration_since(self.last_tick).as_secs_f32();
+        self.last_tick = now;
+
+        // Cap dt to avoid instability after long pauses (e.g. tab switch).
+        let dt = dt.min(0.064);
+
+        // Semi-implicit Euler integration.
+        // F = -stiffness * displacement - damping * velocity
+        let displacement = self.value - self.target;
+        let accel = (-self.config.stiffness * displacement - self.config.damping * self.velocity)
+            / self.config.mass;
+        self.velocity += accel * dt;
+        self.value += self.velocity * dt;
+
+        self.value
+    }
+
+    /// Whether the spring has effectively settled (close to target, low velocity).
+    pub fn is_settled(&self) -> bool {
+        let displacement = (self.value - self.target).abs();
+        let speed = self.velocity.abs();
+        displacement < 0.001 && speed < 0.01
+    }
+}
+
+/// A single stop in a keyframe sequence.
+#[derive(Debug, Clone, Copy)]
+pub struct Keyframe {
+    /// Position in the sequence, 0.0 to 1.0 (analogous to CSS percentage / 100).
+    pub offset: f32,
+    /// The value at this stop.
+    pub value: f32,
+    /// Easing curve from the *previous* keyframe to this one.
+    /// The first keyframe's easing is ignored (it's the starting point).
+    pub easing: Easing,
+}
+
+/// A reusable multi-step animation definition.
+///
+/// Keyframes are sorted by offset. Must contain at least two stops
+/// (offset 0.0 and 1.0). Use the builder to construct:
+///
+/// ```ignore
+/// let pulse = KeyframeSequence::new(600.0)
+///     .stop(0.0, 1.0, Easing::Linear)
+///     .stop(0.5, 1.3, Easing::EaseOutCubic)
+///     .stop(1.0, 1.0, Easing::EaseInCubic);
+/// ```
+#[derive(Debug, Clone)]
+pub struct KeyframeSequence {
+    keyframes: Vec<Keyframe>,
+    pub duration_ms: f32,
+}
+
+impl KeyframeSequence {
+    /// Start building a keyframe sequence with the given total duration.
+    pub fn new(duration_ms: f32) -> Self {
+        Self {
+            keyframes: Vec::new(),
+            duration_ms,
+        }
+    }
+
+    /// Add a keyframe stop. `offset` is 0.0–1.0, `easing` controls the curve
+    /// *arriving* at this stop from the previous one.
+    pub fn stop(mut self, offset: f32, value: f32, easing: Easing) -> Self {
+        self.keyframes.push(Keyframe {
+            offset: offset.clamp(0.0, 1.0),
+            value,
+            easing,
+        });
+        // Keep sorted by offset.
+        self.keyframes
+            .sort_by(|a, b| a.offset.partial_cmp(&b.offset).unwrap());
+        self
+    }
+
+    /// Access the keyframe stops.
+    pub fn keyframes(&self) -> &[Keyframe] {
+        &self.keyframes
+    }
+
+    /// Sample the sequence at a given progress `t` in [0.0, 1.0].
+    ///
+    /// Finds the two bracketing keyframes, computes local progress within
+    /// that segment, applies the destination keyframe's easing, and lerps.
+    pub fn sample(&self, t: f32) -> f32 {
+        let t = t.clamp(0.0, 1.0);
+        let kf = &self.keyframes;
+
+        if kf.is_empty() {
+            return 0.0;
+        }
+        if kf.len() == 1 {
+            return kf[0].value;
+        }
+
+        // Before the first stop or at/past the last.
+        if t <= kf[0].offset {
+            return kf[0].value;
+        }
+        if t >= kf[kf.len() - 1].offset {
+            return kf[kf.len() - 1].value;
+        }
+
+        // Find the segment: last keyframe with offset <= t.
+        let idx = kf.partition_point(|k| k.offset <= t);
+        // idx points to the first keyframe *after* t.
+        let prev = &kf[idx.saturating_sub(1)];
+        let next = &kf[idx.min(kf.len() - 1)];
+
+        let span = next.offset - prev.offset;
+        if span < f32::EPSILON {
+            return next.value;
+        }
+
+        let local_t = (t - prev.offset) / span;
+        let eased = next.easing.apply(local_t);
+        prev.value + (next.value - prev.value) * eased
+    }
+}
+
+/// Playback mode for keyframe animations.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum PlaybackMode {
+    /// Play once, then hold the final value.
+    Once,
+    /// Loop N times, then hold the final value.
+    Loop(u32),
+    /// Loop forever.
+    Infinite,
+    /// Play forward then backward. Count is full cycles (forward + back = 1).
+    PingPong(u32),
+    /// Ping-pong forever.
+    PingPongInfinite,
+}
+
+/// Runtime state for an active keyframe animation.
+pub struct KeyframeAnim {
+    pub sequence: KeyframeSequence,
+    pub start: Instant,
+    pub mode: PlaybackMode,
+    pub(crate) queried: bool,
+}
+
+impl KeyframeAnim {
+    /// Current interpolated value based on elapsed time and playback mode.
+    pub fn value(&self) -> f32 {
+        let elapsed = self.start.elapsed().as_millis() as f32;
+        let dur = self.sequence.duration_ms;
+
+        if dur < f32::EPSILON {
+            return self.sequence.sample(1.0);
+        }
+
+        let raw_progress = elapsed / dur;
+
+        let t = match self.mode {
+            PlaybackMode::Once => raw_progress.clamp(0.0, 1.0),
+            PlaybackMode::Loop(n) => {
+                let max = n as f32;
+                if raw_progress >= max {
+                    1.0
+                } else {
+                    raw_progress.fract()
+                }
+            }
+            PlaybackMode::Infinite => raw_progress.fract(),
+            PlaybackMode::PingPong(n) => {
+                // One full cycle = forward + back = 2x duration.
+                let max = n as f32 * 2.0;
+                if raw_progress >= max {
+                    0.0
+                } else {
+                    let within = raw_progress % 2.0;
+                    if within <= 1.0 {
+                        within
+                    } else {
+                        2.0 - within
+                    }
+                }
+            }
+            PlaybackMode::PingPongInfinite => {
+                let within = raw_progress % 2.0;
+                if within <= 1.0 {
+                    within
+                } else {
+                    2.0 - within
+                }
+            }
+        };
+
+        self.sequence.sample(t)
+    }
+
+    /// Whether the animation has finished playing.
+    pub fn is_finished(&self) -> bool {
+        let elapsed = self.start.elapsed().as_millis() as f32;
+        let dur = self.sequence.duration_ms;
+
+        match self.mode {
+            PlaybackMode::Once => elapsed >= dur,
+            PlaybackMode::Loop(n) => elapsed >= dur * n as f32,
+            PlaybackMode::Infinite | PlaybackMode::PingPongInfinite => false,
+            PlaybackMode::PingPong(n) => elapsed >= dur * 2.0 * n as f32,
+        }
     }
 }
 
@@ -922,6 +1357,10 @@ pub struct UiState {
     pub hover_anims: HashMap<u64, HoverAnim>,
     /// General-purpose animations keyed by ID.
     pub anims: HashMap<u64, Anim>,
+    /// Spring-based animations keyed by ID.
+    pub springs: HashMap<u64, SpringAnim>,
+    /// Keyframe animations keyed by ID.
+    pub keyframe_anims: HashMap<u64, KeyframeAnim>,
     /// Buffered scroll event: (mouse_x, mouse_y, delta_y).
     pub pending_scroll: Option<(f32, f32, f32)>,
     /// Active scrollbar drag: (scrollable_id, grab_offset_in_thumb).
@@ -987,6 +1426,8 @@ pub struct UiState {
     pub(crate) mouse_moved: bool,
     /// Rects of widgets with active animations, for targeted animation damage.
     pub(crate) anim_rects: HashMap<u64, Rect>,
+    /// Whether the most recently completed frame had any damage (latched before reset).
+    frame_had_damage: bool,
 }
 
 /// IME (Input Method Editor) composition state.
@@ -1021,6 +1462,8 @@ impl UiState {
             tooltip: None,
             hover_anims: HashMap::new(),
             anims: HashMap::new(),
+            springs: HashMap::new(),
+            keyframe_anims: HashMap::new(),
             pending_scroll: None,
             scrollbar_drag: None,
             mouse_pressed: false,
@@ -1058,6 +1501,7 @@ impl UiState {
             prev_max_scroll: HashMap::new(),
             mouse_moved: false,
             anim_rects: HashMap::new(),
+            frame_had_damage: true,
         }
     }
 
@@ -1272,6 +1716,8 @@ impl UiState {
             || self.focused.is_some_and(|id| self.is_text_widget(id))
             || self.hover_anims.values().any(|a| !a.is_settled())
             || self.anims.values().any(|a| !a.is_settled())
+            || self.springs.values().any(|s| !s.is_settled())
+            || self.keyframe_anims.values().any(|ka| !ka.is_finished())
             || self.scrollbar_drag.is_some()
             || self.split_drag.is_some()
             || self.drag.is_some()
@@ -1281,12 +1727,14 @@ impl UiState {
             || self.spinner_active
     }
 
-    /// Whether the damage tracker indicates a redraw is needed.
+    /// Whether the most recently completed frame had any damage.
     ///
-    /// This is a frame-skip check: returns `false` when nothing changed
-    /// since the last frame, allowing the platform to skip GPU submission.
+    /// This is a frame-skip check: returns `false` when nothing changed,
+    /// allowing the platform to skip GPU submission. The value is latched
+    /// in `end_frame()` before `damage.reset()` so it remains valid after
+    /// `on_redraw()` returns.
     pub fn needs_redraw(&self) -> bool {
-        self.damage.is_full_invalidation() || self.damage.regions().is_some_and(|r| !r.is_empty())
+        self.frame_had_damage
     }
 
     /// Get or update a hover animation, returning the current interpolation value.
@@ -1338,6 +1786,53 @@ impl UiState {
         self.anims.get(&id).is_some_and(|a| !a.is_settled())
     }
 
+    /// Get or create a spring animation. Returns current value.
+    /// Retargets smoothly when target changes (preserves velocity).
+    pub fn spring_t(&mut self, id: u64, target: f32, config: SpringConfig) -> f32 {
+        let spring = self
+            .springs
+            .entry(id)
+            .or_insert_with(|| SpringAnim::new(target, config));
+        spring.queried = true;
+        spring.config = config;
+        spring.target = target;
+        spring.tick()
+    }
+
+    /// Whether a given spring animation is currently active (not settled).
+    pub fn spring_active(&self, id: u64) -> bool {
+        self.springs.get(&id).is_some_and(|s| !s.is_settled())
+    }
+
+    /// Get or create a keyframe animation. Returns current interpolated value.
+    /// If called with a different sequence for an existing id, restarts the animation.
+    pub fn keyframe_t(&mut self, id: u64, sequence: &KeyframeSequence, mode: PlaybackMode) -> f32 {
+        let ka = self
+            .keyframe_anims
+            .entry(id)
+            .or_insert_with(|| KeyframeAnim {
+                sequence: sequence.clone(),
+                start: Instant::now(),
+                mode,
+                queried: true,
+            });
+        ka.queried = true;
+        // If the mode changed, restart.
+        if ka.mode != mode {
+            ka.mode = mode;
+            ka.start = Instant::now();
+            ka.sequence = sequence.clone();
+        }
+        ka.value()
+    }
+
+    /// Whether a keyframe animation is currently playing (not finished).
+    pub fn keyframe_active(&self, id: u64) -> bool {
+        self.keyframe_anims
+            .get(&id)
+            .is_some_and(|ka| !ka.is_finished())
+    }
+
     /// Advance focus to the next widget in the focus chain.
     pub fn focus_next(&mut self) {
         if self.focus_chain.is_empty() {
@@ -1372,7 +1867,7 @@ impl UiState {
     }
 
     /// Clear per-frame state. Called at the start of each frame.
-    pub(crate) fn begin_frame(&mut self) {
+    pub(crate) fn begin_frame(&mut self, scroll_friction: f32) {
         self.last_frame_time = Instant::now();
 
         // Damage detection: hover/focus changes, active animations, scroll velocity.
@@ -1450,9 +1945,8 @@ impl UiState {
                     off[0] += vel[0];
                     off[1] += vel[1];
                 }
-                // Friction is applied per-frame; 0.92 is the default.
-                vel[0] *= 0.92;
-                vel[1] *= 0.92;
+                vel[0] *= scroll_friction;
+                vel[1] *= scroll_friction;
                 if vel[0].abs() < 0.5 {
                     vel[0] = 0.0;
                 }
@@ -1504,6 +1998,12 @@ impl UiState {
         for anim in self.anims.values_mut() {
             anim.queried = false;
         }
+        for spring in self.springs.values_mut() {
+            spring.queried = false;
+        }
+        for ka in self.keyframe_anims.values_mut() {
+            ka.queried = false;
+        }
     }
 
     /// End-of-frame cleanup. Clears consumed events.
@@ -1536,6 +2036,11 @@ impl UiState {
         }
         // Prune settled anims that weren't queried this frame.
         self.anims.retain(|_, a| a.queried || !a.is_settled());
+        // Prune settled springs that weren't queried this frame.
+        self.springs.retain(|_, s| s.queried || !s.is_settled());
+        // Prune finished keyframe anims that weren't queried this frame.
+        self.keyframe_anims
+            .retain(|_, ka| ka.queried || !ka.is_finished());
         // Remove expired and dismissed toasts.
         self.toasts.toasts.retain(|t| {
             if t.dismissed {
@@ -1569,6 +2074,9 @@ impl UiState {
             .find(|(r, _, _)| r.contains(self.mouse.x, self.mouse.y))
             .map(|(_, id, _)| *id);
         self.prev_focused = self.focused;
+        // Latch damage state before reset so the platform can check it after on_redraw().
+        self.frame_had_damage = self.damage.is_full_invalidation()
+            || self.damage.regions().is_some_and(|r| !r.is_empty());
         // Reset damage tracker for next frame.
         self.damage.reset();
     }
@@ -1991,5 +2499,341 @@ mod tests {
         tree.clear();
         assert!(tree.nodes.is_empty());
         assert!(tree.root_children.is_empty());
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    // Easing — boundary values and monotonicity
+    // ══════════════════════════════════════════════════════════════
+
+    #[test]
+    fn easing_boundaries() {
+        let variants = [
+            Easing::Linear,
+            Easing::EaseInQuad,
+            Easing::EaseOutQuad,
+            Easing::EaseInOutQuad,
+            Easing::EaseInCubic,
+            Easing::EaseOutCubic,
+            Easing::EaseInOutCubic,
+            Easing::EaseInQuart,
+            Easing::EaseOutQuart,
+            Easing::EaseInOutQuart,
+            Easing::EaseInExpo,
+            Easing::EaseOutExpo,
+            Easing::EaseInOutExpo,
+        ];
+        for e in variants {
+            let at_zero = e.apply(0.0);
+            let at_one = e.apply(1.0);
+            assert!(at_zero.abs() < 0.01, "{e:?} at 0.0 = {at_zero}");
+            assert!((at_one - 1.0).abs() < 0.01, "{e:?} at 1.0 = {at_one}");
+        }
+    }
+
+    #[test]
+    fn easing_clamped_outside_range() {
+        let e = Easing::EaseOutCubic;
+        assert!((e.apply(-1.0) - e.apply(0.0)).abs() < f32::EPSILON);
+        assert!((e.apply(2.0) - e.apply(1.0)).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn ease_out_back_overshoots() {
+        let mid = Easing::EaseOutBack.apply(0.5);
+        // EaseOutBack should exceed 1.0 at some point before settling.
+        let near_end = Easing::EaseOutBack.apply(0.7);
+        assert!(mid > 0.0);
+        assert!(near_end > 1.0 || Easing::EaseOutBack.apply(0.85) > 1.0);
+    }
+
+    #[test]
+    fn ease_out_bounce_stays_in_range() {
+        for i in 0..=100 {
+            let t = i as f32 / 100.0;
+            let v = Easing::EaseOutBounce.apply(t);
+            assert!(v >= 0.0 && v <= 1.001, "bounce({t}) = {v}");
+        }
+    }
+
+    #[test]
+    fn cubic_bezier_linear() {
+        // cubic-bezier(0, 0, 1, 1) should approximate linear.
+        let e = Easing::CubicBezier(0.0, 0.0, 1.0, 1.0);
+        for i in 0..=10 {
+            let t = i as f32 / 10.0;
+            let v = e.apply(t);
+            assert!((v - t).abs() < 0.05, "linear bezier({t}) = {v}");
+        }
+    }
+
+    #[test]
+    fn cubic_bezier_ease_out() {
+        // CSS ease-out: cubic-bezier(0, 0, 0.58, 1)
+        let e = Easing::CubicBezier(0.0, 0.0, 0.58, 1.0);
+        assert!(e.apply(0.0).abs() < 0.01);
+        assert!((e.apply(1.0) - 1.0).abs() < 0.01);
+        // Ease-out should be above linear at the midpoint.
+        assert!(e.apply(0.5) > 0.5);
+    }
+
+    #[test]
+    fn easing_monotonic_standard_curves() {
+        // Standard ease-in/out/in-out should be monotonically increasing.
+        let monotonic = [
+            Easing::Linear,
+            Easing::EaseInQuad,
+            Easing::EaseOutQuad,
+            Easing::EaseInOutQuad,
+            Easing::EaseInCubic,
+            Easing::EaseOutCubic,
+            Easing::EaseInOutCubic,
+            Easing::EaseInQuart,
+            Easing::EaseOutQuart,
+            Easing::EaseInOutQuart,
+            Easing::EaseInExpo,
+            Easing::EaseOutExpo,
+            Easing::EaseInOutExpo,
+        ];
+        for e in monotonic {
+            let mut prev = 0.0f32;
+            for i in 1..=100 {
+                let t = i as f32 / 100.0;
+                let v = e.apply(t);
+                assert!(
+                    v >= prev - 0.001,
+                    "{e:?} not monotonic at {t}: {v} < {prev}"
+                );
+                prev = v;
+            }
+        }
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    // Spring — convergence, retargeting, config
+    // ══════════════════════════════════════════════════════════════
+
+    #[test]
+    fn spring_config_damping_ratio() {
+        // Critical damping: ratio = 1.0
+        let critical = SpringConfig {
+            stiffness: 100.0,
+            damping: 20.0, // 2 * sqrt(100 * 1) = 20
+            mass: 1.0,
+        };
+        assert!((critical.damping_ratio() - 1.0).abs() < 0.01);
+
+        // Underdamped: ratio < 1.0
+        assert!(SpringConfig::BOUNCY.damping_ratio() < 1.0);
+
+        // Overdamped: ratio > 1.0
+        let overdamped = SpringConfig::new(100.0, 30.0);
+        assert!(overdamped.damping_ratio() > 1.0);
+    }
+
+    #[test]
+    fn spring_settles_at_target() {
+        let mut spring = SpringAnim::new(0.0, SpringConfig::SNAPPY);
+        spring.target = 1.0;
+        // Simulate many steps.
+        for _ in 0..500 {
+            spring.velocity += (-spring.config.stiffness * (spring.value - spring.target)
+                - spring.config.damping * spring.velocity)
+                / spring.config.mass
+                * 0.016;
+            spring.value += spring.velocity * 0.016;
+        }
+        assert!(
+            (spring.value - 1.0).abs() < 0.01,
+            "spring did not converge: {}",
+            spring.value
+        );
+    }
+
+    #[test]
+    fn spring_starts_settled() {
+        let spring = SpringAnim::new(5.0, SpringConfig::GENTLE);
+        assert!(spring.is_settled());
+        assert!((spring.value - 5.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn spring_retarget_preserves_velocity() {
+        let mut spring = SpringAnim::new(0.0, SpringConfig::BOUNCY);
+        spring.target = 1.0;
+        // Give it some velocity.
+        spring.velocity = 5.0;
+        spring.value = 0.3;
+        let vel_before = spring.velocity;
+        // Retarget.
+        spring.target = 2.0;
+        // Velocity should be unchanged.
+        assert!((spring.velocity - vel_before).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn spring_presets_are_valid() {
+        // All presets should have positive stiffness, damping, and mass.
+        for config in [
+            SpringConfig::SNAPPY,
+            SpringConfig::GENTLE,
+            SpringConfig::BOUNCY,
+            SpringConfig::STIFF,
+        ] {
+            assert!(config.stiffness > 0.0);
+            assert!(config.damping > 0.0);
+            assert!(config.mass > 0.0);
+            assert!(config.damping_ratio() > 0.0);
+        }
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    // KeyframeSequence — sampling, boundaries, multi-segment
+    // ══════════════════════════════════════════════════════════════
+
+    #[test]
+    fn keyframe_sample_two_stops_linear() {
+        let seq = KeyframeSequence::new(1000.0)
+            .stop(0.0, 0.0, Easing::Linear)
+            .stop(1.0, 100.0, Easing::Linear);
+        assert!((seq.sample(0.0) - 0.0).abs() < 0.01);
+        assert!((seq.sample(0.5) - 50.0).abs() < 0.01);
+        assert!((seq.sample(1.0) - 100.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn keyframe_sample_three_stops() {
+        let seq = KeyframeSequence::new(1000.0)
+            .stop(0.0, 0.0, Easing::Linear)
+            .stop(0.5, 80.0, Easing::Linear)
+            .stop(1.0, 100.0, Easing::Linear);
+        // At 0.25 — halfway through first segment (0→80).
+        assert!((seq.sample(0.25) - 40.0).abs() < 0.5);
+        // At 0.5 — exactly at second stop.
+        assert!((seq.sample(0.5) - 80.0).abs() < 0.01);
+        // At 0.75 — halfway through second segment (80→100).
+        assert!((seq.sample(0.75) - 90.0).abs() < 0.5);
+    }
+
+    #[test]
+    fn keyframe_sample_per_segment_easing() {
+        let seq = KeyframeSequence::new(1000.0)
+            .stop(0.0, 0.0, Easing::Linear)
+            .stop(1.0, 100.0, Easing::EaseInQuad);
+        // EaseInQuad at t=0.5 should be 0.25 (t^2), so value ~ 25.
+        assert!((seq.sample(0.5) - 25.0).abs() < 0.5);
+    }
+
+    #[test]
+    fn keyframe_sample_clamps_outside_range() {
+        let seq = KeyframeSequence::new(1000.0)
+            .stop(0.0, 10.0, Easing::Linear)
+            .stop(1.0, 90.0, Easing::Linear);
+        assert!((seq.sample(-1.0) - 10.0).abs() < 0.01);
+        assert!((seq.sample(2.0) - 90.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn keyframe_sample_empty_returns_zero() {
+        let seq = KeyframeSequence::new(1000.0);
+        assert!((seq.sample(0.5)).abs() < 0.01);
+    }
+
+    #[test]
+    fn keyframe_sample_single_stop() {
+        let seq = KeyframeSequence::new(1000.0).stop(0.5, 42.0, Easing::Linear);
+        assert!((seq.sample(0.0) - 42.0).abs() < 0.01);
+        assert!((seq.sample(1.0) - 42.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn keyframe_builder_sorts_by_offset() {
+        let seq = KeyframeSequence::new(1000.0)
+            .stop(1.0, 100.0, Easing::Linear)
+            .stop(0.0, 0.0, Easing::Linear)
+            .stop(0.5, 50.0, Easing::Linear);
+        let offsets: Vec<f32> = seq.keyframes().iter().map(|k| k.offset).collect();
+        assert_eq!(offsets, vec![0.0, 0.5, 1.0]);
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    // KeyframeAnim — playback modes
+    // ══════════════════════════════════════════════════════════════
+
+    fn make_test_sequence() -> KeyframeSequence {
+        KeyframeSequence::new(100.0) // 100ms for fast test
+            .stop(0.0, 0.0, Easing::Linear)
+            .stop(1.0, 100.0, Easing::Linear)
+    }
+
+    #[test]
+    fn keyframe_anim_once_finishes() {
+        let ka = KeyframeAnim {
+            sequence: make_test_sequence(),
+            start: Instant::now() - std::time::Duration::from_millis(200),
+            mode: PlaybackMode::Once,
+            queried: true,
+        };
+        assert!(ka.is_finished());
+        // Value should be clamped at final.
+        assert!((ka.value() - 100.0).abs() < 0.5);
+    }
+
+    #[test]
+    fn keyframe_anim_once_not_finished_midway() {
+        let ka = KeyframeAnim {
+            sequence: make_test_sequence(),
+            start: Instant::now(),
+            mode: PlaybackMode::Once,
+            queried: true,
+        };
+        assert!(!ka.is_finished());
+    }
+
+    #[test]
+    fn keyframe_anim_infinite_never_finishes() {
+        let ka = KeyframeAnim {
+            sequence: make_test_sequence(),
+            start: Instant::now() - std::time::Duration::from_secs(999),
+            mode: PlaybackMode::Infinite,
+            queried: true,
+        };
+        assert!(!ka.is_finished());
+    }
+
+    #[test]
+    fn keyframe_anim_loop_count() {
+        let ka = KeyframeAnim {
+            sequence: make_test_sequence(),
+            start: Instant::now() - std::time::Duration::from_millis(350),
+            mode: PlaybackMode::Loop(3),
+            queried: true,
+        };
+        // 350ms elapsed, 3 loops * 100ms = 300ms total → should be finished.
+        assert!(ka.is_finished());
+    }
+
+    #[test]
+    fn keyframe_anim_ping_pong_reverses() {
+        let seq = KeyframeSequence::new(1000.0)
+            .stop(0.0, 0.0, Easing::Linear)
+            .stop(1.0, 100.0, Easing::Linear);
+
+        // At 1.5x duration into a ping-pong, we should be halfway back.
+        let ka = KeyframeAnim {
+            sequence: seq,
+            start: Instant::now() - std::time::Duration::from_millis(1500),
+            mode: PlaybackMode::PingPongInfinite,
+            queried: true,
+        };
+        // Progress 1.5 → within = 1.5 % 2.0 = 1.5 → t = 2.0 - 1.5 = 0.5 → value = 50.
+        assert!((ka.value() - 50.0).abs() < 2.0);
+    }
+
+    #[test]
+    fn keyframe_playback_mode_eq() {
+        assert_eq!(PlaybackMode::Once, PlaybackMode::Once);
+        assert_eq!(PlaybackMode::Loop(3), PlaybackMode::Loop(3));
+        assert_ne!(PlaybackMode::Loop(3), PlaybackMode::Loop(5));
+        assert_ne!(PlaybackMode::Once, PlaybackMode::Infinite);
     }
 }

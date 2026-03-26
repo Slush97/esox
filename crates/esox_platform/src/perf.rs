@@ -211,7 +211,7 @@ impl PerfMonitor {
 
             let mut sorted: Vec<f64> = self.cpu_frame_times.iter().copied().collect();
             sorted.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-            let p99_idx = ((n as f64) * 0.99).ceil() as usize;
+            let p99_idx = ((n as f64) * 0.99).ceil() as usize - 1;
             self.cpu_time_p99_ms = sorted[p99_idx.min(n - 1)] as f32;
         }
 
@@ -542,7 +542,7 @@ fn percentile(sorted: &[f64], p: f64) -> f64 {
     if sorted.is_empty() {
         return 0.0;
     }
-    let idx = (sorted.len() as f64 * p).ceil() as usize;
+    let idx = (sorted.len() as f64 * p).ceil() as usize - 1;
     sorted[idx.min(sorted.len() - 1)]
 }
 

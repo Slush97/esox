@@ -1,6 +1,6 @@
 use crate::color::Color;
 use crate::pipeline::{GpuContext, PipelineRegistry, RenderResources};
-use crate::primitive::{BlendMode, QuadInstance, ShapeType};
+use crate::primitive::{BlendMode, QuadInstance, ShapeType, TextQuadInstance};
 use crate::scene::Scene;
 use crate::shape::primitive_to_instance;
 
@@ -96,6 +96,8 @@ pub struct DrawBatch {
     pub instance_count: u32,
     /// Render phase this batch belongs to (used for pipeline remapping).
     pub phase: RenderPhase,
+    /// Whether this batch uses the compact text instance buffer.
+    pub is_text_batch: bool,
 }
 
 /// Per-frame uniform data uploaded to the GPU (32 bytes).
@@ -111,6 +113,8 @@ pub struct FrameUniforms {
 /// Collects quad instances for a single frame.
 pub struct Frame {
     instances: Vec<QuadInstance>,
+    /// Compact text instances extracted during `build_batches()`.
+    text_instances: Vec<TextQuadInstance>,
     batches: Vec<DrawBatch>,
     /// Reusable buffer for resolved primitives (avoids per-frame allocation).
     resolved_buf: Vec<crate::scene::ResolvedPrimitive>,
@@ -141,6 +145,7 @@ impl Frame {
     pub fn new() -> Self {
         Self {
             instances: Vec::new(),
+            text_instances: Vec::new(),
             batches: Vec::new(),
             resolved_buf: Vec::new(),
             multi_phase: false,
@@ -273,6 +278,7 @@ impl Frame {
     /// Clear all instances and reset phase state.
     pub fn clear(&mut self) {
         self.instances.clear();
+        self.text_instances.clear();
         self.batches.clear();
         self.multi_phase = false;
         self.current_phase = RenderPhase::OpaqueBackground;
@@ -328,6 +334,49 @@ impl Frame {
         self.overlay_mode = false;
     }
 
+    /// Shift the Y position of instances in `[start..end)` by `dy` pixels.
+    pub fn offset_instances_y(&mut self, start: usize, end: usize, dy: f32) {
+        let end = end.min(self.instances.len());
+        for inst in &mut self.instances[start..end] {
+            inst.rect[1] += dy;
+            // Also shift clip_rect Y if a clip is set.
+            if inst.clip_rect != [0.0; 4] {
+                inst.clip_rect[1] += dy;
+            }
+        }
+    }
+
+    /// Apply a 2D transform (translate + scale) to instances in range `[start, end)`.
+    ///
+    /// Scaling is applied relative to `center_x, center_y` — the visual center
+    /// of the group — so that content scales from its midpoint.
+    #[allow(clippy::too_many_arguments)] // Transform parameters are inherently multi-dimensional.
+    pub fn transform_instances(
+        &mut self,
+        start: usize,
+        end: usize,
+        dx: f32,
+        dy: f32,
+        sx: f32,
+        sy: f32,
+        center_x: f32,
+        center_y: f32,
+    ) {
+        let end = end.min(self.instances.len());
+        for inst in &mut self.instances[start..end] {
+            // Scale relative to center.
+            if (sx - 1.0).abs() > 1e-6 || (sy - 1.0).abs() > 1e-6 {
+                inst.rect[0] = center_x + (inst.rect[0] - center_x) * sx;
+                inst.rect[1] = center_y + (inst.rect[1] - center_y) * sy;
+                inst.rect[2] *= sx;
+                inst.rect[3] *= sy;
+            }
+            // Translate.
+            inst.rect[0] += dx;
+            inst.rect[1] += dy;
+        }
+    }
+
     /// Set the active clip rect. All subsequent `push()` / `extend_instances()` calls
     /// will stamp this clip onto every instance. Pass `None` to disable.
     pub fn set_active_clip(&mut self, clip: Option<[f32; 4]>) {
@@ -342,6 +391,11 @@ impl Frame {
     /// Get the instance data as a byte slice (for uploading to GPU).
     pub fn instance_data(&self) -> &[QuadInstance] {
         &self.instances
+    }
+
+    /// Get the compact text instance data (for uploading to GPU).
+    pub fn text_instance_data(&self) -> &[TextQuadInstance] {
+        &self.text_instances
     }
 
     /// Get the computed draw batches.
@@ -451,6 +505,7 @@ impl Frame {
     /// for anti-aliased rounded corners and other SDF shapes).
     pub fn build_batches(&mut self) {
         self.batches.clear();
+        self.text_instances.clear();
         let count = self.instances.len();
         if count == 0 {
             return;
@@ -472,6 +527,42 @@ impl Frame {
         }
     }
 
+    /// Push a completed batch, converting text batches to the compact buffer.
+    fn push_batch(
+        &mut self,
+        pipeline_id: u32,
+        clip_key: ClipKey,
+        first: u32,
+        count: u32,
+        phase: RenderPhase,
+    ) {
+        let is_text = pipeline_id == crate::primitive::PIPELINE_TEXT.0;
+        if is_text {
+            // Convert instances to compact form and remap indices.
+            let text_start = self.text_instances.len() as u32;
+            let src = first as usize..(first + count) as usize;
+            self.text_instances
+                .extend(self.instances[src].iter().map(TextQuadInstance::from));
+            self.batches.push(DrawBatch {
+                pipeline_id,
+                clip_key,
+                first_instance: text_start,
+                instance_count: count,
+                phase,
+                is_text_batch: true,
+            });
+        } else {
+            self.batches.push(DrawBatch {
+                pipeline_id,
+                clip_key,
+                first_instance: first,
+                instance_count: count,
+                phase,
+                is_text_batch: false,
+            });
+        }
+    }
+
     /// Build batches for a contiguous range of instances with the given phase.
     fn build_batches_for_range(&mut self, start: usize, end: usize, phase: RenderPhase) {
         if start >= end {
@@ -486,13 +577,13 @@ impl Frame {
             let pip = self.pipeline_id_of(i);
             let clip = ClipKey::from_clip_rect(self.instances[i].clip_rect);
             if pip != cur_pipeline || clip != cur_clip {
-                self.batches.push(DrawBatch {
-                    pipeline_id: cur_pipeline,
-                    clip_key: cur_clip,
-                    first_instance: batch_start,
-                    instance_count: i as u32 - batch_start,
+                self.push_batch(
+                    cur_pipeline,
+                    cur_clip,
+                    batch_start,
+                    i as u32 - batch_start,
                     phase,
-                });
+                );
                 batch_start = i as u32;
                 cur_pipeline = pip;
                 cur_clip = clip;
@@ -500,13 +591,13 @@ impl Frame {
         }
 
         // Final batch in this range.
-        self.batches.push(DrawBatch {
-            pipeline_id: cur_pipeline,
-            clip_key: cur_clip,
-            first_instance: batch_start,
-            instance_count: end as u32 - batch_start,
+        self.push_batch(
+            cur_pipeline,
+            cur_clip,
+            batch_start,
+            end as u32 - batch_start,
             phase,
-        });
+        );
     }
 }
 
@@ -692,11 +783,28 @@ impl FrameEncoder {
             None => &surface_view,
         };
 
+        // Build batches first so text_instances are populated before upload.
+        if instance_count > 0 {
+            frame.build_batches();
+        }
+
         // Upload instance data directly (wgpu handles internal staging).
         if instance_count > 0 {
             let data = bytemuck::cast_slice(frame.instance_data());
             gpu.queue
                 .write_buffer(resources.current_instance_buffer(), 0, data);
+        }
+
+        // Upload compact text instances (populated by build_batches above).
+        let text_count = frame.text_instance_data().len() as u32;
+        if text_count > 0 {
+            if text_count > resources.text_instance_capacity() {
+                let new_cap = text_count.saturating_mul(2).clamp(256, MAX_INSTANCES);
+                resources.resize_text_buffer(&gpu.device, new_cap);
+            }
+            let text_data = bytemuck::cast_slice(frame.text_instance_data());
+            gpu.queue
+                .write_buffer(resources.text_instance_buffer(), 0, text_data);
         }
 
         let mut encoder = gpu
@@ -746,9 +854,7 @@ impl FrameEncoder {
             });
 
             if instance_count > 0 {
-                // Build draw batches for scissor + pipeline switching.
-                frame.build_batches();
-
+                // Batches already built before upload.
                 pass.set_bind_group(0, Some(&resources.bind_group), &[]);
                 pass.set_vertex_buffer(0, resources.quad_vertex_buffer.slice(..));
                 pass.set_vertex_buffer(1, resources.current_instance_buffer().slice(..));
@@ -756,8 +862,18 @@ impl FrameEncoder {
                 let vp_w = gpu.config.width;
                 let vp_h = gpu.config.height;
                 let mut current_pipeline_id: Option<u32> = None;
+                let mut using_text_buffer = false;
 
                 for batch in frame.batches() {
+                    // Switch instance buffer if needed (text vs full).
+                    if batch.is_text_batch && !using_text_buffer {
+                        pass.set_vertex_buffer(1, resources.text_instance_buffer().slice(..));
+                        using_text_buffer = true;
+                    } else if !batch.is_text_batch && using_text_buffer {
+                        pass.set_vertex_buffer(1, resources.current_instance_buffer().slice(..));
+                        using_text_buffer = false;
+                    }
+
                     // Remap opaque-phase SDF batches to the no-blend pipeline.
                     let pip_id = if batch.phase == RenderPhase::OpaqueBackground
                         && batch.pipeline_id == crate::primitive::PIPELINE_SDF_2D.0
@@ -920,11 +1036,28 @@ impl FrameEncoder {
             None => surface_view,
         };
 
+        // Build batches first so text_instances are populated before upload.
+        if instance_count > 0 {
+            frame.build_batches();
+        }
+
         // Upload instance data.
         if instance_count > 0 {
             let data = bytemuck::cast_slice(frame.instance_data());
             gpu.queue
                 .write_buffer(resources.current_instance_buffer(), 0, data);
+        }
+
+        // Upload compact text instances (populated by build_batches above).
+        let text_count = frame.text_instance_data().len() as u32;
+        if text_count > 0 {
+            if text_count > resources.text_instance_capacity() {
+                let new_cap = text_count.saturating_mul(2).clamp(256, MAX_INSTANCES);
+                resources.resize_text_buffer(&gpu.device, new_cap);
+            }
+            let text_data = bytemuck::cast_slice(frame.text_instance_data());
+            gpu.queue
+                .write_buffer(resources.text_instance_buffer(), 0, text_data);
         }
 
         let mut encoder = gpu
@@ -983,8 +1116,7 @@ impl FrameEncoder {
             });
 
             if instance_count > 0 {
-                frame.build_batches();
-
+                // Batches already built before upload.
                 pass.set_bind_group(0, Some(&resources.bind_group), &[]);
                 pass.set_vertex_buffer(0, resources.quad_vertex_buffer.slice(..));
                 pass.set_vertex_buffer(1, resources.current_instance_buffer().slice(..));
@@ -996,8 +1128,18 @@ impl FrameEncoder {
                 let vp_w = gpu.config.width;
                 let vp_h = gpu.config.height;
                 let mut current_pipeline_id: Option<u32> = None;
+                let mut using_text_buffer = false;
 
                 for batch in frame.batches() {
+                    // Switch instance buffer if needed.
+                    if batch.is_text_batch && !using_text_buffer {
+                        pass.set_vertex_buffer(1, resources.text_instance_buffer().slice(..));
+                        using_text_buffer = true;
+                    } else if !batch.is_text_batch && using_text_buffer {
+                        pass.set_vertex_buffer(1, resources.current_instance_buffer().slice(..));
+                        using_text_buffer = false;
+                    }
+
                     let mut pip_id = if batch.phase == RenderPhase::OpaqueBackground
                         && batch.pipeline_id == crate::primitive::PIPELINE_SDF_2D.0
                     {

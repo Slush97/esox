@@ -266,6 +266,64 @@ impl Spacing {
     }
 }
 
+// ── Grid layout types ──
+
+/// A single grid track (row or column) size definition.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum GridTrack {
+    /// Fixed size in logical pixels.
+    Fixed(f32),
+    /// Fractional unit — absorbs remaining space proportionally (like CSS `fr`).
+    Fr(f32),
+    /// Size to content (like CSS `auto`).
+    Auto,
+    /// Minimum content, maximum fractional (like CSS `minmax(min, 1fr)`).
+    MinMax(f32, f32),
+}
+
+/// Grid placement for a child item.
+#[derive(Debug, Clone, Copy)]
+pub struct GridPlacement {
+    /// 0-based start column.
+    pub column: u16,
+    /// 0-based start row.
+    pub row: u16,
+    /// Number of columns to span (default 1).
+    pub col_span: u16,
+    /// Number of rows to span (default 1).
+    pub row_span: u16,
+}
+
+impl Default for GridPlacement {
+    fn default() -> Self {
+        Self {
+            column: 0,
+            row: 0,
+            col_span: 1,
+            row_span: 1,
+        }
+    }
+}
+
+impl GridPlacement {
+    /// Place at the given column and row (span 1x1).
+    pub fn at(col: u16, row: u16) -> Self {
+        Self {
+            column: col,
+            row,
+            col_span: 1,
+            row_span: 1,
+        }
+    }
+
+    /// Set the column and row span.
+    pub fn span(mut self, cols: u16, rows: u16) -> Self {
+        self.col_span = cols;
+        self.row_span = rows;
+        self
+    }
+}
+
 /// Flex wrap mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FlexWrap {

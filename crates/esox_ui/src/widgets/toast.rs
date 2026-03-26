@@ -69,21 +69,33 @@ impl<'f> Ui<'f> {
             };
             let bg_with_alpha = Color::new(bg.r, bg.g, bg.b, bg.a * opacity);
 
-            // Shadow.
-            self.frame.push(
-                ShapeBuilder::rect(tx + 1.0, ty + 1.0, toast_w, toast_h)
-                    .color(Color::new(0.0, 0.0, 0.0, 0.2 * opacity))
-                    .border_radius(BorderRadius::uniform(corner))
-                    .build(),
-            );
-
-            // Background.
-            paint::draw_rounded_rect(
-                self.frame,
-                Rect::new(tx, ty, toast_w, toast_h),
-                bg_with_alpha,
-                corner,
-            );
+            // Background + elevation shadow.
+            {
+                let elev = &self.theme.elevation_medium;
+                if elev.blur >= 0.001 {
+                    let shadow_color = Color::new(
+                        elev.color.r,
+                        elev.color.g,
+                        elev.color.b,
+                        elev.color.a * opacity,
+                    );
+                    self.frame.push(
+                        ShapeBuilder::rect(tx, ty, toast_w, toast_h)
+                            .color(bg_with_alpha)
+                            .border_radius(BorderRadius::uniform(corner))
+                            .shadow(elev.blur, elev.dx, elev.dy)
+                            .color2(shadow_color)
+                            .build(),
+                    );
+                } else {
+                    paint::draw_rounded_rect(
+                        self.frame,
+                        Rect::new(tx, ty, toast_w, toast_h),
+                        bg_with_alpha,
+                        corner,
+                    );
+                }
+            }
 
             // Message text.
             let text_color = Color::new(

@@ -30,12 +30,18 @@
 //!
 //! - [`Ui::animate`] — drive a value towards a target with easing
 //! - [`Ui::animate_bool`] — convenience for 0→1 toggle animations
-//! - [`Ui::is_animating`] — check if an animation is in-flight
-//! - [`Easing`] — `Linear`, `EaseOutCubic`, `EaseInOutCubic`, `EaseOutExpo`
+//! - [`Ui::animate_spring`] — spring-physics animation (velocity-based, no fixed duration)
+//! - [`Ui::animate_bool_spring`] — convenience for 0→1 spring toggle
+//! - [`Ui::animate_keyframes`] — multi-step keyframe sequences with looping
+//! - [`Ui::is_animating`] / [`Ui::is_spring_animating`] / [`Ui::is_keyframe_animating`]
+//! - [`Easing`] — standard CSS curves, `CubicBezier`, `EaseOutBounce`, `EaseOutBack`, etc.
+//! - [`SpringConfig`] — presets: `SNAPPY`, `GENTLE`, `BOUNCY`, `STIFF`
 //! - [`lerp_color`] — interpolate between colors
 
 pub mod a11y;
 pub mod id;
+#[cfg(feature = "markup")]
+pub mod interpret;
 pub mod layout;
 pub mod layout_tree;
 pub mod paint;
@@ -47,20 +53,28 @@ pub mod theme;
 mod widgets;
 
 pub use id::{fnv1a_mix, fnv1a_runtime, HOVER_SALT};
-pub use layout::{Align, Constraints, FlexItem, FlexWrap, Justify, Rect, Spacing};
+pub use layout::{
+    Align, Constraints, FlexItem, FlexWrap, GridPlacement, GridTrack, Justify, Rect, Spacing,
+};
 pub use paint::lerp_color;
 pub use response::Response;
+pub use rich_text::FontWeight;
 pub use rich_text::{RichText, Span};
 pub use state::{
     A11yNode, A11yRole, A11yTree, ClipboardProvider, DragPayload, DropZoneState, Easing, ImeState,
-    InputState, ModalAction, SelectState, SortDirection, TabState, TableState, ToastKind,
-    ToastQueue, TooltipState, TreeState, UiState, VirtualScrollState, WidgetKind,
+    InputState, Keyframe, KeyframeSequence, ModalAction, PlaybackMode, SelectState, SortDirection,
+    SpringConfig, TabState, TableState, ToastKind, ToastQueue, TooltipState, TreeState, UiState,
+    VirtualScrollState, WidgetKind,
 };
 pub use text::{TextRenderer, TruncationMode};
-pub use theme::{StyleState, TextSize, Theme, ThemeBuilder, ThemeTransition, WidgetStyle};
+pub use theme::{
+    Elevation, Gradient, SpacingScale, StyleState, TextAlign, TextDecoration, TextSize,
+    TextTransform, Theme, ThemeBuilder, ThemeTransition, Transform2D, WidgetStyle,
+};
 pub use widgets::form::FieldStatus;
 pub use widgets::image::{ImageCache, ImageHandle};
 pub use widgets::menu_bar::{Menu, MenuEntry, MenuItem};
+pub use widgets::pagination::PaginationState;
 pub use widgets::table::{ColumnWidth, TableColumn};
 pub use widgets::tree::TreeNodeResponse;
 
@@ -299,6 +313,221 @@ impl<'a, 'f> FlexUi<'a, 'f> {
     }
 }
 
+/// Builder for CSS Grid-like layouts with column/row track definitions.
+pub struct GridBuilder<'a, 'f> {
+    ui: &'a mut Ui<'f>,
+    columns: Vec<layout::GridTrack>,
+    rows: Vec<layout::GridTrack>,
+    col_gap: f32,
+    row_gap: f32,
+}
+
+impl<'a, 'f> GridBuilder<'a, 'f> {
+    /// Set the gap between columns.
+    pub fn col_gap(mut self, gap: f32) -> Self {
+        self.col_gap = gap;
+        self
+    }
+
+    /// Set the gap between rows.
+    pub fn row_gap(mut self, gap: f32) -> Self {
+        self.row_gap = gap;
+        self
+    }
+
+    /// Set both column and row gaps to the same value.
+    pub fn gap(mut self, gap: f32) -> Self {
+        self.col_gap = gap;
+        self.row_gap = gap;
+        self
+    }
+
+    /// Draw the grid layout. The closure receives a `GridUi` for placing cells.
+    pub fn show(self, f: impl FnOnce(&mut GridUi<'_, 'f>)) {
+        self.ui.tree_build.open_container(
+            None,
+            LayoutStyle {
+                direction: Direction::Vertical,
+                grid_columns: Some(self.columns.clone()),
+                grid_rows: Some(self.rows.clone()),
+                grid_column_gap: Some(self.col_gap),
+                grid_row_gap: Some(self.row_gap),
+                ..Default::default()
+            },
+        );
+
+        let saved_cursor = self.ui.cursor;
+        let saved_region = self.ui.region;
+        let saved_spacing = self.ui.spacing;
+
+        // Compute track sizes inline so the grid works inside scrollables,
+        // where prev_layout lookups are disabled.
+        let available_w = self.ui.region.w;
+        let available_h = self.ui.region.h;
+        let col_sizes = resolve_grid_tracks_inline(&self.columns, available_w, self.col_gap);
+        let row_sizes = resolve_grid_tracks_inline(&self.rows, available_h, self.row_gap);
+
+        let col_positions = grid_track_positions(&col_sizes, self.col_gap, saved_cursor.x);
+        let row_positions = grid_track_positions(&row_sizes, self.row_gap, saved_cursor.y);
+
+        let mut grid_ui = GridUi {
+            ui: self.ui,
+            col_sizes,
+            row_sizes,
+            col_positions,
+            row_positions,
+            col_gap: self.col_gap,
+            row_gap: self.row_gap,
+            saved_cursor,
+            saved_region,
+        };
+        f(&mut grid_ui);
+
+        // Restore cursor and advance by total grid height.
+        let total_row_gap = self.row_gap * grid_ui.row_sizes.len().saturating_sub(1) as f32;
+        let total_h: f32 = grid_ui.row_sizes.iter().sum::<f32>() + total_row_gap;
+
+        self.ui.cursor = saved_cursor;
+        self.ui.cursor.y += total_h + self.ui.spacing;
+        self.ui.region = saved_region;
+        self.ui.spacing = saved_spacing;
+
+        self.ui.tree_build.close_container();
+    }
+}
+
+/// Resolve grid track sizes from definitions and available space (inline version).
+fn resolve_grid_tracks_inline(defs: &[layout::GridTrack], available: f32, gap: f32) -> Vec<f32> {
+    if defs.is_empty() {
+        return vec![available];
+    }
+
+    let total_gap = gap * (defs.len().saturating_sub(1)) as f32;
+    let mut remaining = (available - total_gap).max(0.0);
+    let mut sizes = vec![0.0f32; defs.len()];
+    let mut total_fr = 0.0f32;
+
+    // First pass: resolve Fixed tracks, accumulate Fr.
+    for (i, track) in defs.iter().enumerate() {
+        match *track {
+            layout::GridTrack::Fixed(px) => {
+                sizes[i] = px;
+                remaining -= px;
+            }
+            layout::GridTrack::Auto => {
+                // Without child measurement, Auto tracks get no space here.
+                // The tree solver handles Auto in arrange_grid for non-scroll contexts.
+            }
+            layout::GridTrack::MinMax(min, _) => {
+                sizes[i] = min;
+                remaining -= min;
+                total_fr += 1.0;
+            }
+            layout::GridTrack::Fr(fr) => {
+                total_fr += fr;
+            }
+        }
+    }
+
+    // Second pass: distribute remaining space to Fr and MinMax tracks.
+    remaining = remaining.max(0.0);
+    if total_fr > 0.0 {
+        let per_fr = remaining / total_fr;
+        for (i, track) in defs.iter().enumerate() {
+            match *track {
+                layout::GridTrack::Fr(fr) => sizes[i] = per_fr * fr,
+                layout::GridTrack::MinMax(min, max) => sizes[i] = (min + per_fr).min(max),
+                _ => {}
+            }
+        }
+    }
+
+    sizes
+}
+
+/// Compute cumulative start positions from track sizes and gap.
+fn grid_track_positions(sizes: &[f32], gap: f32, origin: f32) -> Vec<f32> {
+    let mut positions = Vec::with_capacity(sizes.len());
+    let mut pos = origin;
+    for &size in sizes {
+        positions.push(pos);
+        pos += size + gap;
+    }
+    positions
+}
+
+/// Context for placing cells within a grid layout.
+pub struct GridUi<'a, 'f> {
+    ui: &'a mut Ui<'f>,
+    col_sizes: Vec<f32>,
+    row_sizes: Vec<f32>,
+    col_positions: Vec<f32>,
+    row_positions: Vec<f32>,
+    col_gap: f32,
+    row_gap: f32,
+    saved_cursor: layout::Vec2,
+    saved_region: layout::Rect,
+}
+
+impl<'a, 'f> GridUi<'a, 'f> {
+    /// Place a cell at the given grid position. Content is rendered inside the cell.
+    pub fn cell(&mut self, placement: layout::GridPlacement, f: impl FnOnce(&mut Ui<'f>)) {
+        let c = placement.column as usize;
+        let r = placement.row as usize;
+        let cs = placement.col_span as usize;
+        let rs = placement.row_span as usize;
+
+        // Compute cell rect from precomputed track positions.
+        let (x, w) = if c < self.col_positions.len() {
+            let x = self.col_positions[c];
+            let end_c = (c + cs).min(self.col_sizes.len());
+            let w: f32 = self.col_sizes[c..end_c].iter().sum::<f32>()
+                + self.col_gap * (end_c - c).saturating_sub(1) as f32;
+            (x, w)
+        } else {
+            (self.saved_cursor.x, self.saved_region.w)
+        };
+
+        let (y, h) = if r < self.row_positions.len() {
+            let y = self.row_positions[r];
+            let end_r = (r + rs).min(self.row_sizes.len());
+            let h: f32 = self.row_sizes[r..end_r].iter().sum::<f32>()
+                + self.row_gap * (end_r - r).saturating_sub(1) as f32;
+            (y, h)
+        } else {
+            (self.ui.cursor.y, 0.0)
+        };
+
+        self.ui.tree_build.open_container(
+            None,
+            LayoutStyle {
+                direction: Direction::Vertical,
+                gap: self.ui.spacing,
+                grid_placement: Some(placement),
+                ..Default::default()
+            },
+        );
+
+        let prev_cursor = self.ui.cursor;
+        let prev_region = self.ui.region;
+
+        self.ui.cursor = layout::Vec2 { x, y };
+        self.ui.region = layout::Rect::new(x, y, w, h);
+
+        f(self.ui);
+
+        self.ui.cursor = prev_cursor;
+        self.ui.region = prev_region;
+
+        self.ui.tree_build.close_container();
+    }
+
+    /// Access the inner `Ui` for direct widget calls.
+    pub fn ui(&mut self) -> &mut Ui<'f> {
+        self.ui
+    }
+}
+
 /// The main UI context. Created each frame, consumed by `finish()`.
 pub struct Ui<'f> {
     pub(crate) frame: &'f mut Frame,
@@ -340,7 +569,7 @@ impl<'f> Ui<'f> {
         viewport: Rect,
     ) -> Self {
         text.advance_generation();
-        state.begin_frame();
+        state.begin_frame(theme.scroll_friction);
 
         // Set up tile grid for partial redraw if available.
         if let Some(ref mut grid) = state.tile_grid {
@@ -530,6 +759,54 @@ impl<'f> Ui<'f> {
         self.tree_build.close_container();
     }
 
+    /// Run a closure in a horizontal row, then vertically center all children.
+    ///
+    /// Uses a two-pass approach: renders children top-aligned, then shifts
+    /// the entire content block down so it is vertically centered within the
+    /// tallest child's height.
+    pub fn row_centered(&mut self, f: impl FnOnce(&mut Self)) {
+        let inst_start = self.frame.instance_len();
+
+        self.tree_build.open_container(
+            None,
+            LayoutStyle {
+                direction: Direction::Horizontal,
+                gap: self.spacing,
+                ..Default::default()
+            },
+        );
+        let ctx = LayoutContext {
+            direction: Direction::Horizontal,
+            origin: self.cursor,
+            region: self.region,
+            saved_cursor: self.cursor,
+            spacing: self.spacing,
+            max_cross: 0.0,
+            clip_rect: None,
+        };
+        self.layout_stack.push(ctx);
+        f(self);
+        let ctx = self.layout_stack.pop().unwrap();
+        let max_cross = ctx.max_cross;
+        self.cursor.x = ctx.saved_cursor.x;
+        self.cursor.y = ctx.saved_cursor.y + max_cross + self.spacing;
+        self.tree_build.close_container();
+
+        // Vertically center each instance within max_cross.
+        // Instances shorter than max_cross get shifted down by half the
+        // difference; instances at full height stay in place.
+        let inst_end = self.frame.instance_len();
+        if max_cross > 0.0 {
+            for i in inst_start..inst_end {
+                let h = self.frame.instance_data()[i].rect[3];
+                if h > 0.0 && h < max_cross {
+                    let dy = (max_cross - h) / 2.0;
+                    self.frame.offset_instances_y(i, i + 1, dy);
+                }
+            }
+        }
+    }
+
     /// Set spacing between subsequent widgets.
     pub fn spacing(&mut self, amount: f32) {
         self.spacing = amount;
@@ -538,6 +815,11 @@ impl<'f> Ui<'f> {
     /// Add extra vertical space.
     pub fn add_space(&mut self, amount: f32) {
         self.cursor.y += amount;
+    }
+
+    /// Add a section-level gap. Use between major page areas.
+    pub fn section_break(&mut self) {
+        self.cursor.y += self.theme.section_gap;
     }
 
     /// Run a closure within a max-width container, centered horizontally.
@@ -684,6 +966,32 @@ impl<'f> Ui<'f> {
             align: layout::Align::Start,
             justify: layout::Justify::Start,
             wrap: layout::FlexWrap::NoWrap,
+        }
+    }
+
+    /// Create a CSS Grid layout builder with column and row track definitions.
+    ///
+    /// # Example
+    /// ```ignore
+    /// ui.grid(
+    ///     &[GridTrack::Fr(1.0), GridTrack::Fr(1.0), GridTrack::Fixed(200.0)],
+    ///     &[GridTrack::Auto, GridTrack::Fr(1.0)],
+    /// ).gap(12.0).show(|grid| {
+    ///     grid.cell(GridPlacement::at(0, 0), |ui| { ui.label("A"); });
+    ///     grid.cell(GridPlacement::at(1, 0).span(2, 1), |ui| { ui.label("B"); });
+    /// });
+    /// ```
+    pub fn grid(
+        &mut self,
+        columns: &[layout::GridTrack],
+        rows: &[layout::GridTrack],
+    ) -> GridBuilder<'_, 'f> {
+        GridBuilder {
+            ui: self,
+            columns: columns.to_vec(),
+            rows: rows.to_vec(),
+            col_gap: 0.0,
+            row_gap: 0.0,
         }
     }
 
@@ -883,6 +1191,9 @@ impl<'f> Ui<'f> {
         let saved_cursor_x = self.cursor.x;
         let saved_region = self.region;
 
+        let guide_x = self.cursor.x + indent / 2.0;
+        let guide_start_y = self.cursor.y;
+
         self.cursor.x += indent;
         self.region = Rect::new(
             self.cursor.x,
@@ -892,6 +1203,18 @@ impl<'f> Ui<'f> {
         );
 
         f(self);
+
+        // Draw vertical guide line spanning the children.
+        let guide_h = self.cursor.y - guide_start_y;
+        if guide_h > 0.0 {
+            paint::draw_vline(
+                self.frame,
+                guide_x,
+                guide_start_y,
+                guide_h,
+                self.theme.border,
+            );
+        }
 
         self.cursor.x = saved_cursor_x;
         self.region = saved_region;
@@ -961,10 +1284,19 @@ impl<'f> Ui<'f> {
                 .set_active_clip(Some([saved_cursor_x, start_y, saved_region.w, clip_h]));
         }
 
+        let guide_x = saved_cursor_x + indent / 2.0;
+
         f(self);
 
         let children_h = self.cursor.y - start_y;
         self.state.tree_children_heights.insert(anim_id, children_h);
+
+        // Draw vertical guide line spanning the children (inside clip rect).
+        let guide_h = self.cursor.y - start_y;
+        if guide_h > 0.0 {
+            let border_color = self.theme.border;
+            paint::draw_vline(self.frame, guide_x, start_y, guide_h, border_color);
+        }
 
         // Restore clip.
         self.frame.set_active_clip(saved_clip);
@@ -1095,6 +1427,7 @@ impl<'f> Ui<'f> {
                 clicked: false,
                 right_clicked: false,
                 hovered: false,
+                pressed: false,
                 focused: false,
                 changed: false,
                 disabled: true,
@@ -1111,6 +1444,7 @@ impl<'f> Ui<'f> {
                         clicked: false,
                         right_clicked: false,
                         hovered: false,
+                        pressed: false,
                         focused: self.state.focused == Some(id),
                         changed: false,
                         disabled: false,
@@ -1169,10 +1503,13 @@ impl<'f> Ui<'f> {
             }
         }
 
+        let pressed = hovered && self.state.mouse_pressed;
+
         response::Response {
             clicked,
             right_clicked,
             hovered,
+            pressed,
             focused,
             changed: false,
             disabled: false,
@@ -1229,6 +1566,53 @@ impl<'f> Ui<'f> {
         self.style_stack.push(style);
         f(self);
         self.style_stack.pop();
+    }
+
+    /// Run a closure with a 2D transform applied to all emitted GPU instances.
+    ///
+    /// Translation is always applied. Scaling is relative to the visual center
+    /// of the content emitted by the closure.
+    pub fn with_transform(&mut self, t: theme::Transform2D, f: impl FnOnce(&mut Self)) {
+        let start = self.frame.instance_len();
+        let start_y = self.cursor.y;
+        f(self);
+        let end = self.frame.instance_len();
+
+        if start == end {
+            return;
+        }
+
+        let center_x = self.region.x + self.region.w * 0.5;
+        let center_y = (start_y + self.cursor.y) * 0.5;
+
+        self.frame.transform_instances(
+            start,
+            end,
+            t.translate_x,
+            t.translate_y,
+            t.scale_x,
+            t.scale_y,
+            center_x,
+            center_y,
+        );
+    }
+
+    /// Run a closure with GPU clipping: children that overflow the current
+    /// region are visually clipped (like CSS `overflow: hidden`).
+    pub fn clip_children(&mut self, f: impl FnOnce(&mut Self)) {
+        let clip_rect =
+            layout::Rect::new(self.cursor.x, self.cursor.y, self.region.w, self.region.h);
+        let saved_clip = self.frame.active_clip();
+        let gpu_clip = match saved_clip {
+            Some(prev) => {
+                let prev_rect = layout::Rect::new(prev[0], prev[1], prev[2], prev[3]);
+                clip_rect.intersect(&prev_rect).unwrap_or(clip_rect)
+            }
+            None => clip_rect,
+        };
+        self.frame.set_active_clip(Some(gpu_clip.to_clip_array()));
+        f(self);
+        self.frame.set_active_clip(saved_clip);
     }
 
     /// Resolve foreground color: style stack override or theme default.
@@ -1296,6 +1680,162 @@ impl<'f> Ui<'f> {
             }
         }
         self.theme.border
+    }
+
+    /// Resolve padding override from the style stack.
+    #[allow(dead_code)]
+    pub(crate) fn resolve_padding(&self) -> Option<layout::Spacing> {
+        for s in self.style_stack.iter().rev() {
+            if let Some(p) = s.padding {
+                return Some(p);
+            }
+        }
+        None
+    }
+
+    /// Resolve margin override from the style stack.
+    #[allow(dead_code)]
+    pub(crate) fn resolve_margin(&self) -> Option<layout::Spacing> {
+        for s in self.style_stack.iter().rev() {
+            if let Some(m) = s.margin {
+                return Some(m);
+            }
+        }
+        None
+    }
+
+    /// Resolve border stroke width: style stack override or 1.0.
+    #[allow(dead_code)]
+    pub(crate) fn resolve_border_width(&self) -> f32 {
+        for s in self.style_stack.iter().rev() {
+            if let Some(w) = s.border_width {
+                return w;
+            }
+        }
+        1.0
+    }
+
+    /// Resolve opacity: style stack override or 1.0 (fully opaque).
+    #[allow(dead_code)]
+    pub(crate) fn resolve_opacity(&self) -> f32 {
+        for s in self.style_stack.iter().rev() {
+            if let Some(o) = s.opacity {
+                return o;
+            }
+        }
+        1.0
+    }
+
+    /// Resolve elevation/shadow override from the style stack.
+    #[allow(dead_code)]
+    pub(crate) fn resolve_elevation(&self) -> Option<&theme::Elevation> {
+        for s in self.style_stack.iter().rev() {
+            if let Some(ref e) = s.elevation {
+                return Some(e);
+            }
+        }
+        None
+    }
+
+    /// Resolve text alignment: style stack override or Left.
+    pub(crate) fn resolve_text_align(&self) -> theme::TextAlign {
+        for s in self.style_stack.iter().rev() {
+            if let Some(a) = s.text_align {
+                return a;
+            }
+        }
+        theme::TextAlign::Left
+    }
+
+    /// Resolve minimum width constraint from the style stack.
+    #[allow(dead_code)]
+    pub(crate) fn resolve_min_width(&self) -> Option<f32> {
+        for s in self.style_stack.iter().rev() {
+            if s.min_width.is_some() {
+                return s.min_width;
+            }
+        }
+        None
+    }
+
+    /// Resolve maximum width constraint from the style stack.
+    #[allow(dead_code)]
+    pub(crate) fn resolve_max_width(&self) -> Option<f32> {
+        for s in self.style_stack.iter().rev() {
+            if s.max_width.is_some() {
+                return s.max_width;
+            }
+        }
+        None
+    }
+
+    /// Resolve minimum height constraint from the style stack.
+    #[allow(dead_code)]
+    pub(crate) fn resolve_min_height(&self) -> Option<f32> {
+        for s in self.style_stack.iter().rev() {
+            if s.min_height.is_some() {
+                return s.min_height;
+            }
+        }
+        None
+    }
+
+    /// Resolve maximum height constraint from the style stack.
+    #[allow(dead_code)]
+    pub(crate) fn resolve_max_height(&self) -> Option<f32> {
+        for s in self.style_stack.iter().rev() {
+            if s.max_height.is_some() {
+                return s.max_height;
+            }
+        }
+        None
+    }
+
+    /// Resolve gradient override from the style stack.
+    #[allow(dead_code)]
+    pub(crate) fn resolve_gradient(&self) -> Option<theme::Gradient> {
+        for s in self.style_stack.iter().rev() {
+            if let Some(g) = s.gradient {
+                return Some(g);
+            }
+        }
+        None
+    }
+
+    /// Resolve per-corner border radius: style stack override, or uniform from corner_radius.
+    #[allow(dead_code)]
+    pub(crate) fn resolve_border_radius(&self) -> esox_gfx::BorderRadius {
+        for s in self.style_stack.iter().rev() {
+            if let Some([tl, tr, bl, br]) = s.per_corner_radius {
+                return esox_gfx::BorderRadius {
+                    top_left: tl,
+                    top_right: tr,
+                    bottom_left: bl,
+                    bottom_right: br,
+                };
+            }
+        }
+        esox_gfx::BorderRadius::uniform(self.resolve_corner_radius())
+    }
+
+    /// Resolve text decoration: style stack override or None.
+    pub(crate) fn resolve_text_decoration(&self) -> theme::TextDecoration {
+        for s in self.style_stack.iter().rev() {
+            if let Some(d) = s.text_decoration {
+                return d;
+            }
+        }
+        theme::TextDecoration::None
+    }
+
+    /// Resolve text transform: style stack override or None.
+    pub(crate) fn resolve_text_transform(&self) -> theme::TextTransform {
+        for s in self.style_stack.iter().rev() {
+            if let Some(t) = s.text_transform {
+                return t;
+            }
+        }
+        theme::TextTransform::None
     }
 
     /// Access the theme.
@@ -1414,16 +1954,14 @@ impl<'f> Ui<'f> {
 
         let tt_rect = Rect::new(tx, ty, tooltip_w, tooltip_h);
 
-        // Shadow.
-        paint::draw_rounded_rect(
+        // Background + elevation shadow.
+        paint::draw_elevated_rect(
             self.frame,
-            Rect::new(tx + 1.0, ty + 1.0, tooltip_w, tooltip_h),
-            self.theme.shadow,
+            tt_rect,
+            self.theme.tooltip_bg,
             4.0,
+            &self.theme.elevation_medium,
         );
-
-        // Background.
-        paint::draw_rounded_rect(self.frame, tt_rect, self.theme.tooltip_bg, 4.0);
 
         // Text.
         self.text.draw_text(
@@ -1676,6 +2214,59 @@ impl<'f> Ui<'f> {
         self.state.anim_active(id)
     }
 
+    /// Drive a spring-based animation. Returns the current value.
+    ///
+    /// Unlike duration-based `animate()`, springs settle naturally based on
+    /// physics. Changing `target` mid-flight preserves velocity for a smooth
+    /// feel.
+    ///
+    /// Use [`SpringConfig`] presets for common behaviors:
+    /// - `SpringConfig::SNAPPY` — fast, no overshoot (toggles, hovers)
+    /// - `SpringConfig::GENTLE` — smooth, slower (layout transitions)
+    /// - `SpringConfig::BOUNCY` — visible overshoot (enter/exit)
+    /// - `SpringConfig::STIFF` — very fast (micro-interactions)
+    pub fn animate_spring(&mut self, id: u64, target: f32, config: SpringConfig) -> f32 {
+        self.state.spring_t(id, target, config)
+    }
+
+    /// Boolean spring helper. Returns 0.0→1.0 interpolation via spring physics.
+    pub fn animate_bool_spring(&mut self, id: u64, active: bool, config: SpringConfig) -> f32 {
+        let target = if active { 1.0 } else { 0.0 };
+        self.state.spring_t(id, target, config)
+    }
+
+    /// Whether the given spring animation is currently in-flight.
+    pub fn is_spring_animating(&self, id: u64) -> bool {
+        self.state.spring_active(id)
+    }
+
+    /// Play a keyframe sequence. Returns the current interpolated value.
+    ///
+    /// The animation starts on the first frame it's called and advances
+    /// each frame. Playback mode controls looping and ping-pong behavior.
+    ///
+    /// ```ignore
+    /// let pulse = KeyframeSequence::new(600.0)
+    ///     .stop(0.0, 1.0, Easing::Linear)
+    ///     .stop(0.5, 1.3, Easing::EaseOutCubic)
+    ///     .stop(1.0, 1.0, Easing::EaseInCubic);
+    ///
+    /// let scale = ui.animate_keyframes(id!("pulse"), &pulse, PlaybackMode::Infinite);
+    /// ```
+    pub fn animate_keyframes(
+        &mut self,
+        id: u64,
+        sequence: &KeyframeSequence,
+        mode: PlaybackMode,
+    ) -> f32 {
+        self.state.keyframe_t(id, sequence, mode)
+    }
+
+    /// Whether a keyframe animation is currently playing (not finished).
+    pub fn is_keyframe_animating(&self, id: u64) -> bool {
+        self.state.keyframe_active(id)
+    }
+
     // ── Focus control ──
 
     /// Set focus to the given widget ID.
@@ -1712,8 +2303,7 @@ impl<'f> Ui<'f> {
     /// scroll, overlay) since the last frame. When this returns `false`,
     /// the platform layer can skip GPU submission to save power.
     pub fn needs_redraw(&self) -> bool {
-        self.state.damage.is_full_invalidation()
-            || self.state.damage.regions().is_some_and(|r| !r.is_empty())
+        self.state.needs_redraw()
     }
 
     // ── Context Menu ──

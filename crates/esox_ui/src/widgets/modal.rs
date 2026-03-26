@@ -117,21 +117,31 @@ impl<'f> Ui<'f> {
         // Draw modal background.
         let _modal_bg_rect = Rect::new(modal_x, modal_y_start, modal_w, max_h);
 
-        // Shadow.
-        paint::draw_rounded_rect(
-            self.frame,
-            Rect::new(modal_x + 2.0, modal_y_start + 2.0, modal_w, max_h),
-            esox_gfx::Color::new(0.0, 0.0, 0.0, self.theme.modal_shadow_alpha * opacity),
-            corner,
-        );
-
-        // Background.
-        paint::draw_rounded_rect(
-            self.frame,
-            Rect::new(modal_x, modal_y_start, modal_w, max_h),
-            self.theme.bg_surface,
-            corner,
-        );
+        // Background + elevation shadow (single GPU shape).
+        let elev = &self.theme.elevation_high;
+        if elev.blur >= 0.001 {
+            let shadow_color = esox_gfx::Color::new(
+                elev.color.r,
+                elev.color.g,
+                elev.color.b,
+                elev.color.a * opacity,
+            );
+            self.frame.push(
+                esox_gfx::ShapeBuilder::rect(modal_x, modal_y_start, modal_w, max_h)
+                    .color(self.theme.bg_surface)
+                    .border_radius(esox_gfx::BorderRadius::uniform(corner))
+                    .shadow(elev.blur, elev.dx, elev.dy)
+                    .color2(shadow_color)
+                    .build(),
+            );
+        } else {
+            paint::draw_rounded_rect(
+                self.frame,
+                Rect::new(modal_x, modal_y_start, modal_w, max_h),
+                self.theme.bg_surface,
+                corner,
+            );
+        }
 
         // Title bar.
         let title_rect = Rect::new(modal_x, modal_y_start, modal_w, title_h);

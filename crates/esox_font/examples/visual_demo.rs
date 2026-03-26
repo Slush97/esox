@@ -69,7 +69,7 @@ fn main() {
                 for y in 0..rast.height {
                     print!("│ ");
                     for x in 0..rast.width {
-                        let idx = ((y * rast.width + x) * 4 + 3) as usize;
+                        let idx = (y * rast.width + x) as usize;
                         let alpha = rast.data[idx];
                         let shade = (alpha as usize * (shades.len() - 1)) / 255;
                         print!("{}", shades[shade]);

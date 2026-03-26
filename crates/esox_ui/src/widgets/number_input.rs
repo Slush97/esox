@@ -12,6 +12,7 @@
 //! let response = ui.number_input_clamped(id!("opacity"), &mut opacity, 0.1, 0.0, 1.0);
 //! ```
 
+use crate::id::EDIT_SALT;
 use esox_gfx::ShapeBuilder;
 use esox_input::{Key, NamedKey};
 
@@ -171,8 +172,9 @@ impl<'f> Ui<'f> {
         }
 
         // Check if we are in inline editing mode.
-        // We use a sub-id for the editing state stored in UiState's generic HashMap.
-        let edit_id = id ^ 0xED17_FACE;
+        // edit_id is a derived ID used for the inline text field's animation state,
+        // distinct from `id` which keys the edit buffer in number_edit_buffers.
+        let edit_id = id ^ EDIT_SALT;
         let was_editing = self.state.number_edit_buffers.contains_key(&id);
         let mut editing = was_editing;
 
@@ -314,7 +316,7 @@ impl<'f> Ui<'f> {
             paint::draw_focus_ring(
                 self.frame,
                 rect,
-                self.theme.accent_dim,
+                self.theme.focus_ring_color,
                 self.theme.corner_radius,
                 self.theme.focus_ring_expand,
             );

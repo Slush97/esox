@@ -3,6 +3,7 @@
 use esox_gfx::{BorderRadius, Color, Frame, ShapeBuilder};
 
 use crate::layout::Rect;
+use crate::theme::{Elevation, Gradient};
 
 /// Draw a 1px solid border around a rectangle (non-rounded).
 pub fn draw_border(frame: &mut Frame, rect: Rect, color: Color) {
@@ -33,19 +34,56 @@ pub fn draw_rounded_rect(frame: &mut Frame, rect: Rect, color: Color, radius: f3
     );
 }
 
-/// Draw a focus ring (expanded rounded rect behind the widget).
-pub fn draw_focus_ring(frame: &mut Frame, rect: Rect, color: Color, radius: f32, expand: f32) {
+/// Draw a rounded rectangle with an elevation shadow.
+///
+/// The shadow is rendered via the GPU SDF shader (`ShapeBuilder::shadow`),
+/// producing a smooth Gaussian blur. When `elevation.blur` is zero, this
+/// falls back to a plain `draw_rounded_rect` with no shadow overhead.
+pub fn draw_elevated_rect(
+    frame: &mut Frame,
+    rect: Rect,
+    color: Color,
+    radius: f32,
+    elevation: &Elevation,
+) {
+    if elevation.blur < 0.001 {
+        draw_rounded_rect(frame, rect, color, radius);
+        return;
+    }
+    frame.push(
+        ShapeBuilder::rect(rect.x, rect.y, rect.w, rect.h)
+            .color(color)
+            .border_radius(BorderRadius::uniform(radius))
+            .shadow(elevation.blur, elevation.dx, elevation.dy)
+            .color2(elevation.color)
+            .build(),
+    );
+}
+
+/// Draw a focus ring (stroked rounded rect with gap around the widget).
+///
+/// Draws a 2px stroke ring with `gap` pixels between the widget edge and
+/// the inner edge of the ring.
+pub fn draw_focus_ring(frame: &mut Frame, rect: Rect, color: Color, radius: f32, gap: f32) {
+    let stroke_width = 2.0;
+    let offset = gap + stroke_width / 2.0;
     frame.push(
         ShapeBuilder::rect(
-            rect.x - expand,
-            rect.y - expand,
-            rect.w + expand * 2.0,
-            rect.h + expand * 2.0,
+            rect.x - offset,
+            rect.y - offset,
+            rect.w + offset * 2.0,
+            rect.h + offset * 2.0,
         )
         .color(color)
-        .border_radius(BorderRadius::uniform(radius + expand))
+        .border_radius(BorderRadius::uniform(radius + offset))
+        .stroke(stroke_width)
         .build(),
     );
+}
+
+/// Draw a vertical line (1px wide).
+pub fn draw_vline(frame: &mut Frame, x: f32, y: f32, h: f32, color: Color) {
+    frame.push(ShapeBuilder::rect(x, y, 1.0, h).color(color).build());
 }
 
 /// Linearly interpolate between two colors by `t` in [0, 1].
@@ -56,6 +94,20 @@ pub fn lerp_color(a: Color, b: Color, t: f32) -> Color {
         a.b + (b.b - a.b) * t,
         a.a + (b.a - a.a) * t,
     )
+}
+
+/// Draw a gradient fade overlay at a scroll edge.
+///
+/// `from` is the color at the start of the gradient direction.
+/// `to` is the color at the end.
+/// `angle` is the gradient direction in radians (PI/2 = top-to-bottom, 0 = left-to-right).
+pub fn draw_scroll_fade(frame: &mut Frame, rect: Rect, from: Color, to: Color, angle: f32) {
+    frame.push(
+        ShapeBuilder::rect(rect.x, rect.y, rect.w, rect.h)
+            .color(from)
+            .linear_gradient(to, angle)
+            .build(),
+    );
 }
 
 /// Draw a dashed border around a rectangle.
@@ -101,6 +153,105 @@ pub fn draw_dashed_border(
                 .build(),
         );
         dy += dash + gap;
+    }
+}
+
+/// Draw a fully-styled rectangle with gradient, shadow, border, and opacity.
+///
+/// This is the primary drawing function for widgets that need per-widget
+/// visual customization. All parameters are optional via the resolver system.
+#[allow(clippy::too_many_arguments)] // Visual properties are inherently multi-dimensional.
+pub fn draw_styled_rect(
+    frame: &mut Frame,
+    rect: Rect,
+    bg: Color,
+    gradient: Option<Gradient>,
+    radius: BorderRadius,
+    border_color: Option<Color>,
+    border_width: f32,
+    elevation: Option<&Elevation>,
+    opacity: f32,
+) {
+    // Background fill (with optional gradient and shadow).
+    let mut builder = ShapeBuilder::rect(rect.x, rect.y, rect.w, rect.h)
+        .color(bg)
+        .border_radius(radius)
+        .opacity(opacity);
+
+    if let Some(grad) = gradient {
+        builder = match grad {
+            Gradient::Linear { end_color, angle } => builder.linear_gradient(end_color, angle),
+            Gradient::Radial { end_color } => builder.radial_gradient(end_color),
+            Gradient::Conic {
+                end_color,
+                start_angle,
+            } => builder.conic_gradient(end_color, start_angle),
+        };
+    }
+
+    if let Some(elev) = elevation {
+        if elev.blur > 0.001 {
+            builder = builder
+                .shadow(elev.blur, elev.dx, elev.dy)
+                .color2(elev.color);
+        }
+    }
+
+    frame.push(builder.build());
+
+    // Border stroke (separate shape so it layers on top).
+    if let Some(bc) = border_color {
+        if border_width > 0.0 {
+            frame.push(
+                ShapeBuilder::rect(rect.x, rect.y, rect.w, rect.h)
+                    .color(bc)
+                    .border_radius(radius)
+                    .stroke(border_width)
+                    .opacity(opacity)
+                    .build(),
+            );
+        }
+    }
+}
+
+/// Draw per-side borders as thin rectangles.
+///
+/// Each side is optional: pass `Some((color, width))` to draw, `None` to skip.
+pub fn draw_per_side_border(
+    frame: &mut Frame,
+    rect: Rect,
+    top: Option<(Color, f32)>,
+    right: Option<(Color, f32)>,
+    bottom: Option<(Color, f32)>,
+    left: Option<(Color, f32)>,
+) {
+    if let Some((color, width)) = top {
+        frame.push(
+            ShapeBuilder::rect(rect.x, rect.y, rect.w, width)
+                .color(color)
+                .build(),
+        );
+    }
+    if let Some((color, width)) = bottom {
+        frame.push(
+            ShapeBuilder::rect(rect.x, rect.y + rect.h - width, rect.w, width)
+                .color(color)
+                .build(),
+        );
+    }
+    if let Some((color, width)) = left {
+        frame.push(
+            ShapeBuilder::rect(rect.x, rect.y, width, rect.h)
+                .color(color)
+                .build(),
+        );
+    }
+    if let Some((color, width)) = right {
+        frame.push(
+            ShapeBuilder::rect(rect.x + rect.w - width, rect.y, width, rect.h)
+                .color(color)
+                .build(),
+        );
     }
 }
 
