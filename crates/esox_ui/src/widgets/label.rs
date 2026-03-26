@@ -185,7 +185,7 @@ impl<'f> Ui<'f> {
             text,
             rect.x,
             rect.y,
-            self.theme.fg_muted,
+            self.theme.fg_label,
             self.theme.header_letter_spacing,
             self.frame,
             self.gpu,

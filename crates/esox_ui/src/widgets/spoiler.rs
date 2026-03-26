@@ -16,20 +16,12 @@ use crate::state::WidgetKind;
 use crate::Ui;
 
 impl<'f> Ui<'f> {
-    /// Draw a spoiler block. Content is hidden (blurred overlay) until clicked.
+    /// Draw a spoiler block. Content is hidden (opaque overlay) until clicked.
     ///
     /// State is tracked internally by `id` — once revealed, stays revealed until
     /// the widget is no longer drawn.
     pub fn spoiler(&mut self, id: u64, f: impl FnOnce(&mut Self)) -> Response {
         let revealed = self.state.spoiler_revealed(id);
-
-        // Reserve placeholder for the overlay (drawn after content so it covers it).
-        let overlay_idx = self.frame.instance_len();
-        self.frame.push(
-            ShapeBuilder::rect(0.0, 0.0, 0.0, 0.0)
-                .color(Color::new(0.0, 0.0, 0.0, 0.0))
-                .build(),
-        );
 
         let start_y = self.cursor.y;
 
@@ -48,25 +40,26 @@ impl<'f> Ui<'f> {
         }
 
         if !revealed {
-            // Draw the obscuring overlay.
+            // Draw the obscuring overlay *after* content so it renders on top.
             let overlay_color = Color::new(
                 self.theme.bg_surface.r,
                 self.theme.bg_surface.g,
                 self.theme.bg_surface.b,
-                0.95,
+                1.0,
             );
             let radius = self.theme.corner_radius;
 
-            let overlay = ShapeBuilder::rounded_rect(
-                content_rect.x,
-                content_rect.y,
-                content_rect.w,
-                content_rect.h,
-                radius,
-            )
-            .color(overlay_color)
-            .build();
-            self.frame.replace_instance(overlay_idx, overlay);
+            self.frame.push(
+                ShapeBuilder::rounded_rect(
+                    content_rect.x,
+                    content_rect.y,
+                    content_rect.w,
+                    content_rect.h,
+                    radius,
+                )
+                .color(overlay_color)
+                .build(),
+            );
 
             // "Click to reveal" hint centered on the block.
             let hint = "Spoiler — click to reveal";
