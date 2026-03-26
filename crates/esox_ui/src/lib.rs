@@ -59,7 +59,8 @@ pub use state::{
 };
 pub use text::{TextRenderer, TruncationMode};
 pub use theme::{
-    Elevation, StyleState, TextSize, Theme, ThemeBuilder, ThemeTransition, WidgetStyle,
+    Elevation, SpacingScale, StyleState, TextAlign, TextSize, Theme, ThemeBuilder, ThemeTransition,
+    WidgetStyle,
 };
 pub use widgets::form::FieldStatus;
 pub use widgets::image::{ImageCache, ImageHandle};
@@ -1382,6 +1383,115 @@ impl<'f> Ui<'f> {
             }
         }
         self.theme.border
+    }
+
+    /// Resolve padding override from the style stack.
+    #[allow(dead_code)]
+    pub(crate) fn resolve_padding(&self) -> Option<layout::Spacing> {
+        for s in self.style_stack.iter().rev() {
+            if let Some(p) = s.padding {
+                return Some(p);
+            }
+        }
+        None
+    }
+
+    /// Resolve margin override from the style stack.
+    #[allow(dead_code)]
+    pub(crate) fn resolve_margin(&self) -> Option<layout::Spacing> {
+        for s in self.style_stack.iter().rev() {
+            if let Some(m) = s.margin {
+                return Some(m);
+            }
+        }
+        None
+    }
+
+    /// Resolve border stroke width: style stack override or 1.0.
+    #[allow(dead_code)]
+    pub(crate) fn resolve_border_width(&self) -> f32 {
+        for s in self.style_stack.iter().rev() {
+            if let Some(w) = s.border_width {
+                return w;
+            }
+        }
+        1.0
+    }
+
+    /// Resolve opacity: style stack override or 1.0 (fully opaque).
+    #[allow(dead_code)]
+    pub(crate) fn resolve_opacity(&self) -> f32 {
+        for s in self.style_stack.iter().rev() {
+            if let Some(o) = s.opacity {
+                return o;
+            }
+        }
+        1.0
+    }
+
+    /// Resolve elevation/shadow override from the style stack.
+    #[allow(dead_code)]
+    pub(crate) fn resolve_elevation(&self) -> Option<&theme::Elevation> {
+        for s in self.style_stack.iter().rev() {
+            if let Some(ref e) = s.elevation {
+                return Some(e);
+            }
+        }
+        None
+    }
+
+    /// Resolve text alignment: style stack override or Left.
+    pub(crate) fn resolve_text_align(&self) -> theme::TextAlign {
+        for s in self.style_stack.iter().rev() {
+            if let Some(a) = s.text_align {
+                return a;
+            }
+        }
+        theme::TextAlign::Left
+    }
+
+    /// Resolve minimum width constraint from the style stack.
+    #[allow(dead_code)]
+    pub(crate) fn resolve_min_width(&self) -> Option<f32> {
+        for s in self.style_stack.iter().rev() {
+            if s.min_width.is_some() {
+                return s.min_width;
+            }
+        }
+        None
+    }
+
+    /// Resolve maximum width constraint from the style stack.
+    #[allow(dead_code)]
+    pub(crate) fn resolve_max_width(&self) -> Option<f32> {
+        for s in self.style_stack.iter().rev() {
+            if s.max_width.is_some() {
+                return s.max_width;
+            }
+        }
+        None
+    }
+
+    /// Resolve minimum height constraint from the style stack.
+    #[allow(dead_code)]
+    pub(crate) fn resolve_min_height(&self) -> Option<f32> {
+        for s in self.style_stack.iter().rev() {
+            if s.min_height.is_some() {
+                return s.min_height;
+            }
+        }
+        None
+    }
+
+    /// Resolve maximum height constraint from the style stack.
+    #[allow(dead_code)]
+    pub(crate) fn resolve_max_height(&self) -> Option<f32> {
+        for s in self.style_stack.iter().rev() {
+            if s.max_height.is_some() {
+                return s.max_height;
+            }
+        }
+        None
     }
 
     /// Access the theme.

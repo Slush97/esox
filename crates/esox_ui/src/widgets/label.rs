@@ -5,15 +5,31 @@ use esox_gfx::Color;
 use crate::rich_text::RichText;
 use crate::state::{A11yNode, A11yRole};
 use crate::text::TruncationMode;
-use crate::theme::TextSize;
+use crate::theme::{TextAlign, TextSize};
 use crate::Ui;
+
+/// Compute the x position for text given alignment, container origin, width, and text width.
+fn align_text_x(align: TextAlign, rect_x: f32, rect_w: f32, text_w: f32) -> f32 {
+    match align {
+        TextAlign::Left => rect_x,
+        TextAlign::Center => rect_x + (rect_w - text_w) * 0.5,
+        TextAlign::Right => rect_x + rect_w - text_w,
+    }
+}
 
 impl<'f> Ui<'f> {
     /// Draw a label with the standard text color.
     pub fn label(&mut self, text: &str) {
         let font_size = self.resolve_font_size();
         let fg = self.resolve_fg();
+        let align = self.resolve_text_align();
         let rect = self.allocate_rect(self.region.w, font_size + self.theme.label_pad_y);
+        let x = align_text_x(
+            align,
+            rect.x,
+            rect.w,
+            self.text.measure_text(text, font_size),
+        );
         self.push_a11y_node(A11yNode {
             id: crate::id::fnv1a_runtime(text),
             role: A11yRole::Label,
@@ -28,37 +44,32 @@ impl<'f> Ui<'f> {
             value_range: None,
             children: Vec::new(),
         });
-        if (font_size - self.theme.font_size).abs() < 0.01 {
-            self.text.draw_ui_text(
-                text,
-                rect.x,
-                rect.y,
-                fg,
-                self.frame,
-                self.gpu,
-                self.resources,
-            );
-        } else {
-            self.text.draw_text(
-                text,
-                rect.x,
-                rect.y,
-                font_size,
-                fg,
-                self.frame,
-                self.gpu,
-                self.resources,
-            );
-        }
+        self.text.draw_text(
+            text,
+            x,
+            rect.y,
+            font_size,
+            fg,
+            self.frame,
+            self.gpu,
+            self.resources,
+        );
     }
 
     /// Draw a label at a semantic text size.
     pub fn label_sized(&mut self, text: &str, size: TextSize) {
         let font_size = self.theme.resolve_text_size(size);
+        let align = self.resolve_text_align();
         let rect = self.allocate_rect(self.region.w, font_size + self.theme.label_pad_y);
+        let x = align_text_x(
+            align,
+            rect.x,
+            rect.w,
+            self.text.measure_text(text, font_size),
+        );
         self.text.draw_text(
             text,
-            rect.x,
+            x,
             rect.y,
             font_size,
             self.theme.fg,
@@ -70,11 +81,20 @@ impl<'f> Ui<'f> {
 
     /// Draw a label with a custom color.
     pub fn label_colored(&mut self, text: &str, color: Color) {
-        let rect = self.allocate_rect(self.region.w, self.theme.font_size + self.theme.label_pad_y);
-        self.text.draw_ui_text(
-            text,
+        let font_size = self.theme.font_size;
+        let align = self.resolve_text_align();
+        let rect = self.allocate_rect(self.region.w, font_size + self.theme.label_pad_y);
+        let x = align_text_x(
+            align,
             rect.x,
+            rect.w,
+            self.text.measure_text(text, font_size),
+        );
+        self.text.draw_text(
+            text,
+            x,
             rect.y,
+            font_size,
             color,
             self.frame,
             self.gpu,
@@ -84,12 +104,20 @@ impl<'f> Ui<'f> {
 
     /// Draw a heading (larger text).
     pub fn heading(&mut self, text: &str) {
+        let font_size = self.theme.heading_font_size;
+        let align = self.resolve_text_align();
         let rect = self.allocate_rect(self.region.w, self.theme.heading_height);
+        let x = align_text_x(
+            align,
+            rect.x,
+            rect.w,
+            self.text.measure_text(text, font_size),
+        );
         self.text.draw_text(
             text,
-            rect.x,
+            x,
             rect.y,
-            self.theme.heading_font_size,
+            font_size,
             self.theme.fg,
             self.frame,
             self.gpu,
@@ -99,11 +127,20 @@ impl<'f> Ui<'f> {
 
     /// Draw a muted label (dimmer text).
     pub fn muted_label(&mut self, text: &str) {
-        let rect = self.allocate_rect(self.region.w, self.theme.font_size + self.theme.label_pad_y);
-        self.text.draw_ui_text(
-            text,
+        let font_size = self.theme.font_size;
+        let align = self.resolve_text_align();
+        let rect = self.allocate_rect(self.region.w, font_size + self.theme.label_pad_y);
+        let x = align_text_x(
+            align,
             rect.x,
+            rect.w,
+            self.text.measure_text(text, font_size),
+        );
+        self.text.draw_text(
+            text,
+            x,
             rect.y,
+            font_size,
             self.theme.fg_muted,
             self.frame,
             self.gpu,
@@ -130,6 +167,7 @@ impl<'f> Ui<'f> {
     /// Draw a word-wrapped label. Height varies based on content.
     pub fn label_wrapped(&mut self, text: &str) {
         let size = self.theme.font_size;
+        let align = self.resolve_text_align();
         let max_width = self.region.w;
         let line_height = self.text.line_height(size);
         let line_spacing = self.theme.line_spacing;
@@ -143,10 +181,13 @@ impl<'f> Ui<'f> {
         let step = line_height + line_spacing;
         for (i, &(start, end)) in lines.iter().enumerate() {
             let line = &text[start..end].trim_start();
-            self.text.draw_ui_text(
+            let line_w = self.text.measure_text(line, size);
+            let x = align_text_x(align, rect.x, rect.w, line_w);
+            self.text.draw_text(
                 line,
-                rect.x,
+                x,
                 rect.y + i as f32 * step,
+                size,
                 self.theme.fg,
                 self.frame,
                 self.gpu,

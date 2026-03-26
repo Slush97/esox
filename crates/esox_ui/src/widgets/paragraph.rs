@@ -2,6 +2,7 @@
 
 use crate::response::Response;
 use crate::state::{A11yNode, A11yRole};
+use crate::theme::TextAlign;
 use crate::Ui;
 
 impl<'f> Ui<'f> {
@@ -12,6 +13,7 @@ impl<'f> Ui<'f> {
     pub fn paragraph(&mut self, id: u64, text: &str) -> Response {
         let size = self.resolve_font_size();
         let fg = self.resolve_fg();
+        let align = self.resolve_text_align();
         let max_width = self.region.w;
         let line_spacing = self.theme.line_spacing;
         let line_height = self.text.line_height(size);
@@ -26,9 +28,15 @@ impl<'f> Ui<'f> {
         let step = line_height + line_spacing;
         for (i, &(start, end)) in lines.iter().enumerate() {
             let line = &text[start..end].trim_start();
+            let line_w = self.text.measure_text(line, size);
+            let x = match align {
+                TextAlign::Left => rect.x,
+                TextAlign::Center => rect.x + (rect.w - line_w) * 0.5,
+                TextAlign::Right => rect.x + rect.w - line_w,
+            };
             self.text.draw_text(
                 line,
-                rect.x,
+                x,
                 rect.y + i as f32 * step,
                 size,
                 fg,

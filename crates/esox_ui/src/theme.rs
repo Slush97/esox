@@ -4,6 +4,7 @@ use std::time::Instant;
 
 use esox_gfx::Color;
 
+use crate::layout::Spacing;
 use crate::paint::lerp_color;
 
 /// Shadow parameters for a single elevation level.
@@ -70,6 +71,33 @@ pub enum StyleState {
     Disabled,
 }
 
+/// Horizontal text alignment.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TextAlign {
+    Left,
+    Center,
+    Right,
+}
+
+/// Semantic spacing scale, resolved against `Theme::spacing_unit`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum SpacingScale {
+    /// 1x spacing_unit (default 4px).
+    Xs,
+    /// 2x spacing_unit (default 8px).
+    Sm,
+    /// 3x spacing_unit (default 12px).
+    Md,
+    /// 4x spacing_unit (default 16px).
+    Lg,
+    /// 6x spacing_unit (default 24px).
+    Xl,
+    /// 8x spacing_unit (default 32px).
+    Xxl,
+    /// Explicit pixel value.
+    Custom(f32),
+}
+
 /// Per-widget style overrides, pushed onto a stack via `Ui::with_style`.
 #[derive(Debug, Clone, Default)]
 pub struct WidgetStyle {
@@ -83,6 +111,30 @@ pub struct WidgetStyle {
     pub text_color: Option<Color>,
     /// Override spacing between children.
     pub spacing: Option<f32>,
+
+    // ── Phase 1 additions ──
+    /// Override padding (all four sides).
+    pub padding: Option<Spacing>,
+    /// Override margin (all four sides).
+    pub margin: Option<Spacing>,
+    /// Border stroke width (default 1.0).
+    pub border_width: Option<f32>,
+    /// Opacity, 0.0 (invisible) to 1.0 (fully opaque).
+    pub opacity: Option<f32>,
+    /// Custom shadow / elevation.
+    pub elevation: Option<Elevation>,
+    /// Minimum width constraint.
+    pub min_width: Option<f32>,
+    /// Maximum width constraint.
+    pub max_width: Option<f32>,
+    /// Minimum height constraint.
+    pub min_height: Option<f32>,
+    /// Maximum height constraint.
+    pub max_height: Option<f32>,
+    /// Explicit width.
+    pub width: Option<f32>,
+    /// Horizontal text alignment for label-type widgets.
+    pub text_align: Option<TextAlign>,
 }
 
 /// Complete UI theme — all visual properties in one place.
@@ -823,6 +875,19 @@ impl Theme {
             TextSize::Xl => self.text_xl,
             TextSize::Xxl => self.text_2xl,
             TextSize::Custom(v) => v,
+        }
+    }
+
+    /// Resolve a `SpacingScale` to a concrete pixel value using `spacing_unit`.
+    pub fn space(&self, scale: SpacingScale) -> f32 {
+        match scale {
+            SpacingScale::Xs => self.spacing_unit,
+            SpacingScale::Sm => self.spacing_unit * 2.0,
+            SpacingScale::Md => self.spacing_unit * 3.0,
+            SpacingScale::Lg => self.spacing_unit * 4.0,
+            SpacingScale::Xl => self.spacing_unit * 6.0,
+            SpacingScale::Xxl => self.spacing_unit * 8.0,
+            SpacingScale::Custom(v) => v,
         }
     }
 
