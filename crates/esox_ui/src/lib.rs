@@ -341,8 +341,8 @@ impl<'a, 'f> GridBuilder<'a, 'f> {
             None,
             LayoutStyle {
                 direction: Direction::Vertical,
-                grid_columns: Some(self.columns),
-                grid_rows: Some(self.rows),
+                grid_columns: Some(self.columns.clone()),
+                grid_rows: Some(self.rows.clone()),
                 grid_column_gap: Some(self.col_gap),
                 grid_row_gap: Some(self.row_gap),
                 ..Default::default()
@@ -350,29 +350,147 @@ impl<'a, 'f> GridBuilder<'a, 'f> {
         );
 
         let saved_cursor = self.ui.cursor;
+        let saved_region = self.ui.region;
         let saved_spacing = self.ui.spacing;
 
-        let mut grid_ui = GridUi { ui: self.ui };
+        // Compute track sizes inline so the grid works inside scrollables,
+        // where prev_layout lookups are disabled.
+        let available_w = self.ui.region.w;
+        let available_h = self.ui.region.h;
+        let col_sizes = resolve_grid_tracks_inline(&self.columns, available_w, self.col_gap);
+        let row_sizes = resolve_grid_tracks_inline(&self.rows, available_h, self.row_gap);
+
+        let col_positions = grid_track_positions(&col_sizes, self.col_gap, saved_cursor.x);
+        let row_positions = grid_track_positions(&row_sizes, self.row_gap, saved_cursor.y);
+
+        let mut grid_ui = GridUi {
+            ui: self.ui,
+            col_sizes,
+            row_sizes,
+            col_positions,
+            row_positions,
+            col_gap: self.col_gap,
+            row_gap: self.row_gap,
+            saved_cursor,
+            saved_region,
+        };
         f(&mut grid_ui);
 
+        // Restore cursor and advance by total grid height.
+        let total_row_gap = self.row_gap * grid_ui.row_sizes.len().saturating_sub(1) as f32;
+        let total_h: f32 = grid_ui.row_sizes.iter().sum::<f32>() + total_row_gap;
+
         self.ui.cursor = saved_cursor;
+        self.ui.cursor.y += total_h + self.ui.spacing;
+        self.ui.region = saved_region;
         self.ui.spacing = saved_spacing;
 
         self.ui.tree_build.close_container();
-
-        // Advance cursor by grid height from prev_layout (or estimate).
-        // On frame 1, grid cells overlap at cursor position; frame 2+ uses solved positions.
     }
+}
+
+/// Resolve grid track sizes from definitions and available space (inline version).
+fn resolve_grid_tracks_inline(defs: &[layout::GridTrack], available: f32, gap: f32) -> Vec<f32> {
+    if defs.is_empty() {
+        return vec![available];
+    }
+
+    let total_gap = gap * (defs.len().saturating_sub(1)) as f32;
+    let mut remaining = (available - total_gap).max(0.0);
+    let mut sizes = vec![0.0f32; defs.len()];
+    let mut total_fr = 0.0f32;
+
+    // First pass: resolve Fixed tracks, accumulate Fr.
+    for (i, track) in defs.iter().enumerate() {
+        match *track {
+            layout::GridTrack::Fixed(px) => {
+                sizes[i] = px;
+                remaining -= px;
+            }
+            layout::GridTrack::Auto => {
+                // Without child measurement, Auto tracks get no space here.
+                // The tree solver handles Auto in arrange_grid for non-scroll contexts.
+            }
+            layout::GridTrack::MinMax(min, _) => {
+                sizes[i] = min;
+                remaining -= min;
+                total_fr += 1.0;
+            }
+            layout::GridTrack::Fr(fr) => {
+                total_fr += fr;
+            }
+        }
+    }
+
+    // Second pass: distribute remaining space to Fr and MinMax tracks.
+    remaining = remaining.max(0.0);
+    if total_fr > 0.0 {
+        let per_fr = remaining / total_fr;
+        for (i, track) in defs.iter().enumerate() {
+            match *track {
+                layout::GridTrack::Fr(fr) => sizes[i] = per_fr * fr,
+                layout::GridTrack::MinMax(min, max) => sizes[i] = (min + per_fr).min(max),
+                _ => {}
+            }
+        }
+    }
+
+    sizes
+}
+
+/// Compute cumulative start positions from track sizes and gap.
+fn grid_track_positions(sizes: &[f32], gap: f32, origin: f32) -> Vec<f32> {
+    let mut positions = Vec::with_capacity(sizes.len());
+    let mut pos = origin;
+    for &size in sizes {
+        positions.push(pos);
+        pos += size + gap;
+    }
+    positions
 }
 
 /// Context for placing cells within a grid layout.
 pub struct GridUi<'a, 'f> {
     ui: &'a mut Ui<'f>,
+    col_sizes: Vec<f32>,
+    row_sizes: Vec<f32>,
+    col_positions: Vec<f32>,
+    row_positions: Vec<f32>,
+    col_gap: f32,
+    row_gap: f32,
+    saved_cursor: layout::Vec2,
+    saved_region: layout::Rect,
 }
 
 impl<'a, 'f> GridUi<'a, 'f> {
     /// Place a cell at the given grid position. Content is rendered inside the cell.
     pub fn cell(&mut self, placement: layout::GridPlacement, f: impl FnOnce(&mut Ui<'f>)) {
+        let c = placement.column as usize;
+        let r = placement.row as usize;
+        let cs = placement.col_span as usize;
+        let rs = placement.row_span as usize;
+
+        // Compute cell rect from precomputed track positions.
+        let (x, w) = if c < self.col_positions.len() {
+            let x = self.col_positions[c];
+            let end_c = (c + cs).min(self.col_sizes.len());
+            let w: f32 = self.col_sizes[c..end_c].iter().sum::<f32>()
+                + self.col_gap * (end_c - c).saturating_sub(1) as f32;
+            (x, w)
+        } else {
+            (self.saved_cursor.x, self.saved_region.w)
+        };
+
+        let (y, h) = if r < self.row_positions.len() {
+            let y = self.row_positions[r];
+            let end_r = (r + rs).min(self.row_sizes.len());
+            let h: f32 = self.row_sizes[r..end_r].iter().sum::<f32>()
+                + self.row_gap * (end_r - r).saturating_sub(1) as f32;
+            (y, h)
+        } else {
+            (self.ui.cursor.y, 0.0)
+        };
+
         self.ui.tree_build.open_container(
             None,
             LayoutStyle {
@@ -383,7 +501,16 @@ impl<'a, 'f> GridUi<'a, 'f> {
             },
         );
 
+        let prev_cursor = self.ui.cursor;
+        let prev_region = self.ui.region;
+
+        self.ui.cursor = layout::Vec2 { x, y };
+        self.ui.region = layout::Rect::new(x, y, w, h);
+
         f(self.ui);
+
+        self.ui.cursor = prev_cursor;
+        self.ui.region = prev_region;
 
         self.ui.tree_build.close_container();
     }
@@ -435,7 +562,7 @@ impl<'f> Ui<'f> {
         viewport: Rect,
     ) -> Self {
         text.advance_generation();
-        state.begin_frame();
+        state.begin_frame(theme.scroll_friction);
 
         // Set up tile grid for partial redraw if available.
         if let Some(ref mut grid) = state.tile_grid {

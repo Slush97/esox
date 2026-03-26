@@ -110,17 +110,18 @@ async fn bridge_main(app_name: String, mut rx: mpsc::Receiver<A11yTreeSnapshot>)
 
     tracing::info!("AT-SPI2 bridge: connected to session bus for '{app_name}'");
 
-    // TODO Phase 3C Steps 2-5:
-    // - Register root accessible object with AT-SPI2 registry
-    // - Diff snapshots each frame and create/remove D-Bus objects
-    // - Map A11yRole to AT-SPI2 roles
-    // - Implement Action/Text/Value interfaces
-    // - Emit focus change events
+    // TODO(a11y): The AT-SPI2 bridge is not yet functional. The `a11y` feature
+    // connects to the session bus but does not register accessible objects or emit
+    // events. Screen readers will not detect any UI elements until this is
+    // implemented. Remaining work:
+    //   1. Register root accessible object with AT-SPI2 registry
+    //   2. Diff snapshots each frame and create/remove D-Bus objects
+    //   3. Map A11yRole to AT-SPI2 roles
+    //   4. Implement Action/Text/Value interfaces
+    //   5. Emit focus change events
 
-    // For now, just drain the channel to keep the bridge alive.
-    while let Some(_snapshot) = rx.recv().await {
-        // Future: diff and update D-Bus objects
-    }
+    // Drain the channel to keep the bridge alive until the above is implemented.
+    while let Some(_snapshot) = rx.recv().await {}
 
     tracing::info!("AT-SPI2 bridge: shutting down");
     drop(connection);

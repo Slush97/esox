@@ -51,7 +51,10 @@ impl<'f> Ui<'f> {
                 FieldStatus::Warning => self.theme.amber,
             };
             self.add_space(self.theme.form_helper_gap);
-            let rect = self.allocate_rect(self.region.w, self.theme.form_helper_font_size);
+            let rect = self.allocate_rect(
+                self.region.w,
+                self.theme.form_helper_font_size + self.theme.label_pad_y,
+            );
             self.text.draw_text(
                 helper,
                 rect.x,

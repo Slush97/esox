@@ -131,7 +131,7 @@ const ACTIVITIES: &[&str] = &[
 
 // ── Google brand colors ──────────────────────────────────────────────────────
 
-const GOOGLE_BLUE: Color = Color::new(0.263, 0.522, 0.957, 1.0); // #4285F4
+const GOOGLE_BLUE: Color = Color::new(0.259, 0.522, 0.957, 1.0); // #4285F4
 const GOOGLE_RED: Color = Color::new(0.918, 0.263, 0.208, 1.0); // #EA4335
 const GOOGLE_YELLOW: Color = Color::new(0.984, 0.737, 0.020, 1.0); // #FBBC05
 const GOOGLE_GREEN: Color = Color::new(0.204, 0.659, 0.325, 1.0); // #34A853
@@ -139,21 +139,21 @@ const GOOGLE_GREEN: Color = Color::new(0.204, 0.659, 0.325, 1.0); // #34A853
 fn google_light() -> Theme {
     let mut t = ThemeBuilder::from_light()
         .accent(GOOGLE_BLUE)
-        .accent_dim(Color::new(0.263, 0.522, 0.957, 0.12))
+        .accent_dim(Color::new(0.259, 0.522, 0.957, 0.12))
         .accent_hover(Color::new(0.345, 0.580, 0.973, 1.0))
-        .focus_ring_color(Color::new(0.263, 0.522, 0.957, 0.45))
+        .focus_ring_color(Color::new(0.259, 0.522, 0.957, 0.45))
         .green(GOOGLE_GREEN)
         .amber(GOOGLE_YELLOW)
         .red(GOOGLE_RED)
         .bg_base(Color::new(1.0, 1.0, 1.0, 1.0))
         .bg_surface(Color::new(0.973, 0.976, 0.980, 1.0)) // #F8F9FA
-        .bg_raised(Color::new(0.945, 0.949, 0.957, 1.0)) // #F1F3F4
+        .bg_raised(Color::new(0.945, 0.953, 0.957, 1.0)) // #F1F3F4
         .bg_input(Color::new(1.0, 1.0, 1.0, 1.0))
         .fg(Color::new(0.125, 0.129, 0.141, 1.0)) // #202124
         .fg_muted(Color::new(0.263, 0.275, 0.302, 1.0)) // #43464D
         .fg_dim(Color::new(0.337, 0.349, 0.376, 1.0)) // #565960
         .fg_label(Color::new(0.200, 0.212, 0.239, 1.0))
-        .border(Color::new(0.855, 0.867, 0.878, 1.0)) // #DADCE0
+        .border(Color::new(0.855, 0.863, 0.878, 1.0)) // #DADCE0
         .corner_radius(8.0)
         .card_gap(12.0)
         .section_gap(16.0)
@@ -177,9 +177,9 @@ fn google_light() -> Theme {
 fn google_dark() -> Theme {
     let mut t = ThemeBuilder::from_dark()
         .accent(GOOGLE_BLUE)
-        .accent_dim(Color::new(0.263, 0.522, 0.957, 0.18))
+        .accent_dim(Color::new(0.259, 0.522, 0.957, 0.18))
         .accent_hover(Color::new(0.400, 0.600, 0.980, 1.0))
-        .focus_ring_color(Color::new(0.263, 0.522, 0.957, 0.50))
+        .focus_ring_color(Color::new(0.259, 0.522, 0.957, 0.50))
         .green(GOOGLE_GREEN)
         .amber(GOOGLE_YELLOW)
         .red(GOOGLE_RED)
@@ -737,13 +737,13 @@ impl GoogleShowcase {
         // Split pane: message list | detail.
         ui.split_pane_h(
             id!("msg_split"),
-            0.30,
+            0.35,
             |ui| {
                 // Inbox header + Compose button.
                 ui.row(|ui| {
                     let accent = ui.theme().accent;
                     ui.rich_label(&RichText::new().colored_bold("Inbox", accent));
-                    ui.fill_space(60.0);
+                    ui.fill_space(80.0);
                     if ui.small_button(id!("compose_btn"), "New", accent).clicked {
                         open_compose.set(true);
                     }

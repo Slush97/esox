@@ -1377,7 +1377,7 @@ impl UiState {
     }
 
     /// Clear per-frame state. Called at the start of each frame.
-    pub(crate) fn begin_frame(&mut self) {
+    pub(crate) fn begin_frame(&mut self, scroll_friction: f32) {
         self.last_frame_time = Instant::now();
 
         // Damage detection: hover/focus changes, active animations, scroll velocity.
@@ -1455,9 +1455,8 @@ impl UiState {
                     off[0] += vel[0];
                     off[1] += vel[1];
                 }
-                // Friction is applied per-frame; 0.92 is the default.
-                vel[0] *= 0.92;
-                vel[1] *= 0.92;
+                vel[0] *= scroll_friction;
+                vel[1] *= scroll_friction;
                 if vel[0].abs() < 0.5 {
                     vel[0] = 0.0;
                 }

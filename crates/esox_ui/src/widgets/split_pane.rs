@@ -227,11 +227,19 @@ impl<'f> Ui<'f> {
             None => first_rect,
         });
 
+        // Inset content by spacing_unit so glyphs don't start flush against
+        // the scissor boundary (negative bearing_x would be clipped).
+        let inset = self.theme.spacing_unit;
         self.cursor = Vec2 {
-            x: first_rect.x,
+            x: first_rect.x + inset,
             y: first_rect.y,
         };
-        self.region = first_rect;
+        self.region = Rect::new(
+            first_rect.x + inset,
+            first_rect.y,
+            first_rect.w - inset * 2.0,
+            first_rect.h,
+        );
         self.spacing = saved_spacing;
 
         first(self);
@@ -252,10 +260,15 @@ impl<'f> Ui<'f> {
         });
 
         self.cursor = Vec2 {
-            x: second_rect.x,
+            x: second_rect.x + inset,
             y: second_rect.y,
         };
-        self.region = second_rect;
+        self.region = Rect::new(
+            second_rect.x + inset,
+            second_rect.y,
+            second_rect.w - inset * 2.0,
+            second_rect.h,
+        );
         self.spacing = saved_spacing;
 
         second(self);

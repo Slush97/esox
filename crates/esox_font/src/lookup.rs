@@ -359,18 +359,6 @@ pub enum FontWeight {
 }
 
 impl FontWeight {
-    /// Encode as a 3-bit index for glyph key style bits.
-    pub fn style_bits(self) -> u8 {
-        match self {
-            Self::Light => 0,
-            Self::Regular => 1,
-            Self::Medium => 2,
-            Self::SemiBold => 3,
-            Self::Bold => 4,
-            Self::ExtraBold => 5,
-        }
-    }
-
     /// Whether this weight should use faux bold when the resolved font file
     /// is a regular weight.
     pub fn needs_faux_bold(self) -> bool {
@@ -389,7 +377,6 @@ impl FontWeight {
         }
     }
 }
-
 
 /// Resolve a font family name to raw font data.
 ///

@@ -130,7 +130,6 @@ impl<'f> Ui<'f> {
             if tab_response.clicked {
                 state.selected = i;
                 response.changed = true;
-                self.state.focused = Some(id);
                 // Reset fade animation.
                 let fade_id = fnv1a_mix(id, TAB_FADE_SALT);
                 if let Some(anim) = self.state.anims.get_mut(&fade_id) {

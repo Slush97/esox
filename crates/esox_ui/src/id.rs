@@ -50,6 +50,9 @@ pub const TAB_SLIDE_SALT: u64 = 0x7b3f9e15c4a8d062;
 /// XOR salt for focus border animation IDs.
 pub const FOCUS_SALT: u64 = 0xe8b42d6f93a5c178;
 
+/// XOR salt for number-input inline-edit animation IDs.
+pub const EDIT_SALT: u64 = 0xED17_FACE;
+
 /// Compile-time widget ID from a string literal.
 /// `id!("my_widget")` → a `u64` constant, zero runtime cost.
 #[macro_export]

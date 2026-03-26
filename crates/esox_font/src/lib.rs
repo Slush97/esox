@@ -69,7 +69,7 @@ pub struct FontMetrics {
     pub ascent: f32,
     /// Descent from baseline (typically negative).
     pub descent: f32,
-    /// Distance from baseline to underline position (positive = below).
+    /// Underline position relative to baseline (negative = below, swash/OpenType convention).
     pub underline_offset: f32,
     /// Thickness for underline/strikethrough strokes.
     pub stroke_size: f32,
@@ -110,8 +110,9 @@ pub struct RasterizedGlyph {
     pub bearing_x: f32,
     /// Vertical bearing (offset from baseline to top edge).
     pub bearing_y: f32,
-    /// RGBA8 pixel data. For monochrome glyphs this is white + alpha mask;
-    /// for color glyphs (COLR/CBDT/sbix) this is full RGBA from the font.
+    /// Pixel data. R8 (single alpha channel, 1 byte/pixel) for monochrome
+    /// glyphs from [`GlyphRasterizer::rasterize()`]; RGBA8 (4 bytes/pixel) for
+    /// color glyphs (COLR/CBDT/sbix) from [`GlyphRasterizer::rasterize_color()`].
     pub data: Vec<u8>,
     /// Whether this glyph was rasterized from a color source (COLR/CBDT/sbix).
     pub is_color: bool,

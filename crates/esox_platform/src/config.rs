@@ -82,7 +82,7 @@ pub struct WindowConfig {
 impl Default for WindowConfig {
     fn default() -> Self {
         Self {
-            title: "eso".into(),
+            title: "Esox".into(),
             decorations: true,
             width: None,
             height: None,
@@ -194,8 +194,8 @@ impl Default for SecurityConfig {
         Self {
             max_paste_bytes: 0,
             sandbox: false,
-            landlock_enforce: true,
             sandbox_enforce: false,
+            landlock_enforce: true,
         }
     }
 }

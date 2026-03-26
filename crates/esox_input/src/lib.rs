@@ -1,8 +1,8 @@
 //! `esox_input` — Platform-independent input types.
 //!
-//! Pure data types with no windowing dependency. Used by `esox_ui`,
-//! `esox_engine`, and `esox_platform` to decouple input handling from
-//! the windowing backend.
+//! Pure data types with no windowing dependency. Used by `esox_ui`
+//! and `esox_platform` to decouple input handling from the windowing
+//! backend.
 
 pub use smol_str::SmolStr;
 

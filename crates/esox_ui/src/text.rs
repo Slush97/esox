@@ -350,7 +350,7 @@ impl TextRenderer {
             decoration,
             crate::theme::TextDecoration::Underline | crate::theme::TextDecoration::Both
         ) {
-            let uy = y + metrics.ascent + metrics.underline_offset;
+            let uy = y + metrics.ascent - metrics.underline_offset;
             frame.push(
                 ShapeBuilder::rect(x, uy, advance, thickness)
                     .color(color)
