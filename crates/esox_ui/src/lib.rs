@@ -59,8 +59,8 @@ pub use state::{
 };
 pub use text::{TextRenderer, TruncationMode};
 pub use theme::{
-    Elevation, Gradient, SpacingScale, StyleState, TextAlign, TextSize, Theme, ThemeBuilder,
-    ThemeTransition, WidgetStyle,
+    Elevation, Gradient, SpacingScale, StyleState, TextAlign, TextDecoration, TextSize,
+    TextTransform, Theme, ThemeBuilder, ThemeTransition, WidgetStyle,
 };
 pub use widgets::form::FieldStatus;
 pub use widgets::image::{ImageCache, ImageHandle};
@@ -1537,6 +1537,26 @@ impl<'f> Ui<'f> {
             }
         }
         esox_gfx::BorderRadius::uniform(self.resolve_corner_radius())
+    }
+
+    /// Resolve text decoration: style stack override or None.
+    pub(crate) fn resolve_text_decoration(&self) -> theme::TextDecoration {
+        for s in self.style_stack.iter().rev() {
+            if let Some(d) = s.text_decoration {
+                return d;
+            }
+        }
+        theme::TextDecoration::None
+    }
+
+    /// Resolve text transform: style stack override or None.
+    pub(crate) fn resolve_text_transform(&self) -> theme::TextTransform {
+        for s in self.style_stack.iter().rev() {
+            if let Some(t) = s.text_transform {
+                return t;
+            }
+        }
+        theme::TextTransform::None
     }
 
     /// Access the theme.

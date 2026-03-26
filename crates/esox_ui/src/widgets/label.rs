@@ -5,7 +5,7 @@ use esox_gfx::Color;
 use crate::rich_text::RichText;
 use crate::state::{A11yNode, A11yRole};
 use crate::text::TruncationMode;
-use crate::theme::{TextAlign, TextSize};
+use crate::theme::{TextAlign, TextSize, TextTransform};
 use crate::Ui;
 
 /// Compute the x position for text given alignment, container origin, width, and text width.
@@ -17,18 +17,46 @@ fn align_text_x(align: TextAlign, rect_x: f32, rect_w: f32, text_w: f32) -> f32 
     }
 }
 
+/// Apply a text transform to a string, returning a `Cow` to avoid allocation for `None`.
+fn apply_transform<'a>(text: &'a str, transform: TextTransform) -> std::borrow::Cow<'a, str> {
+    match transform {
+        TextTransform::None => std::borrow::Cow::Borrowed(text),
+        TextTransform::Uppercase => std::borrow::Cow::Owned(text.to_uppercase()),
+        TextTransform::Lowercase => std::borrow::Cow::Owned(text.to_lowercase()),
+        TextTransform::Capitalize => {
+            let mut result = String::with_capacity(text.len());
+            let mut capitalize_next = true;
+            for c in text.chars() {
+                if capitalize_next && c.is_alphabetic() {
+                    result.extend(c.to_uppercase());
+                    capitalize_next = false;
+                } else {
+                    result.push(c);
+                    if c.is_whitespace() {
+                        capitalize_next = true;
+                    }
+                }
+            }
+            std::borrow::Cow::Owned(result)
+        }
+    }
+}
+
 impl<'f> Ui<'f> {
     /// Draw a label with the standard text color.
     pub fn label(&mut self, text: &str) {
         let font_size = self.resolve_font_size();
         let fg = self.resolve_fg();
         let align = self.resolve_text_align();
+        let decoration = self.resolve_text_decoration();
+        let transform = self.resolve_text_transform();
+        let display = apply_transform(text, transform);
         let rect = self.allocate_rect(self.region.w, font_size + self.theme.label_pad_y);
         let x = align_text_x(
             align,
             rect.x,
             rect.w,
-            self.text.measure_text(text, font_size),
+            self.text.measure_text(&display, font_size),
         );
         self.push_a11y_node(A11yNode {
             id: crate::id::fnv1a_runtime(text),
@@ -44,12 +72,13 @@ impl<'f> Ui<'f> {
             value_range: None,
             children: Vec::new(),
         });
-        self.text.draw_text(
-            text,
+        self.text.draw_text_decorated(
+            &display,
             x,
             rect.y,
             font_size,
             fg,
+            decoration,
             self.frame,
             self.gpu,
             self.resources,

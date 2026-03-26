@@ -98,6 +98,24 @@ pub enum SpacingScale {
     Custom(f32),
 }
 
+/// Text decoration style.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TextDecoration {
+    None,
+    Underline,
+    Strikethrough,
+    Both,
+}
+
+/// Text transformation applied before rendering.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TextTransform {
+    None,
+    Uppercase,
+    Lowercase,
+    Capitalize,
+}
+
 /// Background gradient applied to a widget rectangle.
 #[derive(Debug, Clone, Copy)]
 pub enum Gradient {
@@ -152,6 +170,12 @@ pub struct WidgetStyle {
     pub gradient: Option<Gradient>,
     /// Per-corner border radius `[top_left, top_right, bottom_left, bottom_right]`.
     pub per_corner_radius: Option<[f32; 4]>,
+
+    // ── Phase 3 additions ──
+    /// Text decoration (underline, strikethrough).
+    pub text_decoration: Option<TextDecoration>,
+    /// Text transformation (uppercase, lowercase, capitalize).
+    pub text_transform: Option<TextTransform>,
 }
 
 /// Complete UI theme — all visual properties in one place.
