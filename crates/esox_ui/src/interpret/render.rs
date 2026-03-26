@@ -36,8 +36,24 @@ fn render_node(
     id_ctx: &mut IdCtx,
     actions: &mut Vec<Action>,
 ) {
-    // Build inline style if any style props are present.
-    let style = resolve::build_style(node, ui.theme());
+    // Check for transition properties — if present, build an animated style.
+    let transitions = resolve::transition_props(node);
+
+    let style = match &transitions {
+        Some(props) if !props.is_empty() => {
+            let base_id = id_ctx.widget_id(node.prop_str("bind"), child_index);
+            let theme = ui.theme().clone();
+            let ctx = resolve::TransitionCtx {
+                transitions: props,
+                base_id,
+                duration: node.prop_f32("duration").unwrap_or(200.0),
+                easing: resolve::easing(node),
+                spring: resolve::spring_config(node),
+            };
+            resolve::build_animated_style(node, &theme, ui, state, &ctx)
+        }
+        _ => resolve::build_style(node, ui.theme()),
+    };
 
     // Wrap in with_style if needed, then dispatch to the widget renderer.
     match style {
@@ -74,7 +90,7 @@ fn dispatch(
         WidgetKind::RichText => render_rich_text(ui, node),
 
         // ── Display (leaf, no state) ────────────────────────────
-        WidgetKind::Progress => render_progress(ui, node),
+        WidgetKind::Progress => render_progress(ui, node, child_index, id_ctx),
         WidgetKind::Spinner => {
             if let Some(size) = node.prop_f32("size") {
                 ui.spinner_sized(size);
@@ -372,8 +388,24 @@ fn render_rich_text(ui: &mut Ui<'_>, node: &Node) {
     }
 }
 
-fn render_progress(ui: &mut Ui<'_>, node: &Node) {
-    let value = node.prop_f32("value").unwrap_or(0.0);
+fn render_progress(ui: &mut Ui<'_>, node: &Node, child_index: usize, id_ctx: &IdCtx) {
+    let raw_value = node.prop_f32("value").unwrap_or(0.0);
+    let value = if resolve::transition_props(node)
+        .as_ref()
+        .is_some_and(|t| resolve::should_animate(t, "value"))
+    {
+        let aid = crate::id::fnv1a_mix(
+            id_ctx.widget_id(node.prop_str("bind"), child_index),
+            crate::id::fnv1a_runtime("value"),
+        );
+        let duration = node.prop_f32("duration").unwrap_or(200.0);
+        match resolve::spring_config(node) {
+            Some(cfg) => ui.animate_spring(aid, raw_value, cfg),
+            None => ui.animate(aid, raw_value, duration, resolve::easing(node)),
+        }
+    } else {
+        raw_value
+    };
     if let Some(color) = resolve::color_prop(node, "color", ui.theme()) {
         ui.progress_bar_colored(value, color);
     } else {

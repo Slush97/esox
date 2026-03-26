@@ -2,6 +2,8 @@
 
 use std::collections::HashMap;
 
+use esox_gfx::Color;
+
 use crate::state::{InputState, SelectState, TabState, TableState, TreeState, VirtualScrollState};
 use crate::widgets::pagination::PaginationState;
 
@@ -39,6 +41,9 @@ pub struct MarkupState {
     pub(crate) accordion_open: HashMap<String, Option<usize>>,
     /// Combobox selected index.
     pub(crate) comboboxes: HashMap<String, Option<usize>>,
+    /// Previous frame's color values for transition animation.
+    /// Keyed by "{widget_id}_{property}" to track when colors change.
+    pub(crate) prev_colors: HashMap<String, Color>,
 }
 
 impl MarkupState {

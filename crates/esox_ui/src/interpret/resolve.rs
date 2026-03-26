@@ -4,6 +4,7 @@ use esox_gfx::Color;
 use esox_markup::{Node, Value};
 
 use crate::layout::{Align, FlexWrap, GridTrack, Justify, Spacing};
+use crate::state::{Easing, SpringConfig};
 use crate::theme::{
     Elevation, Gradient, TextAlign, TextDecoration, TextSize, TextTransform, Theme, WidgetStyle,
 };
@@ -274,7 +275,232 @@ pub(crate) fn gradient(node: &Node, theme: &Theme) -> Option<Gradient> {
     })
 }
 
+// ── Animation / transition ──────────────────────────────────────────────
+
+/// Resolve the `easing=` property to an `Easing` variant.
+/// Defaults to `EaseOutCubic` when absent or unrecognized.
+pub(crate) fn easing(node: &Node) -> Easing {
+    match node.prop_str("easing") {
+        Some("linear") => Easing::Linear,
+        Some("ease-in-quad") => Easing::EaseInQuad,
+        Some("ease-out-quad") => Easing::EaseOutQuad,
+        Some("ease-in-out-quad") => Easing::EaseInOutQuad,
+        Some("ease-in-cubic") => Easing::EaseInCubic,
+        Some("ease-out-cubic") => Easing::EaseOutCubic,
+        Some("ease-in-out-cubic") => Easing::EaseInOutCubic,
+        Some("ease-in-quart") => Easing::EaseInQuart,
+        Some("ease-out-quart") => Easing::EaseOutQuart,
+        Some("ease-in-out-quart") => Easing::EaseInOutQuart,
+        Some("ease-in-expo") => Easing::EaseInExpo,
+        Some("ease-out-expo") => Easing::EaseOutExpo,
+        Some("ease-in-out-expo") => Easing::EaseInOutExpo,
+        Some("ease-out-back") => Easing::EaseOutBack,
+        Some("ease-out-bounce") => Easing::EaseOutBounce,
+        _ => Easing::EaseOutCubic,
+    }
+}
+
+/// Resolve the `spring=` property to a `SpringConfig` preset.
+pub(crate) fn spring_config(node: &Node) -> Option<SpringConfig> {
+    match node.prop_str("spring") {
+        Some("snappy") => Some(SpringConfig::SNAPPY),
+        Some("gentle") => Some(SpringConfig::GENTLE),
+        Some("bouncy") => Some(SpringConfig::BOUNCY),
+        Some("stiff") => Some(SpringConfig::STIFF),
+        _ => None,
+    }
+}
+
+/// Parse the `transition=` property into a list of property names to animate.
+/// `transition=value` → `["value"]`, `transition="bg, opacity"` → `["bg", "opacity"]`,
+/// `transition=all` → `["all"]`.
+pub(crate) fn transition_props(node: &Node) -> Option<Vec<String>> {
+    match node.props.get("transition")? {
+        Value::Ident(s) => Some(vec![s.clone()]),
+        Value::String(s) => Some(s.split(',').map(|p| p.trim().to_string()).collect()),
+        _ => None,
+    }
+}
+
+/// Check whether a given property name should be animated.
+pub(crate) fn should_animate(transitions: &[String], prop: &str) -> bool {
+    transitions.iter().any(|p| p == "all" || p == prop)
+}
+
 // ── WidgetStyle builder ─────────────────────────────────────────────────
+
+/// Transition context for animated style building.
+pub(crate) struct TransitionCtx<'a> {
+    pub transitions: &'a [String],
+    pub base_id: u64,
+    pub duration: f32,
+    pub easing: Easing,
+    pub spring: Option<SpringConfig>,
+}
+
+/// Build a `WidgetStyle` with animated properties.
+///
+/// For properties listed in `transitions`, numeric values are routed through
+/// `ui.animate()` or `ui.animate_spring()` so they interpolate smoothly when
+/// the target value changes between frames. Color properties use `lerp_color`
+/// driven by a 0→1 animation progress.
+pub(crate) fn build_animated_style(
+    node: &Node,
+    theme: &Theme,
+    ui: &mut crate::Ui<'_>,
+    state: &mut super::state::MarkupState,
+    ctx: &TransitionCtx<'_>,
+) -> Option<WidgetStyle> {
+    // Quick check: skip building if no style-related keys are present.
+    const STYLE_KEYS: &[&str] = &[
+        "bg",
+        "fg",
+        "border-color",
+        "text-color",
+        "font-size",
+        "radius",
+        "height",
+        "width",
+        "opacity",
+        "border-width",
+        "min-width",
+        "max-width",
+        "min-height",
+        "max-height",
+        "text-align",
+        "text-decoration",
+        "text-transform",
+        "elevation",
+        "shadow-blur",
+        "gradient",
+        "spacing",
+        "padding",
+        "margin",
+    ];
+
+    // Also build if there are transition props (even without explicit style keys, the animation
+    // system needs to track current values).
+    if !STYLE_KEYS.iter().any(|k| node.props.contains_key(*k)) {
+        return None;
+    }
+
+    use crate::id::fnv1a_mix;
+    use crate::id::fnv1a_runtime;
+    use crate::paint::lerp_color;
+
+    let anim_f32 = |ui: &mut crate::Ui<'_>, prop: &str, target: f32| -> f32 {
+        let aid = fnv1a_mix(ctx.base_id, fnv1a_runtime(prop));
+        match ctx.spring {
+            Some(cfg) => ui.animate_spring(aid, target, cfg),
+            None => ui.animate(aid, target, ctx.duration, ctx.easing),
+        }
+    };
+
+    let resolve_f32 = |ui: &mut crate::Ui<'_>, prop: &str| -> Option<f32> {
+        let val = node.prop_f32(prop)?;
+        if should_animate(ctx.transitions, prop) {
+            Some(anim_f32(ui, prop, val))
+        } else {
+            Some(val)
+        }
+    };
+
+    let resolve_color = |ui: &mut crate::Ui<'_>,
+                         state: &mut super::state::MarkupState,
+                         prop: &str|
+     -> Option<Color> {
+        let target = color_prop(node, prop, theme)?;
+        if !should_animate(ctx.transitions, prop) {
+            return Some(target);
+        }
+        let color_key = format!("{}_{}", ctx.base_id, prop);
+        let prev = state.prev_colors.get(&color_key).copied().unwrap_or(target);
+        // Drive a 0→1 animation; when the target color changes, the anim restarts.
+        let aid = fnv1a_mix(ctx.base_id, fnv1a_runtime(prop));
+        // Use a sentinel: animate towards 1.0; when target color changes, snap from→0.
+        let colors_match = (prev.r - target.r).abs() < 0.001
+            && (prev.g - target.g).abs() < 0.001
+            && (prev.b - target.b).abs() < 0.001
+            && (prev.a - target.a).abs() < 0.001;
+        if colors_match {
+            return Some(target);
+        }
+        let t = match ctx.spring {
+            Some(cfg) => ui.animate_spring(aid, 1.0, cfg),
+            None => ui.animate(aid, 1.0, ctx.duration, ctx.easing),
+        };
+        let blended = lerp_color(prev, target, t);
+        // Once settled, update prev to target so the next change starts from here.
+        if t > 0.999 {
+            state.prev_colors.insert(color_key, target);
+        }
+        Some(blended)
+    };
+
+    let opacity = resolve_f32(ui, "opacity");
+    let height = resolve_f32(ui, "height");
+    let width = resolve_f32(ui, "width");
+    let min_width = resolve_f32(ui, "min-width");
+    let max_width = resolve_f32(ui, "max-width");
+    let min_height = resolve_f32(ui, "min-height");
+    let max_height = resolve_f32(ui, "max-height");
+    let font_size = resolve_f32(ui, "font-size");
+    let border_width = resolve_f32(ui, "border-width");
+    let spacing = resolve_f32(ui, "spacing");
+
+    let bg = resolve_color(ui, state, "bg");
+    let fg = resolve_color(ui, state, "fg");
+    let border_color = resolve_color(ui, state, "border-color");
+    let text_color = resolve_color(ui, state, "text-color");
+
+    // Non-animatable properties — resolve normally.
+    let (corner_radius, per_corner_radius) = if let Some(arr) = node.prop_number_array("radius") {
+        if arr.len() == 4 {
+            (
+                None,
+                Some([arr[0] as f32, arr[1] as f32, arr[2] as f32, arr[3] as f32]),
+            )
+        } else if arr.len() == 1 {
+            (Some(arr[0] as f32), None)
+        } else {
+            (None, None)
+        }
+    } else if should_animate(ctx.transitions, "radius") {
+        (
+            node.prop_f32("radius").map(|v| anim_f32(ui, "radius", v)),
+            None,
+        )
+    } else {
+        (node.prop_f32("radius"), None)
+    };
+
+    Some(WidgetStyle {
+        bg,
+        fg,
+        border_color,
+        text_color,
+        font_size,
+        border_width,
+        opacity,
+        height,
+        width,
+        min_width,
+        max_width,
+        min_height,
+        max_height,
+        spacing,
+        text_align: text_align(node),
+        text_decoration: text_decoration(node),
+        text_transform: text_transform(node),
+        elevation: elevation(node, theme),
+        gradient: gradient(node, theme),
+        padding: spacing_prop(node, "padding"),
+        margin: spacing_prop(node, "margin"),
+        corner_radius,
+        per_corner_radius,
+        ..Default::default()
+    })
+}
 
 /// Build a `WidgetStyle` from a node's inline style properties.
 /// Returns `None` if no style properties are present (the common case).
@@ -552,5 +778,101 @@ mod tests {
             Gradient::Linear { angle, .. } => assert_eq!(angle, 45.0),
             _ => panic!("expected linear gradient"),
         }
+    }
+
+    // ── Animation / transition resolution ───────────────────────────
+
+    #[test]
+    fn test_easing_named_variants() {
+        let cases = [
+            ("linear", Easing::Linear),
+            ("ease-in-quad", Easing::EaseInQuad),
+            ("ease-out-cubic", Easing::EaseOutCubic),
+            ("ease-in-out-expo", Easing::EaseInOutExpo),
+            ("ease-out-bounce", Easing::EaseOutBounce),
+            ("ease-out-back", Easing::EaseOutBack),
+        ];
+        for (name, expected) in cases {
+            let n = node(&format!(r#"card easing={name}"#));
+            assert_eq!(easing(&n), expected, "failed for {name}");
+        }
+    }
+
+    #[test]
+    fn test_easing_default() {
+        let n = node(r#"card"#);
+        assert_eq!(easing(&n), Easing::EaseOutCubic);
+    }
+
+    #[test]
+    fn test_spring_config_presets() {
+        let n = node(r#"card spring=snappy"#);
+        assert_eq!(
+            spring_config(&n).unwrap().stiffness,
+            SpringConfig::SNAPPY.stiffness
+        );
+
+        let n = node(r#"card spring=bouncy"#);
+        assert_eq!(
+            spring_config(&n).unwrap().stiffness,
+            SpringConfig::BOUNCY.stiffness
+        );
+
+        let n = node(r#"card spring=gentle"#);
+        assert_eq!(
+            spring_config(&n).unwrap().stiffness,
+            SpringConfig::GENTLE.stiffness
+        );
+
+        let n = node(r#"card spring=stiff"#);
+        assert_eq!(
+            spring_config(&n).unwrap().stiffness,
+            SpringConfig::STIFF.stiffness
+        );
+    }
+
+    #[test]
+    fn test_spring_config_absent() {
+        let n = node(r#"card"#);
+        assert!(spring_config(&n).is_none());
+    }
+
+    #[test]
+    fn test_transition_props_single() {
+        let n = node(r#"progress value=0.5 transition=value"#);
+        let props = transition_props(&n).unwrap();
+        assert_eq!(props, vec!["value"]);
+    }
+
+    #[test]
+    fn test_transition_props_all() {
+        let n = node(r#"card transition=all"#);
+        let props = transition_props(&n).unwrap();
+        assert_eq!(props, vec!["all"]);
+    }
+
+    #[test]
+    fn test_transition_props_multiple() {
+        let n = node(r#"card transition="bg, opacity""#);
+        let props = transition_props(&n).unwrap();
+        assert_eq!(props, vec!["bg", "opacity"]);
+    }
+
+    #[test]
+    fn test_transition_props_absent() {
+        let n = node(r#"card bg=#ff0000"#);
+        assert!(transition_props(&n).is_none());
+    }
+
+    #[test]
+    fn test_should_animate() {
+        let props = vec!["bg".to_string(), "opacity".to_string()];
+        assert!(should_animate(&props, "bg"));
+        assert!(should_animate(&props, "opacity"));
+        assert!(!should_animate(&props, "height"));
+
+        let all = vec!["all".to_string()];
+        assert!(should_animate(&all, "bg"));
+        assert!(should_animate(&all, "anything"));
     }
 }
