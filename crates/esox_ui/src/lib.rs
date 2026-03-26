@@ -71,6 +71,7 @@ pub use theme::{
     Elevation, Gradient, SpacingScale, StyleState, TextAlign, TextDecoration, TextSize,
     TextTransform, Theme, ThemeBuilder, ThemeTransition, Transform2D, WidgetStyle,
 };
+pub use widgets::avatar::Status;
 pub use widgets::form::FieldStatus;
 pub use widgets::image::{ImageCache, ImageHandle};
 pub use widgets::menu_bar::{Menu, MenuEntry, MenuItem};

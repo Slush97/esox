@@ -45,6 +45,26 @@ fn hsl_to_rgb(h: f32, s: f32, l: f32) -> (f32, f32, f32) {
     (r1 + m, g1 + m, b1 + m)
 }
 
+/// Online presence status for avatar overlay dot.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Status {
+    Online,
+    Idle,
+    DoNotDisturb,
+    Offline,
+}
+
+impl Status {
+    fn color(self) -> Color {
+        match self {
+            Status::Online => Color::new(0.23, 0.70, 0.44, 1.0), // green
+            Status::Idle => Color::new(0.98, 0.66, 0.10, 1.0),   // amber
+            Status::DoNotDisturb => Color::new(0.91, 0.30, 0.24, 1.0), // red
+            Status::Offline => Color::new(0.45, 0.47, 0.50, 1.0), // gray
+        }
+    }
+}
+
 impl<'f> Ui<'f> {
     /// Draw a circular avatar with initials (1-2 characters).
     /// Color is deterministically derived from the initials.
@@ -56,27 +76,100 @@ impl<'f> Ui<'f> {
     /// Draw a circular avatar with initials and a custom background color.
     pub fn avatar_colored(&mut self, initials: &str, size: f32, bg: Color) {
         let rect = self.allocate_rect(size, size);
-        let cx = rect.x + size / 2.0;
-        let cy = rect.y + size / 2.0;
+        Self::draw_avatar_circle(
+            initials,
+            size,
+            bg,
+            rect.x,
+            rect.y,
+            self.text,
+            self.frame,
+            self.gpu,
+            self.resources,
+        );
+    }
+
+    /// Draw a circular avatar with a status dot overlay.
+    pub fn avatar_with_status(&mut self, initials: &str, size: f32, status: Status) {
+        let bg = color_from_initials(initials);
+        self.avatar_colored_with_status(initials, size, bg, status);
+    }
+
+    /// Draw a circular avatar with a custom color and status dot overlay.
+    pub fn avatar_colored_with_status(
+        &mut self,
+        initials: &str,
+        size: f32,
+        bg: Color,
+        status: Status,
+    ) {
+        let rect = self.allocate_rect(size, size);
+        Self::draw_avatar_circle(
+            initials,
+            size,
+            bg,
+            rect.x,
+            rect.y,
+            self.text,
+            self.frame,
+            self.gpu,
+            self.resources,
+        );
+
+        // Status dot: bottom-right corner, ~30% of avatar size.
+        let dot_size = (size * 0.3).max(8.0);
+        let dot_radius = dot_size / 2.0;
+        let dot_cx = rect.x + size - dot_radius;
+        let dot_cy = rect.y + size - dot_radius;
+
+        // Cutout ring (background-colored circle behind the dot for visual separation).
+        let ring_radius = dot_radius + 2.0;
+        self.frame.push(
+            ShapeBuilder::circle(dot_cx, dot_cy, ring_radius)
+                .color(self.theme.bg_base)
+                .build(),
+        );
+
+        // Status dot.
+        self.frame.push(
+            ShapeBuilder::circle(dot_cx, dot_cy, dot_radius)
+                .color(status.color())
+                .build(),
+        );
+    }
+
+    #[allow(clippy::too_many_arguments)] // rendering helper passes through Ui fields
+    fn draw_avatar_circle(
+        initials: &str,
+        size: f32,
+        bg: Color,
+        x: f32,
+        y: f32,
+        text: &mut crate::TextRenderer,
+        frame: &mut esox_gfx::Frame,
+        gpu: &esox_gfx::GpuContext,
+        resources: &mut esox_gfx::RenderResources,
+    ) {
+        let cx = x + size / 2.0;
+        let cy = y + size / 2.0;
         let radius = size / 2.0;
 
         // Circle background.
-        self.frame
-            .push(ShapeBuilder::circle(cx, cy, radius).color(bg).build());
+        frame.push(ShapeBuilder::circle(cx, cy, radius).color(bg).build());
 
         // Centered initials.
         let font_size = size * 0.42;
         let display = &initials[..initials.len().min(2)];
-        let text_w = self.text.measure_text(display, font_size);
-        self.text.draw_text(
+        let text_w = text.measure_text(display, font_size);
+        text.draw_text(
             display,
             cx - text_w / 2.0,
             cy - font_size / 2.0,
             font_size,
             Color::new(1.0, 1.0, 1.0, 1.0),
-            self.frame,
-            self.gpu,
-            self.resources,
+            frame,
+            gpu,
+            resources,
         );
     }
 }

@@ -1361,6 +1361,8 @@ pub struct UiState {
     pub springs: HashMap<u64, SpringAnim>,
     /// Keyframe animations keyed by ID.
     pub keyframe_anims: HashMap<u64, KeyframeAnim>,
+    /// Spoiler widgets that have been revealed by the user.
+    pub revealed_spoilers: HashSet<u64>,
     /// Buffered scroll event: (mouse_x, mouse_y, delta_y).
     pub pending_scroll: Option<(f32, f32, f32)>,
     /// Active scrollbar drag: (scrollable_id, grab_offset_in_thumb).
@@ -1464,6 +1466,7 @@ impl UiState {
             anims: HashMap::new(),
             springs: HashMap::new(),
             keyframe_anims: HashMap::new(),
+            revealed_spoilers: HashSet::new(),
             pending_scroll: None,
             scrollbar_drag: None,
             mouse_pressed: false,
@@ -1831,6 +1834,16 @@ impl UiState {
         self.keyframe_anims
             .get(&id)
             .is_some_and(|ka| !ka.is_finished())
+    }
+
+    /// Whether a spoiler widget has been revealed.
+    pub fn spoiler_revealed(&self, id: u64) -> bool {
+        self.revealed_spoilers.contains(&id)
+    }
+
+    /// Mark a spoiler as revealed.
+    pub fn reveal_spoiler(&mut self, id: u64) {
+        self.revealed_spoilers.insert(id);
     }
 
     /// Advance focus to the next widget in the focus chain.

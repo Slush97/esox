@@ -451,6 +451,11 @@ impl TextRenderer {
         self.face.metrics(size).cell_height
     }
 
+    /// Full font metrics for a given size (ascent, descent, stroke offsets, etc.).
+    pub fn face_metrics(&mut self, size: f32) -> esox_font::FontMetrics {
+        self.face.metrics(size)
+    }
+
     /// Measure wrapped text dimensions. Returns `(max_line_width, total_height)`
     /// including line spacing between lines. Uses `wrap_lines_measured()` internally.
     pub fn measure_text_wrapped(

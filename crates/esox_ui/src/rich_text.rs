@@ -1,8 +1,10 @@
-//! Rich text — multi-span text with color, bold, size, and weight variations.
+//! Rich text — multi-span text with color, bold, size, weight, background, and decoration.
 
 use esox_gfx::Color;
 
 pub use esox_font::FontWeight;
+
+use crate::theme::TextDecoration;
 
 /// A single span of styled text.
 #[derive(Debug, Clone, Copy)]
@@ -14,6 +16,10 @@ pub struct Span<'a> {
     pub letter_spacing: Option<f32>,
     /// Font weight override. When `Some`, takes precedence over `bold`.
     pub weight: Option<FontWeight>,
+    /// Background color behind this span (for inline code, highlights, etc.).
+    pub background: Option<Color>,
+    /// Text decoration (underline, strikethrough, or both).
+    pub decoration: TextDecoration,
 }
 
 /// Builder for multi-span rich text.
@@ -36,6 +42,8 @@ impl<'a> RichText<'a> {
             size: None,
             letter_spacing: None,
             weight: None,
+            background: None,
+            decoration: TextDecoration::None,
         });
         self
     }
@@ -49,6 +57,8 @@ impl<'a> RichText<'a> {
             size: None,
             letter_spacing: None,
             weight: None,
+            background: None,
+            decoration: TextDecoration::None,
         });
         self
     }
@@ -62,6 +72,8 @@ impl<'a> RichText<'a> {
             size: None,
             letter_spacing: None,
             weight: None,
+            background: None,
+            decoration: TextDecoration::None,
         });
         self
     }
@@ -75,6 +87,8 @@ impl<'a> RichText<'a> {
             size: None,
             letter_spacing: None,
             weight: None,
+            background: None,
+            decoration: TextDecoration::None,
         });
         self
     }
@@ -88,6 +102,8 @@ impl<'a> RichText<'a> {
             size: Some(size),
             letter_spacing: None,
             weight: None,
+            background: None,
+            decoration: TextDecoration::None,
         });
         self
     }
@@ -101,6 +117,8 @@ impl<'a> RichText<'a> {
             size: None,
             letter_spacing: Some(spacing),
             weight: None,
+            background: None,
+            decoration: TextDecoration::None,
         });
         self
     }
@@ -114,6 +132,8 @@ impl<'a> RichText<'a> {
             size: None,
             letter_spacing: None,
             weight: Some(FontWeight::Light),
+            background: None,
+            decoration: TextDecoration::None,
         });
         self
     }
@@ -127,6 +147,8 @@ impl<'a> RichText<'a> {
             size: None,
             letter_spacing: None,
             weight: Some(FontWeight::Medium),
+            background: None,
+            decoration: TextDecoration::None,
         });
         self
     }
@@ -140,6 +162,8 @@ impl<'a> RichText<'a> {
             size: None,
             letter_spacing: None,
             weight: Some(FontWeight::SemiBold),
+            background: None,
+            decoration: TextDecoration::None,
         });
         self
     }
@@ -153,6 +177,68 @@ impl<'a> RichText<'a> {
             size: None,
             letter_spacing: None,
             weight: Some(FontWeight::ExtraBold),
+            background: None,
+            decoration: TextDecoration::None,
+        });
+        self
+    }
+
+    /// Add a strikethrough text span.
+    pub fn strikethrough(mut self, text: &'a str) -> Self {
+        self.spans.push(Span {
+            text,
+            color: None,
+            bold: false,
+            size: None,
+            letter_spacing: None,
+            weight: None,
+            background: None,
+            decoration: TextDecoration::Strikethrough,
+        });
+        self
+    }
+
+    /// Add an underline text span.
+    pub fn underline(mut self, text: &'a str) -> Self {
+        self.spans.push(Span {
+            text,
+            color: None,
+            bold: false,
+            size: None,
+            letter_spacing: None,
+            weight: None,
+            background: None,
+            decoration: TextDecoration::Underline,
+        });
+        self
+    }
+
+    /// Add an inline code span (background-colored, monospace-sized).
+    pub fn code(mut self, text: &'a str, bg: Color) -> Self {
+        self.spans.push(Span {
+            text,
+            color: None,
+            bold: false,
+            size: None,
+            letter_spacing: None,
+            weight: None,
+            background: Some(bg),
+            decoration: TextDecoration::None,
+        });
+        self
+    }
+
+    /// Add a highlighted span (text with background color).
+    pub fn highlight(mut self, text: &'a str, bg: Color) -> Self {
+        self.spans.push(Span {
+            text,
+            color: None,
+            bold: false,
+            size: None,
+            letter_spacing: None,
+            weight: None,
+            background: Some(bg),
+            decoration: TextDecoration::None,
         });
         self
     }
@@ -225,6 +311,8 @@ mod tests {
             size: Some(32.0),
             letter_spacing: None,
             weight: None,
+            background: None,
+            decoration: TextDecoration::None,
         };
         let rt = RichText::new().push(custom);
         assert_eq!(rt.spans.len(), 1);
@@ -232,5 +320,25 @@ mod tests {
         assert!(rt.spans[0].bold);
         assert_eq!(rt.spans[0].color, Some(Color::new(0.0, 1.0, 0.0, 1.0)));
         assert_eq!(rt.spans[0].size, Some(32.0));
+    }
+
+    #[test]
+    fn strikethrough_span() {
+        let rt = RichText::new().strikethrough("deleted");
+        assert_eq!(rt.spans[0].decoration, TextDecoration::Strikethrough);
+    }
+
+    #[test]
+    fn code_span_has_background() {
+        let bg = Color::new(0.2, 0.2, 0.2, 1.0);
+        let rt = RichText::new().code("let x = 1;", bg);
+        assert_eq!(rt.spans[0].background, Some(bg));
+    }
+
+    #[test]
+    fn highlight_span_has_background() {
+        let bg = Color::new(1.0, 1.0, 0.0, 0.3);
+        let rt = RichText::new().highlight("important", bg);
+        assert_eq!(rt.spans[0].background, Some(bg));
     }
 }
