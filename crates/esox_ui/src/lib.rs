@@ -30,8 +30,11 @@
 //!
 //! - [`Ui::animate`] — drive a value towards a target with easing
 //! - [`Ui::animate_bool`] — convenience for 0→1 toggle animations
-//! - [`Ui::is_animating`] — check if an animation is in-flight
-//! - [`Easing`] — `Linear`, `EaseOutCubic`, `EaseInOutCubic`, `EaseOutExpo`
+//! - [`Ui::animate_spring`] — spring-physics animation (velocity-based, no fixed duration)
+//! - [`Ui::animate_bool_spring`] — convenience for 0→1 spring toggle
+//! - [`Ui::is_animating`] / [`Ui::is_spring_animating`] — check if in-flight
+//! - [`Easing`] — standard CSS curves, `CubicBezier`, `EaseOutBounce`, `EaseOutBack`, etc.
+//! - [`SpringConfig`] — presets: `SNAPPY`, `GENTLE`, `BOUNCY`, `STIFF`
 //! - [`lerp_color`] — interpolate between colors
 
 pub mod a11y;
@@ -58,8 +61,8 @@ pub use rich_text::FontWeight;
 pub use rich_text::{RichText, Span};
 pub use state::{
     A11yNode, A11yRole, A11yTree, ClipboardProvider, DragPayload, DropZoneState, Easing, ImeState,
-    InputState, ModalAction, SelectState, SortDirection, TabState, TableState, ToastKind,
-    ToastQueue, TooltipState, TreeState, UiState, VirtualScrollState, WidgetKind,
+    InputState, ModalAction, SelectState, SortDirection, SpringConfig, TabState, TableState,
+    ToastKind, ToastQueue, TooltipState, TreeState, UiState, VirtualScrollState, WidgetKind,
 };
 pub use text::{TextRenderer, TruncationMode};
 pub use theme::{
@@ -2207,6 +2210,32 @@ impl<'f> Ui<'f> {
     /// Whether the given animation is currently in-flight (not settled).
     pub fn is_animating(&self, id: u64) -> bool {
         self.state.anim_active(id)
+    }
+
+    /// Drive a spring-based animation. Returns the current value.
+    ///
+    /// Unlike duration-based `animate()`, springs settle naturally based on
+    /// physics. Changing `target` mid-flight preserves velocity for a smooth
+    /// feel.
+    ///
+    /// Use [`SpringConfig`] presets for common behaviors:
+    /// - `SpringConfig::SNAPPY` — fast, no overshoot (toggles, hovers)
+    /// - `SpringConfig::GENTLE` — smooth, slower (layout transitions)
+    /// - `SpringConfig::BOUNCY` — visible overshoot (enter/exit)
+    /// - `SpringConfig::STIFF` — very fast (micro-interactions)
+    pub fn animate_spring(&mut self, id: u64, target: f32, config: SpringConfig) -> f32 {
+        self.state.spring_t(id, target, config)
+    }
+
+    /// Boolean spring helper. Returns 0.0→1.0 interpolation via spring physics.
+    pub fn animate_bool_spring(&mut self, id: u64, active: bool, config: SpringConfig) -> f32 {
+        let target = if active { 1.0 } else { 0.0 };
+        self.state.spring_t(id, target, config)
+    }
+
+    /// Whether the given spring animation is currently in-flight.
+    pub fn is_spring_animating(&self, id: u64) -> bool {
+        self.state.spring_active(id)
     }
 
     // ── Focus control ──
