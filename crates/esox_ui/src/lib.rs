@@ -32,7 +32,8 @@
 //! - [`Ui::animate_bool`] — convenience for 0→1 toggle animations
 //! - [`Ui::animate_spring`] — spring-physics animation (velocity-based, no fixed duration)
 //! - [`Ui::animate_bool_spring`] — convenience for 0→1 spring toggle
-//! - [`Ui::is_animating`] / [`Ui::is_spring_animating`] — check if in-flight
+//! - [`Ui::animate_keyframes`] — multi-step keyframe sequences with looping
+//! - [`Ui::is_animating`] / [`Ui::is_spring_animating`] / [`Ui::is_keyframe_animating`]
 //! - [`Easing`] — standard CSS curves, `CubicBezier`, `EaseOutBounce`, `EaseOutBack`, etc.
 //! - [`SpringConfig`] — presets: `SNAPPY`, `GENTLE`, `BOUNCY`, `STIFF`
 //! - [`lerp_color`] — interpolate between colors
@@ -61,8 +62,9 @@ pub use rich_text::FontWeight;
 pub use rich_text::{RichText, Span};
 pub use state::{
     A11yNode, A11yRole, A11yTree, ClipboardProvider, DragPayload, DropZoneState, Easing, ImeState,
-    InputState, ModalAction, SelectState, SortDirection, SpringConfig, TabState, TableState,
-    ToastKind, ToastQueue, TooltipState, TreeState, UiState, VirtualScrollState, WidgetKind,
+    InputState, Keyframe, KeyframeSequence, ModalAction, PlaybackMode, SelectState, SortDirection,
+    SpringConfig, TabState, TableState, ToastKind, ToastQueue, TooltipState, TreeState, UiState,
+    VirtualScrollState, WidgetKind,
 };
 pub use text::{TextRenderer, TruncationMode};
 pub use theme::{
@@ -2236,6 +2238,33 @@ impl<'f> Ui<'f> {
     /// Whether the given spring animation is currently in-flight.
     pub fn is_spring_animating(&self, id: u64) -> bool {
         self.state.spring_active(id)
+    }
+
+    /// Play a keyframe sequence. Returns the current interpolated value.
+    ///
+    /// The animation starts on the first frame it's called and advances
+    /// each frame. Playback mode controls looping and ping-pong behavior.
+    ///
+    /// ```ignore
+    /// let pulse = KeyframeSequence::new(600.0)
+    ///     .stop(0.0, 1.0, Easing::Linear)
+    ///     .stop(0.5, 1.3, Easing::EaseOutCubic)
+    ///     .stop(1.0, 1.0, Easing::EaseInCubic);
+    ///
+    /// let scale = ui.animate_keyframes(id!("pulse"), &pulse, PlaybackMode::Infinite);
+    /// ```
+    pub fn animate_keyframes(
+        &mut self,
+        id: u64,
+        sequence: &KeyframeSequence,
+        mode: PlaybackMode,
+    ) -> f32 {
+        self.state.keyframe_t(id, sequence, mode)
+    }
+
+    /// Whether a keyframe animation is currently playing (not finished).
+    pub fn is_keyframe_animating(&self, id: u64) -> bool {
+        self.state.keyframe_active(id)
     }
 
     // ── Focus control ──

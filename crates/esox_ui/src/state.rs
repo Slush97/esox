@@ -984,6 +984,190 @@ impl SpringAnim {
     }
 }
 
+/// A single stop in a keyframe sequence.
+#[derive(Debug, Clone, Copy)]
+pub struct Keyframe {
+    /// Position in the sequence, 0.0 to 1.0 (analogous to CSS percentage / 100).
+    pub offset: f32,
+    /// The value at this stop.
+    pub value: f32,
+    /// Easing curve from the *previous* keyframe to this one.
+    /// The first keyframe's easing is ignored (it's the starting point).
+    pub easing: Easing,
+}
+
+/// A reusable multi-step animation definition.
+///
+/// Keyframes are sorted by offset. Must contain at least two stops
+/// (offset 0.0 and 1.0). Use the builder to construct:
+///
+/// ```ignore
+/// let pulse = KeyframeSequence::new(600.0)
+///     .stop(0.0, 1.0, Easing::Linear)
+///     .stop(0.5, 1.3, Easing::EaseOutCubic)
+///     .stop(1.0, 1.0, Easing::EaseInCubic);
+/// ```
+#[derive(Debug, Clone)]
+pub struct KeyframeSequence {
+    keyframes: Vec<Keyframe>,
+    pub duration_ms: f32,
+}
+
+impl KeyframeSequence {
+    /// Start building a keyframe sequence with the given total duration.
+    pub fn new(duration_ms: f32) -> Self {
+        Self {
+            keyframes: Vec::new(),
+            duration_ms,
+        }
+    }
+
+    /// Add a keyframe stop. `offset` is 0.0–1.0, `easing` controls the curve
+    /// *arriving* at this stop from the previous one.
+    pub fn stop(mut self, offset: f32, value: f32, easing: Easing) -> Self {
+        self.keyframes.push(Keyframe {
+            offset: offset.clamp(0.0, 1.0),
+            value,
+            easing,
+        });
+        // Keep sorted by offset.
+        self.keyframes
+            .sort_by(|a, b| a.offset.partial_cmp(&b.offset).unwrap());
+        self
+    }
+
+    /// Access the keyframe stops.
+    pub fn keyframes(&self) -> &[Keyframe] {
+        &self.keyframes
+    }
+
+    /// Sample the sequence at a given progress `t` in [0.0, 1.0].
+    ///
+    /// Finds the two bracketing keyframes, computes local progress within
+    /// that segment, applies the destination keyframe's easing, and lerps.
+    pub fn sample(&self, t: f32) -> f32 {
+        let t = t.clamp(0.0, 1.0);
+        let kf = &self.keyframes;
+
+        if kf.is_empty() {
+            return 0.0;
+        }
+        if kf.len() == 1 {
+            return kf[0].value;
+        }
+
+        // Before the first stop or at/past the last.
+        if t <= kf[0].offset {
+            return kf[0].value;
+        }
+        if t >= kf[kf.len() - 1].offset {
+            return kf[kf.len() - 1].value;
+        }
+
+        // Find the segment: last keyframe with offset <= t.
+        let idx = kf.partition_point(|k| k.offset <= t);
+        // idx points to the first keyframe *after* t.
+        let prev = &kf[idx.saturating_sub(1)];
+        let next = &kf[idx.min(kf.len() - 1)];
+
+        let span = next.offset - prev.offset;
+        if span < f32::EPSILON {
+            return next.value;
+        }
+
+        let local_t = (t - prev.offset) / span;
+        let eased = next.easing.apply(local_t);
+        prev.value + (next.value - prev.value) * eased
+    }
+}
+
+/// Playback mode for keyframe animations.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum PlaybackMode {
+    /// Play once, then hold the final value.
+    Once,
+    /// Loop N times, then hold the final value.
+    Loop(u32),
+    /// Loop forever.
+    Infinite,
+    /// Play forward then backward. Count is full cycles (forward + back = 1).
+    PingPong(u32),
+    /// Ping-pong forever.
+    PingPongInfinite,
+}
+
+/// Runtime state for an active keyframe animation.
+pub struct KeyframeAnim {
+    pub sequence: KeyframeSequence,
+    pub start: Instant,
+    pub mode: PlaybackMode,
+    pub(crate) queried: bool,
+}
+
+impl KeyframeAnim {
+    /// Current interpolated value based on elapsed time and playback mode.
+    pub fn value(&self) -> f32 {
+        let elapsed = self.start.elapsed().as_millis() as f32;
+        let dur = self.sequence.duration_ms;
+
+        if dur < f32::EPSILON {
+            return self.sequence.sample(1.0);
+        }
+
+        let raw_progress = elapsed / dur;
+
+        let t = match self.mode {
+            PlaybackMode::Once => raw_progress.clamp(0.0, 1.0),
+            PlaybackMode::Loop(n) => {
+                let max = n as f32;
+                if raw_progress >= max {
+                    1.0
+                } else {
+                    raw_progress.fract()
+                }
+            }
+            PlaybackMode::Infinite => raw_progress.fract(),
+            PlaybackMode::PingPong(n) => {
+                // One full cycle = forward + back = 2x duration.
+                let max = n as f32 * 2.0;
+                if raw_progress >= max {
+                    0.0
+                } else {
+                    let within = raw_progress % 2.0;
+                    if within <= 1.0 {
+                        within
+                    } else {
+                        2.0 - within
+                    }
+                }
+            }
+            PlaybackMode::PingPongInfinite => {
+                let within = raw_progress % 2.0;
+                if within <= 1.0 {
+                    within
+                } else {
+                    2.0 - within
+                }
+            }
+        };
+
+        self.sequence.sample(t)
+    }
+
+    /// Whether the animation has finished playing.
+    pub fn is_finished(&self) -> bool {
+        let elapsed = self.start.elapsed().as_millis() as f32;
+        let dur = self.sequence.duration_ms;
+
+        match self.mode {
+            PlaybackMode::Once => elapsed >= dur,
+            PlaybackMode::Loop(n) => elapsed >= dur * n as f32,
+            PlaybackMode::Infinite | PlaybackMode::PingPongInfinite => false,
+            PlaybackMode::PingPong(n) => elapsed >= dur * 2.0 * n as f32,
+        }
+    }
+}
+
 /// Result from a modal dialog.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ModalAction {
@@ -1175,6 +1359,8 @@ pub struct UiState {
     pub anims: HashMap<u64, Anim>,
     /// Spring-based animations keyed by ID.
     pub springs: HashMap<u64, SpringAnim>,
+    /// Keyframe animations keyed by ID.
+    pub keyframe_anims: HashMap<u64, KeyframeAnim>,
     /// Buffered scroll event: (mouse_x, mouse_y, delta_y).
     pub pending_scroll: Option<(f32, f32, f32)>,
     /// Active scrollbar drag: (scrollable_id, grab_offset_in_thumb).
@@ -1277,6 +1463,7 @@ impl UiState {
             hover_anims: HashMap::new(),
             anims: HashMap::new(),
             springs: HashMap::new(),
+            keyframe_anims: HashMap::new(),
             pending_scroll: None,
             scrollbar_drag: None,
             mouse_pressed: false,
@@ -1530,6 +1717,7 @@ impl UiState {
             || self.hover_anims.values().any(|a| !a.is_settled())
             || self.anims.values().any(|a| !a.is_settled())
             || self.springs.values().any(|s| !s.is_settled())
+            || self.keyframe_anims.values().any(|ka| !ka.is_finished())
             || self.scrollbar_drag.is_some()
             || self.split_drag.is_some()
             || self.drag.is_some()
@@ -1614,6 +1802,35 @@ impl UiState {
     /// Whether a given spring animation is currently active (not settled).
     pub fn spring_active(&self, id: u64) -> bool {
         self.springs.get(&id).is_some_and(|s| !s.is_settled())
+    }
+
+    /// Get or create a keyframe animation. Returns current interpolated value.
+    /// If called with a different sequence for an existing id, restarts the animation.
+    pub fn keyframe_t(&mut self, id: u64, sequence: &KeyframeSequence, mode: PlaybackMode) -> f32 {
+        let ka = self
+            .keyframe_anims
+            .entry(id)
+            .or_insert_with(|| KeyframeAnim {
+                sequence: sequence.clone(),
+                start: Instant::now(),
+                mode,
+                queried: true,
+            });
+        ka.queried = true;
+        // If the mode changed, restart.
+        if ka.mode != mode {
+            ka.mode = mode;
+            ka.start = Instant::now();
+            ka.sequence = sequence.clone();
+        }
+        ka.value()
+    }
+
+    /// Whether a keyframe animation is currently playing (not finished).
+    pub fn keyframe_active(&self, id: u64) -> bool {
+        self.keyframe_anims
+            .get(&id)
+            .is_some_and(|ka| !ka.is_finished())
     }
 
     /// Advance focus to the next widget in the focus chain.
@@ -1784,6 +2001,9 @@ impl UiState {
         for spring in self.springs.values_mut() {
             spring.queried = false;
         }
+        for ka in self.keyframe_anims.values_mut() {
+            ka.queried = false;
+        }
     }
 
     /// End-of-frame cleanup. Clears consumed events.
@@ -1818,6 +2038,9 @@ impl UiState {
         self.anims.retain(|_, a| a.queried || !a.is_settled());
         // Prune settled springs that weren't queried this frame.
         self.springs.retain(|_, s| s.queried || !s.is_settled());
+        // Prune finished keyframe anims that weren't queried this frame.
+        self.keyframe_anims
+            .retain(|_, ka| ka.queried || !ka.is_finished());
         // Remove expired and dismissed toasts.
         self.toasts.toasts.retain(|t| {
             if t.dismissed {
@@ -2461,5 +2684,156 @@ mod tests {
             assert!(config.mass > 0.0);
             assert!(config.damping_ratio() > 0.0);
         }
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    // KeyframeSequence — sampling, boundaries, multi-segment
+    // ══════════════════════════════════════════════════════════════
+
+    #[test]
+    fn keyframe_sample_two_stops_linear() {
+        let seq = KeyframeSequence::new(1000.0)
+            .stop(0.0, 0.0, Easing::Linear)
+            .stop(1.0, 100.0, Easing::Linear);
+        assert!((seq.sample(0.0) - 0.0).abs() < 0.01);
+        assert!((seq.sample(0.5) - 50.0).abs() < 0.01);
+        assert!((seq.sample(1.0) - 100.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn keyframe_sample_three_stops() {
+        let seq = KeyframeSequence::new(1000.0)
+            .stop(0.0, 0.0, Easing::Linear)
+            .stop(0.5, 80.0, Easing::Linear)
+            .stop(1.0, 100.0, Easing::Linear);
+        // At 0.25 — halfway through first segment (0→80).
+        assert!((seq.sample(0.25) - 40.0).abs() < 0.5);
+        // At 0.5 — exactly at second stop.
+        assert!((seq.sample(0.5) - 80.0).abs() < 0.01);
+        // At 0.75 — halfway through second segment (80→100).
+        assert!((seq.sample(0.75) - 90.0).abs() < 0.5);
+    }
+
+    #[test]
+    fn keyframe_sample_per_segment_easing() {
+        let seq = KeyframeSequence::new(1000.0)
+            .stop(0.0, 0.0, Easing::Linear)
+            .stop(1.0, 100.0, Easing::EaseInQuad);
+        // EaseInQuad at t=0.5 should be 0.25 (t^2), so value ~ 25.
+        assert!((seq.sample(0.5) - 25.0).abs() < 0.5);
+    }
+
+    #[test]
+    fn keyframe_sample_clamps_outside_range() {
+        let seq = KeyframeSequence::new(1000.0)
+            .stop(0.0, 10.0, Easing::Linear)
+            .stop(1.0, 90.0, Easing::Linear);
+        assert!((seq.sample(-1.0) - 10.0).abs() < 0.01);
+        assert!((seq.sample(2.0) - 90.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn keyframe_sample_empty_returns_zero() {
+        let seq = KeyframeSequence::new(1000.0);
+        assert!((seq.sample(0.5)).abs() < 0.01);
+    }
+
+    #[test]
+    fn keyframe_sample_single_stop() {
+        let seq = KeyframeSequence::new(1000.0).stop(0.5, 42.0, Easing::Linear);
+        assert!((seq.sample(0.0) - 42.0).abs() < 0.01);
+        assert!((seq.sample(1.0) - 42.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn keyframe_builder_sorts_by_offset() {
+        let seq = KeyframeSequence::new(1000.0)
+            .stop(1.0, 100.0, Easing::Linear)
+            .stop(0.0, 0.0, Easing::Linear)
+            .stop(0.5, 50.0, Easing::Linear);
+        let offsets: Vec<f32> = seq.keyframes().iter().map(|k| k.offset).collect();
+        assert_eq!(offsets, vec![0.0, 0.5, 1.0]);
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    // KeyframeAnim — playback modes
+    // ══════════════════════════════════════════════════════════════
+
+    fn make_test_sequence() -> KeyframeSequence {
+        KeyframeSequence::new(100.0) // 100ms for fast test
+            .stop(0.0, 0.0, Easing::Linear)
+            .stop(1.0, 100.0, Easing::Linear)
+    }
+
+    #[test]
+    fn keyframe_anim_once_finishes() {
+        let ka = KeyframeAnim {
+            sequence: make_test_sequence(),
+            start: Instant::now() - std::time::Duration::from_millis(200),
+            mode: PlaybackMode::Once,
+            queried: true,
+        };
+        assert!(ka.is_finished());
+        // Value should be clamped at final.
+        assert!((ka.value() - 100.0).abs() < 0.5);
+    }
+
+    #[test]
+    fn keyframe_anim_once_not_finished_midway() {
+        let ka = KeyframeAnim {
+            sequence: make_test_sequence(),
+            start: Instant::now(),
+            mode: PlaybackMode::Once,
+            queried: true,
+        };
+        assert!(!ka.is_finished());
+    }
+
+    #[test]
+    fn keyframe_anim_infinite_never_finishes() {
+        let ka = KeyframeAnim {
+            sequence: make_test_sequence(),
+            start: Instant::now() - std::time::Duration::from_secs(999),
+            mode: PlaybackMode::Infinite,
+            queried: true,
+        };
+        assert!(!ka.is_finished());
+    }
+
+    #[test]
+    fn keyframe_anim_loop_count() {
+        let ka = KeyframeAnim {
+            sequence: make_test_sequence(),
+            start: Instant::now() - std::time::Duration::from_millis(350),
+            mode: PlaybackMode::Loop(3),
+            queried: true,
+        };
+        // 350ms elapsed, 3 loops * 100ms = 300ms total → should be finished.
+        assert!(ka.is_finished());
+    }
+
+    #[test]
+    fn keyframe_anim_ping_pong_reverses() {
+        let seq = KeyframeSequence::new(1000.0)
+            .stop(0.0, 0.0, Easing::Linear)
+            .stop(1.0, 100.0, Easing::Linear);
+
+        // At 1.5x duration into a ping-pong, we should be halfway back.
+        let ka = KeyframeAnim {
+            sequence: seq,
+            start: Instant::now() - std::time::Duration::from_millis(1500),
+            mode: PlaybackMode::PingPongInfinite,
+            queried: true,
+        };
+        // Progress 1.5 → within = 1.5 % 2.0 = 1.5 → t = 2.0 - 1.5 = 0.5 → value = 50.
+        assert!((ka.value() - 50.0).abs() < 2.0);
+    }
+
+    #[test]
+    fn keyframe_playback_mode_eq() {
+        assert_eq!(PlaybackMode::Once, PlaybackMode::Once);
+        assert_eq!(PlaybackMode::Loop(3), PlaybackMode::Loop(3));
+        assert_ne!(PlaybackMode::Loop(3), PlaybackMode::Loop(5));
+        assert_ne!(PlaybackMode::Once, PlaybackMode::Infinite);
     }
 }
