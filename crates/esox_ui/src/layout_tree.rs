@@ -5,7 +5,7 @@
 
 use std::collections::HashMap;
 
-use crate::layout::{Align, Direction, FlexWrap, Justify, Rect, Spacing};
+use crate::layout::{Align, Direction, FlexWrap, GridPlacement, GridTrack, Justify, Rect, Spacing};
 
 // ── Overflow mode ──
 
@@ -57,6 +57,15 @@ pub struct LayoutStyle {
     pub flex_basis: Option<f32>,
     pub align_self: Option<Align>,
     pub margin: Spacing,
+
+    // Grid container properties (None = not a grid).
+    pub grid_columns: Option<Vec<GridTrack>>,
+    pub grid_rows: Option<Vec<GridTrack>>,
+    pub grid_column_gap: Option<f32>,
+    pub grid_row_gap: Option<f32>,
+
+    // Grid item placement (for children of a grid container).
+    pub grid_placement: Option<GridPlacement>,
 }
 
 impl Default for LayoutStyle {
@@ -78,6 +87,11 @@ impl Default for LayoutStyle {
             flex_basis: None,
             align_self: None,
             margin: Spacing::default(),
+            grid_columns: None,
+            grid_rows: None,
+            grid_column_gap: None,
+            grid_row_gap: None,
+            grid_placement: None,
         }
     }
 }
@@ -299,6 +313,12 @@ impl LayoutTree {
         };
 
         if self.nodes[id.index()].is_leaf {
+            return;
+        }
+
+        // Dispatch to grid solver if this is a grid container.
+        if self.nodes[id.index()].style.grid_columns.is_some() {
+            self.arrange_grid(id, rect);
             return;
         }
 
@@ -653,6 +673,181 @@ impl LayoutTree {
             cross_pos += line.cross_max + gap;
         }
     }
+
+    /// Arrange children in a CSS Grid-like layout.
+    ///
+    /// Resolves column/row track sizes (Fixed, Auto, Fr), places children
+    /// according to their `grid_placement`, and recursively arranges each.
+    fn arrange_grid(&mut self, id: NodeId, rect: Rect) {
+        let node = &self.nodes[id.index()];
+        let pad = node.style.padding;
+        let col_gap = node.style.grid_column_gap.unwrap_or(node.style.gap);
+        let row_gap = node.style.grid_row_gap.unwrap_or(node.style.gap);
+
+        let content_x = rect.x + pad.left;
+        let content_y = rect.y + pad.top;
+        let content_w = (rect.w - pad.horizontal()).max(0.0);
+        let content_h = (rect.h - pad.vertical()).max(0.0);
+
+        let col_defs: Vec<GridTrack> = node.style.grid_columns.clone().unwrap_or_default();
+        let row_defs: Vec<GridTrack> = node.style.grid_rows.clone().unwrap_or_default();
+
+        let num_cols = col_defs.len().max(1);
+        let _num_rows = row_defs.len().max(1);
+
+        // Collect children with their placements.
+        let mut children = Vec::new();
+        let mut cid = self.nodes[id.index()].first_child;
+        let mut auto_index: usize = 0;
+        while let Some(c) = cid {
+            let placement = self.nodes[c.index()]
+                .style
+                .grid_placement
+                .unwrap_or_else(|| {
+                    // Auto-placement: fill left-to-right, top-to-bottom.
+                    let col = (auto_index % num_cols) as u16;
+                    let row = (auto_index / num_cols) as u16;
+                    GridPlacement::at(col, row)
+                });
+            children.push((c, placement));
+            auto_index += 1;
+            cid = self.nodes[c.index()].next_sibling;
+        }
+
+        // Resolve column widths.
+        let col_sizes = resolve_tracks(
+            &col_defs,
+            content_w,
+            col_gap,
+            &children,
+            true, // columns
+            &self.nodes,
+        );
+
+        // Resolve row heights.
+        let row_sizes = resolve_tracks(
+            &row_defs,
+            content_h,
+            row_gap,
+            &children,
+            false, // rows
+            &self.nodes,
+        );
+
+        // Compute cumulative positions.
+        let col_positions = track_positions(&col_sizes, col_gap, content_x);
+        let row_positions = track_positions(&row_sizes, row_gap, content_y);
+
+        // Place each child in its grid area.
+        for (child_id, placement) in children {
+            let c = placement.column as usize;
+            let r = placement.row as usize;
+            let cs = placement.col_span as usize;
+            let rs = placement.row_span as usize;
+
+            if c >= col_positions.len() || r >= row_positions.len() {
+                // Out-of-bounds placement — skip.
+                continue;
+            }
+
+            let x = col_positions[c];
+            let end_c = (c + cs).min(col_sizes.len());
+            let w: f32 = col_sizes[c..end_c].iter().sum::<f32>()
+                + col_gap * (end_c - c).saturating_sub(1) as f32;
+
+            let y = row_positions[r];
+            let end_r = (r + rs).min(row_sizes.len());
+            let h: f32 = row_sizes[r..end_r].iter().sum::<f32>()
+                + row_gap * (end_r - r).saturating_sub(1) as f32;
+
+            self.arrange(child_id, Rect::new(x, y, w, h));
+        }
+    }
+}
+
+/// Resolve grid track sizes from definitions and available space.
+fn resolve_tracks(
+    defs: &[GridTrack],
+    available: f32,
+    gap: f32,
+    children: &[(NodeId, GridPlacement)],
+    is_column: bool,
+    nodes: &[LayoutNode],
+) -> Vec<f32> {
+    if defs.is_empty() {
+        return vec![available];
+    }
+
+    let total_gap = gap * (defs.len().saturating_sub(1)) as f32;
+    let mut remaining = (available - total_gap).max(0.0);
+    let mut sizes = vec![0.0f32; defs.len()];
+    let mut total_fr = 0.0f32;
+
+    // First pass: resolve Fixed and Auto tracks.
+    for (i, track) in defs.iter().enumerate() {
+        match *track {
+            GridTrack::Fixed(px) => {
+                sizes[i] = px;
+                remaining -= px;
+            }
+            GridTrack::Auto => {
+                // Size to the maximum intrinsic width/height of children in this track.
+                let mut max_size = 0.0f32;
+                for &(cid, ref placement) in children {
+                    let (start, span) = if is_column {
+                        (placement.column as usize, placement.col_span as usize)
+                    } else {
+                        (placement.row as usize, placement.row_span as usize)
+                    };
+                    if start == i && span == 1 {
+                        let (iw, ih) = nodes[cid.index()].intrinsic;
+                        let size = if is_column { iw } else { ih };
+                        max_size = max_size.max(size);
+                    }
+                }
+                sizes[i] = max_size;
+                remaining -= max_size;
+            }
+            GridTrack::MinMax(min, _) => {
+                sizes[i] = min;
+                remaining -= min;
+                total_fr += 1.0; // The max part behaves like 1fr.
+            }
+            GridTrack::Fr(fr) => {
+                total_fr += fr;
+            }
+        }
+    }
+
+    // Second pass: distribute remaining space to Fr tracks.
+    remaining = remaining.max(0.0);
+    if total_fr > 0.0 {
+        let per_fr = remaining / total_fr;
+        for (i, track) in defs.iter().enumerate() {
+            match *track {
+                GridTrack::Fr(fr) => {
+                    sizes[i] = per_fr * fr;
+                }
+                GridTrack::MinMax(min, max) => {
+                    sizes[i] = (min + per_fr).min(max);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    sizes
+}
+
+/// Compute cumulative start positions from track sizes and gap.
+fn track_positions(sizes: &[f32], gap: f32, origin: f32) -> Vec<f32> {
+    let mut positions = Vec::with_capacity(sizes.len());
+    let mut pos = origin;
+    for &size in sizes {
+        positions.push(pos);
+        pos += size + gap;
+    }
+    positions
 }
 
 /// Info about a child needed for flex distribution.

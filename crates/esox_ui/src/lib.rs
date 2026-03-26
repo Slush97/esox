@@ -47,7 +47,9 @@ pub mod theme;
 mod widgets;
 
 pub use id::{fnv1a_mix, fnv1a_runtime, HOVER_SALT};
-pub use layout::{Align, Constraints, FlexItem, FlexWrap, Justify, Rect, Spacing};
+pub use layout::{
+    Align, Constraints, FlexItem, FlexWrap, GridPlacement, GridTrack, Justify, Rect, Spacing,
+};
 pub use paint::lerp_color;
 pub use response::Response;
 pub use rich_text::FontWeight;
@@ -299,6 +301,94 @@ impl<'a, 'f> FlexUi<'a, 'f> {
     }
 
     /// Access the inner `Ui` for direct widget calls outside flex items.
+    pub fn ui(&mut self) -> &mut Ui<'f> {
+        self.ui
+    }
+}
+
+/// Builder for CSS Grid-like layouts with column/row track definitions.
+pub struct GridBuilder<'a, 'f> {
+    ui: &'a mut Ui<'f>,
+    columns: Vec<layout::GridTrack>,
+    rows: Vec<layout::GridTrack>,
+    col_gap: f32,
+    row_gap: f32,
+}
+
+impl<'a, 'f> GridBuilder<'a, 'f> {
+    /// Set the gap between columns.
+    pub fn col_gap(mut self, gap: f32) -> Self {
+        self.col_gap = gap;
+        self
+    }
+
+    /// Set the gap between rows.
+    pub fn row_gap(mut self, gap: f32) -> Self {
+        self.row_gap = gap;
+        self
+    }
+
+    /// Set both column and row gaps to the same value.
+    pub fn gap(mut self, gap: f32) -> Self {
+        self.col_gap = gap;
+        self.row_gap = gap;
+        self
+    }
+
+    /// Draw the grid layout. The closure receives a `GridUi` for placing cells.
+    pub fn show(self, f: impl FnOnce(&mut GridUi<'_, 'f>)) {
+        self.ui.tree_build.open_container(
+            None,
+            LayoutStyle {
+                direction: Direction::Vertical,
+                grid_columns: Some(self.columns),
+                grid_rows: Some(self.rows),
+                grid_column_gap: Some(self.col_gap),
+                grid_row_gap: Some(self.row_gap),
+                ..Default::default()
+            },
+        );
+
+        let saved_cursor = self.ui.cursor;
+        let saved_spacing = self.ui.spacing;
+
+        let mut grid_ui = GridUi { ui: self.ui };
+        f(&mut grid_ui);
+
+        self.ui.cursor = saved_cursor;
+        self.ui.spacing = saved_spacing;
+
+        self.ui.tree_build.close_container();
+
+        // Advance cursor by grid height from prev_layout (or estimate).
+        // On frame 1, grid cells overlap at cursor position; frame 2+ uses solved positions.
+    }
+}
+
+/// Context for placing cells within a grid layout.
+pub struct GridUi<'a, 'f> {
+    ui: &'a mut Ui<'f>,
+}
+
+impl<'a, 'f> GridUi<'a, 'f> {
+    /// Place a cell at the given grid position. Content is rendered inside the cell.
+    pub fn cell(&mut self, placement: layout::GridPlacement, f: impl FnOnce(&mut Ui<'f>)) {
+        self.ui.tree_build.open_container(
+            None,
+            LayoutStyle {
+                direction: Direction::Vertical,
+                gap: self.ui.spacing,
+                grid_placement: Some(placement),
+                ..Default::default()
+            },
+        );
+
+        f(self.ui);
+
+        self.ui.tree_build.close_container();
+    }
+
+    /// Access the inner `Ui` for direct widget calls.
     pub fn ui(&mut self) -> &mut Ui<'f> {
         self.ui
     }
@@ -742,6 +832,32 @@ impl<'f> Ui<'f> {
             align: layout::Align::Start,
             justify: layout::Justify::Start,
             wrap: layout::FlexWrap::NoWrap,
+        }
+    }
+
+    /// Create a CSS Grid layout builder with column and row track definitions.
+    ///
+    /// # Example
+    /// ```ignore
+    /// ui.grid(
+    ///     &[GridTrack::Fr(1.0), GridTrack::Fr(1.0), GridTrack::Fixed(200.0)],
+    ///     &[GridTrack::Auto, GridTrack::Fr(1.0)],
+    /// ).gap(12.0).show(|grid| {
+    ///     grid.cell(GridPlacement::at(0, 0), |ui| { ui.label("A"); });
+    ///     grid.cell(GridPlacement::at(1, 0).span(2, 1), |ui| { ui.label("B"); });
+    /// });
+    /// ```
+    pub fn grid(
+        &mut self,
+        columns: &[layout::GridTrack],
+        rows: &[layout::GridTrack],
+    ) -> GridBuilder<'_, 'f> {
+        GridBuilder {
+            ui: self,
+            columns: columns.to_vec(),
+            rows: rows.to_vec(),
+            col_gap: 0.0,
+            row_gap: 0.0,
         }
     }
 
