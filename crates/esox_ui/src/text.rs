@@ -29,7 +29,7 @@ pub enum TruncationMode {
 /// Initial atlas dimensions in texels. Must be large enough to hold all unique
 /// (glyph, size, style) combinations used within a single frame — mid-frame
 /// eviction corrupts UV coordinates already pushed to the instance buffer.
-const ATLAS_SIZE: u32 = 1024;
+const ATLAS_SIZE: u32 = 2048;
 
 // ── Shaped-run cache ────────────────────────────────────────────────────────
 
@@ -957,8 +957,8 @@ impl TextRenderer {
 
             if cached.region.w > 0 && cached.region.h > 0 {
                 let uv = cached.region.to_uv_rect(atlas_w, atlas_h);
-                let gx = (pen_x + glyph.x_offset + cached.bearing_x).round();
-                let gy = (y + metrics.ascent - cached.bearing_y + glyph.y_offset).round();
+                let gx = pen_x + glyph.x_offset + cached.bearing_x;
+                let gy = y + metrics.ascent - cached.bearing_y + glyph.y_offset;
                 let gw = cached.region.w as f32;
                 let gh = cached.region.h as f32;
 
