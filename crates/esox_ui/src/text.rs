@@ -167,6 +167,8 @@ pub struct TextRenderer {
     shape_cache: ShapeCache,
     /// Standard UI font size, synced from the theme. Used by `draw_ui_text`.
     ui_font_size: f32,
+    /// Header font size, synced from the theme. Used by `draw_header_text`.
+    header_font_size: f32,
 }
 
 impl TextRenderer {
@@ -219,12 +221,18 @@ impl TextRenderer {
             atlas_bound: false,
             shape_cache: ShapeCache::new(),
             ui_font_size: 16.0,
+            header_font_size: 12.0,
         })
     }
 
-    /// Update the standard UI font size (called when the theme changes).
+    /// Update font sizes from the theme (called each frame in Ui::begin).
     pub fn set_ui_font_size(&mut self, size: f32) {
         self.ui_font_size = size;
+    }
+
+    /// Update the header font size from the theme.
+    pub fn set_header_font_size(&mut self, size: f32) {
+        self.header_font_size = size;
     }
 
     // ── Font loading ──────────────────────────────────────────────────
@@ -412,7 +420,7 @@ impl TextRenderer {
         self.draw_text(text, x, y, self.ui_font_size, color, frame, gpu, resources)
     }
 
-    /// Draw text at the header font size (11px) with header letter spacing.
+    /// Draw text at the header font size (synced from theme) with letter spacing.
     #[allow(clippy::too_many_arguments)]
     pub fn draw_header_text(
         &mut self,
@@ -429,7 +437,7 @@ impl TextRenderer {
             text,
             x,
             y,
-            11.0,
+            self.header_font_size,
             color,
             letter_spacing,
             frame,

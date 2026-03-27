@@ -70,21 +70,24 @@ impl<'f> Ui<'f> {
             children: Vec::new(),
         });
 
-        // Handle click — map x to value.
-        if response.clicked {
+        // Handle click and drag — map x to value.
+        let is_dragging = response.focused && self.state.mouse_pressed && rect.contains(self.state.mouse.x, self.state.mouse.y);
+        if response.clicked || is_dragging {
             let track_x = rect.x + self.theme.input_padding;
             let track_w = rect.w - self.theme.input_padding * 2.0;
             let rel = ((self.state.mouse.x - track_x) / track_w).clamp(0.0, 1.0);
-            value = min + rel * (max - min);
-            // Round to integer if range is large enough, otherwise 1 decimal.
-            let formatted = if (max - min) >= 10.0 {
-                format!("{}", value.round() as i32)
-            } else {
-                format!("{:.1}", value)
-            };
-            input.text = formatted;
-            input.cursor = input.text.len();
-            response.changed = true;
+            let new_value = min + rel * (max - min);
+            if (new_value - value).abs() > 0.001 {
+                value = new_value;
+                let formatted = if (max - min) >= 10.0 {
+                    format!("{}", value.round() as i32)
+                } else {
+                    format!("{:.1}", value)
+                };
+                input.text = formatted;
+                input.cursor = input.text.len();
+                response.changed = true;
+            }
         }
 
         // Keyboard: arrow keys adjust value.
@@ -165,10 +168,19 @@ impl<'f> Ui<'f> {
             paint::draw_rounded_border(self.frame, rect, border_color, self.theme.corner_radius);
         }
 
-        // Track area.
+        // Measure value label width to reserve space on the right.
+        let val_str = if input.text.is_empty() {
+            format!("{}", min as i32)
+        } else {
+            input.text.clone()
+        };
+        let val_w = self.text.measure_text(&val_str, self.theme.font_size);
+        let val_gap = self.theme.input_padding;
+
+        // Track area (stops before value label).
         let track_x = rect.x + self.theme.input_padding;
         let track_y = rect.y + rect.h / 2.0 - 2.0;
-        let track_w = rect.w - self.theme.input_padding * 2.0;
+        let track_w = rect.w - self.theme.input_padding * 2.0 - val_w - val_gap;
         let track_h = self.theme.slider_track_height;
 
         // Track background.
@@ -214,13 +226,7 @@ impl<'f> Ui<'f> {
                 .build(),
         );
 
-        // Value label on the right.
-        let val_str = if input.text.is_empty() {
-            format!("{}", min as i32)
-        } else {
-            input.text.clone()
-        };
-        let val_w = self.text.measure_text(&val_str, self.theme.font_size);
+        // Value label on the right (after track).
         self.text.draw_ui_text(
             &val_str,
             rect.x + rect.w - self.theme.input_padding - val_w,

@@ -98,6 +98,26 @@ pub enum SpacingScale {
     Custom(f32),
 }
 
+/// Convert a value into a concrete padding amount (in pixels).
+///
+/// Implemented for [`f32`] (pass-through) and [`SpacingScale`] (resolved
+/// via [`Theme::space`]).
+pub trait IntoPadding {
+    fn resolve(&self, theme: &Theme) -> f32;
+}
+
+impl IntoPadding for f32 {
+    fn resolve(&self, _theme: &Theme) -> f32 {
+        *self
+    }
+}
+
+impl IntoPadding for SpacingScale {
+    fn resolve(&self, theme: &Theme) -> f32 {
+        theme.space(*self)
+    }
+}
+
 /// 2D transform applied to a widget's GPU output.
 #[derive(Debug, Clone, Copy)]
 pub struct Transform2D {
@@ -1007,7 +1027,7 @@ impl Theme {
             input_padding: 8.0,
             item_height: 32.0,
             font_size: 14.0,
-            header_font_size: 11.0,
+            header_font_size: 12.0,
             cursor_width: 1.5,
             cursor_blink_ms: 530,
 
@@ -1084,7 +1104,7 @@ impl Theme {
 
             line_spacing: 2.0,
             letter_spacing: 0.0,
-            header_letter_spacing: 1.5,
+            header_letter_spacing: 0.8,
 
             breakpoint_compact: 600.0,
             breakpoint_expanded: 1200.0,

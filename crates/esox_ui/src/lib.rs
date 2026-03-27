@@ -583,6 +583,7 @@ impl<'f> Ui<'f> {
     ) -> Self {
         text.advance_generation();
         text.set_ui_font_size(theme.font_size);
+        text.set_header_font_size(theme.header_font_size);
         state.begin_frame(theme.scroll_friction);
 
         // Set up tile grid for partial redraw if available.
@@ -1768,6 +1769,7 @@ impl<'f> Ui<'f> {
     /// * `visible_h` — viewport height
     /// * `scroll_offset` — current scroll position
     /// * `max_scroll` — maximum scroll offset
+    #[allow(dead_code)]
     pub(crate) fn draw_scroll_fades(
         &mut self,
         container_clip: Rect,
