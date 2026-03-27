@@ -498,7 +498,13 @@ impl AppDelegate for DemoApp {
         });
         }); // page_scroll
 
-        ui.finish();
+        if let Some((sel_id, sel_idx)) = ui.finish() {
+            if sel_id == id!("demo_select") {
+                self.select_state.selected_index = sel_idx;
+            } else if sel_id == id!("demo_combo") {
+                self.combobox_selected = Some(sel_idx);
+            }
+        }
 
         // ── Performance overlay (top-right, drawn after UI so it's on top) ──
         let stats = perf.summary();
