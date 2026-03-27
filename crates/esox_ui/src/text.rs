@@ -965,8 +965,8 @@ impl TextRenderer {
 
             if cached.region.w > 0 && cached.region.h > 0 {
                 let uv = cached.region.to_uv_rect(atlas_w, atlas_h);
-                let gx = pen_x + glyph.x_offset + cached.bearing_x;
-                let gy = y + metrics.ascent - cached.bearing_y + glyph.y_offset;
+                let gx = (pen_x + glyph.x_offset + cached.bearing_x).round();
+                let gy = (y + metrics.ascent - cached.bearing_y + glyph.y_offset).round();
                 let gw = cached.region.w as f32;
                 let gh = cached.region.h as f32;
 

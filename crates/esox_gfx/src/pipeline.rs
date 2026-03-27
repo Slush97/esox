@@ -2082,7 +2082,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         return vec4<f32>(img_color.rgb * ia, ia);
     }
 
-    let tex_color = textureSample(atlas_texture, linear_sampler, in.uv, atlas_layer);
+    let tex_color = textureSample(atlas_texture, atlas_sampler, in.uv, atlas_layer);
     // R8 atlas: coverage is in the red channel.
     let a = tex_color.r;
     if a < 0.001 { discard; }

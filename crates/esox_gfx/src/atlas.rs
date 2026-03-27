@@ -30,17 +30,14 @@ pub struct AtlasRegion {
 
 impl AtlasRegion {
     /// Convert this region to UV coordinates for texture sampling.
-    ///
-    /// Uses half-texel inset so that UVs map to texel centers. This prevents
-    /// edge darkening when the atlas is sampled with bilinear filtering.
     pub fn to_uv_rect(&self, atlas_width: u32, atlas_height: u32) -> UvRect {
-        let aw = atlas_width as f32;
-        let ah = atlas_height as f32;
+        let w = atlas_width as f32;
+        let h = atlas_height as f32;
         UvRect {
-            u0: (self.x as f32 + 0.5) / aw,
-            v0: (self.y as f32 + 0.5) / ah,
-            u1: (self.x as f32 + self.w as f32 - 0.5) / aw,
-            v1: (self.y as f32 + self.h as f32 - 0.5) / ah,
+            u0: self.x as f32 / w,
+            v0: self.y as f32 / h,
+            u1: (self.x + self.w) as f32 / w,
+            v1: (self.y + self.h) as f32 / h,
         }
     }
 }
@@ -857,8 +854,6 @@ mod tests {
 
     #[test]
     fn to_uv_rect_math() {
-        // Region at (64,128) size 32x16 in a 256x256 atlas.
-        // Half-texel inset: u0 = (64+0.5)/256, u1 = (64+32-0.5)/256, etc.
         let region = AtlasRegion {
             id: AtlasId(0),
             layer: 0,
@@ -868,15 +863,14 @@ mod tests {
             h: 16,
         };
         let uv = region.to_uv_rect(256, 256);
-        assert!((uv.u0 - 64.5 / 256.0).abs() < 1e-6);
-        assert!((uv.v0 - 128.5 / 256.0).abs() < 1e-6);
-        assert!((uv.u1 - 95.5 / 256.0).abs() < 1e-6);
-        assert!((uv.v1 - 143.5 / 256.0).abs() < 1e-6);
+        assert!((uv.u0 - 0.25).abs() < 1e-6);
+        assert!((uv.v0 - 0.5).abs() < 1e-6);
+        assert!((uv.u1 - 0.375).abs() < 1e-6);
+        assert!((uv.v1 - 0.5625).abs() < 1e-6);
     }
 
     #[test]
     fn to_uv_rect_full_atlas() {
-        // Full 512x512 region — half-texel inset from each edge.
         let region = AtlasRegion {
             id: AtlasId(0),
             layer: 0,
@@ -886,10 +880,10 @@ mod tests {
             h: 512,
         };
         let uv = region.to_uv_rect(512, 512);
-        assert!((uv.u0 - 0.5 / 512.0).abs() < 1e-6);
-        assert!((uv.v0 - 0.5 / 512.0).abs() < 1e-6);
-        assert!((uv.u1 - 511.5 / 512.0).abs() < 1e-6);
-        assert!((uv.v1 - 511.5 / 512.0).abs() < 1e-6);
+        assert!((uv.u0).abs() < 1e-6);
+        assert!((uv.v0).abs() < 1e-6);
+        assert!((uv.u1 - 1.0).abs() < 1e-6);
+        assert!((uv.v1 - 1.0).abs() < 1e-6);
     }
 
     // ── SlabAllocator tests ──
