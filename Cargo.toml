@@ -12,6 +12,7 @@ members = [
     "examples/google_showcase",
     "examples/feature_showcase",
     "examples/markup_demo",
+    "examples/discord_demo",
     "crates/esox_markup",
 ]
 
