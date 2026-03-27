@@ -102,7 +102,7 @@ impl FontFace {
         let raw = font_ref.metrics(&[]);
         let scaled = raw.scale(size_px);
 
-        let ascent = scaled.ascent.round();
+        let ascent = scaled.ascent;
         let descent = scaled.descent;
         let leading = scaled.leading;
         let average_width = if scaled.average_width > 0.0 {
