@@ -1995,7 +1995,9 @@ impl<'f> Ui<'f> {
                 return c;
             }
         }
-        self.theme.fg
+        // Default to fg_on_accent for interactive widgets (buttons) since
+        // resolve_bg defaults to the accent color.
+        self.theme.fg_on_accent
     }
 
     /// Resolve background color for interactive widgets.

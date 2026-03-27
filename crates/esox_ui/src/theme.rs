@@ -472,10 +472,10 @@ impl Theme {
             fg_dim: Color::new(0.360, 0.360, 0.360, 1.0), // #5c5c5c muted labels
             fg_label: Color::new(0.720, 0.720, 0.720, 1.0), // #b8b8b8 form labels
 
-            // Blue accent — clean, not purple-shifted.
-            accent: Color::new(0.306, 0.533, 0.957, 1.0), // #4e88f4
-            accent_dim: Color::new(0.306, 0.533, 0.957, 0.18),
-            accent_hover: Color::new(0.431, 0.627, 0.973, 1.0), // #6ea0f8
+            // Blue accent — saturated enough for white text contrast (WCAG AA).
+            accent: Color::new(0.220, 0.420, 0.870, 1.0), // #386bde
+            accent_dim: Color::new(0.220, 0.420, 0.870, 0.18),
+            accent_hover: Color::new(0.306, 0.510, 0.920, 1.0), // #4e82eb
             focus_ring_color: Color::new(0.306, 0.533, 0.957, 0.50),
 
             green: Color::new(0.243, 0.812, 0.416, 1.0), // #3ecf6a
