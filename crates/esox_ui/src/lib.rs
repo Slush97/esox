@@ -68,8 +68,8 @@ pub use state::{
 };
 pub use text::{TextRenderer, TruncationMode};
 pub use theme::{
-    Elevation, Gradient, SpacingScale, StyleState, TextAlign, TextDecoration, TextSize,
-    TextTransform, Theme, ThemeBuilder, ThemeTransition, Transform2D, WidgetStyle,
+    Elevation, Gradient, IntoPadding, SpacingScale, StyleState, TextAlign, TextDecoration,
+    TextSize, TextTransform, Theme, ThemeBuilder, ThemeTransition, Transform2D, WidgetStyle,
 };
 pub use widgets::avatar::Status;
 pub use widgets::form::FieldStatus;
@@ -529,6 +529,18 @@ impl<'a, 'f> GridUi<'a, 'f> {
     }
 }
 
+/// Snapshot of all layout state that container widgets need to save/restore.
+///
+/// Captured by [`Ui::sub_region`] and restored automatically when the closure
+/// returns. Widget authors should never need to construct this manually.
+struct SavedLayoutState {
+    cursor: Vec2,
+    region: Rect,
+    spacing: f32,
+    gpu_clip: Option<[f32; 4]>,
+    hit_clip: Option<Rect>,
+}
+
 /// The main UI context. Created each frame, consumed by `finish()`.
 pub struct Ui<'f> {
     pub(crate) frame: &'f mut Frame,
@@ -570,6 +582,7 @@ impl<'f> Ui<'f> {
         viewport: Rect,
     ) -> Self {
         text.advance_generation();
+        text.set_ui_font_size(theme.font_size);
         state.begin_frame(theme.scroll_friction);
 
         // Set up tile grid for partial redraw if available.
@@ -689,8 +702,10 @@ impl<'f> Ui<'f> {
             // Cursor fallback (first frame / new widgets).
             match self.layout_stack.last() {
                 Some(ctx) if ctx.direction == Direction::Horizontal => {
-                    let r = Rect::new(self.cursor.x, self.cursor.y, w, h);
-                    self.cursor.x += w + self.spacing;
+                    let remaining = (self.region.w - (self.cursor.x - self.region.x)).max(0.0);
+                    let actual_w = w.min(remaining);
+                    let r = Rect::new(self.cursor.x, self.cursor.y, actual_w, h);
+                    self.cursor.x += actual_w + self.spacing;
                     r
                 }
                 _ => {
@@ -853,7 +868,11 @@ impl<'f> Ui<'f> {
     }
 
     /// Run a closure with padding on all sides.
-    pub fn padding(&mut self, amount: f32, f: impl FnOnce(&mut Self)) {
+    ///
+    /// Accepts either a raw `f32` pixel value or a [`SpacingScale`] token
+    /// (resolved via [`Theme::space`]).
+    pub fn padding(&mut self, amount: impl theme::IntoPadding, f: impl FnOnce(&mut Self)) {
+        let amount = amount.resolve(self.theme);
         self.tree_build.open_container(
             None,
             LayoutStyle {
@@ -899,6 +918,33 @@ impl<'f> Ui<'f> {
         self.region.w
     }
 
+    /// Whether the current layout context is horizontal (inside a `row`).
+    pub fn is_in_row(&self) -> bool {
+        self.layout_stack
+            .last()
+            .is_some_and(|ctx| ctx.direction == Direction::Horizontal)
+    }
+
+    /// Compute label allocation width: measured text width in horizontal
+    /// layouts (inline), full region width in vertical layouts (block).
+    pub(crate) fn label_alloc_width(&self, text_w: f32) -> f32 {
+        if self.is_in_row() {
+            text_w
+        } else {
+            self.region.w
+        }
+    }
+
+    /// Get the current region height.
+    pub fn region_height(&self) -> f32 {
+        self.region.h
+    }
+
+    /// Get the remaining vertical space from the cursor to the bottom of the region.
+    pub fn remaining_height(&self) -> f32 {
+        ((self.region.y + self.region.h) - self.cursor.y).max(0.0)
+    }
+
     /// Responsive width classification based on the current region width.
     pub fn width_class(&self) -> WidthClass {
         if self.region.w < self.theme.breakpoint_compact {
@@ -942,6 +988,71 @@ impl<'f> Ui<'f> {
             f(ui);
         });
         self.spacing = saved;
+    }
+
+    /// Run a closure in an explicit vertical column container.
+    ///
+    /// Vertical is already the default layout direction, so this is primarily
+    /// useful for creating a tree container node that the flex solver can
+    /// reason about (enabling [`spacer`](Self::spacer) and flex distribution).
+    pub fn col(&mut self, f: impl FnOnce(&mut Self)) {
+        self.tree_build.open_container(
+            None,
+            LayoutStyle {
+                direction: Direction::Vertical,
+                gap: self.spacing,
+                ..Default::default()
+            },
+        );
+        f(self);
+        self.tree_build.close_container();
+    }
+
+    /// Run a closure in a vertical column with a specific inter-widget gap.
+    pub fn col_spaced(&mut self, gap: f32, f: impl FnOnce(&mut Self)) {
+        self.tree_build.open_container(
+            None,
+            LayoutStyle {
+                direction: Direction::Vertical,
+                gap,
+                ..Default::default()
+            },
+        );
+        let saved = self.spacing;
+        self.spacing = gap;
+        f(self);
+        self.spacing = saved;
+        self.tree_build.close_container();
+    }
+
+    /// Run a closure in a vertical column, then horizontally center all
+    /// children within the available region width.
+    pub fn col_centered(&mut self, f: impl FnOnce(&mut Self)) {
+        let inst_start = self.frame.instance_len();
+
+        self.tree_build.open_container(
+            None,
+            LayoutStyle {
+                direction: Direction::Vertical,
+                gap: self.spacing,
+                align_items: layout::Align::Center,
+                ..Default::default()
+            },
+        );
+        f(self);
+        self.tree_build.close_container();
+
+        // Horizontally center each instance within the region.
+        let inst_end = self.frame.instance_len();
+        if self.region.w > 0.0 {
+            for i in inst_start..inst_end {
+                let w = self.frame.instance_data()[i].rect[2];
+                if w > 0.0 && w < self.region.w {
+                    let dx = (self.region.w - w) / 2.0;
+                    self.frame.offset_instances_x(i, i + 1, dx);
+                }
+            }
+        }
     }
 
     // ── Flex Layout ──
@@ -1035,6 +1146,40 @@ impl<'f> Ui<'f> {
         if target_x > self.cursor.x {
             self.cursor.x = target_x;
         }
+    }
+
+    /// Insert a flexible spacer that absorbs remaining space in the parent.
+    ///
+    /// Works in both [`row`](Self::row) (horizontal) and [`col`](Self::col) /
+    /// default vertical contexts. The spacer is a zero-size tree leaf with
+    /// `flex_grow: 1.0` — on frame 2+ the tree solver distributes remaining
+    /// parent space to it.
+    ///
+    /// On frame 1 (before the tree solver has run), the spacer has zero size.
+    /// For immediate frame-1 effect in horizontal rows, use
+    /// [`fill_space`](Self::fill_space) instead.
+    pub fn spacer(&mut self) {
+        let node_id = self.tree_build.add_leaf(None, 0.0, 0.0);
+        self.tree_build.set_flex(node_id, 1.0, 0.0, Some(0.0));
+        let node_key = self.tree_build.tree.node(node_id).key;
+
+        // On frame 2+, advance cursor past the solved spacer rect.
+        if let Some(solved) = self
+            .prev_layout
+            .as_ref()
+            .filter(|_| self.scroll_depth == 0)
+            .and_then(|t| t.lookup(node_key))
+        {
+            match self.layout_stack.last() {
+                Some(ctx) if ctx.direction == Direction::Horizontal => {
+                    self.cursor.x = solved.x + solved.w + self.spacing;
+                }
+                _ => {
+                    self.cursor.y = solved.y + solved.h + self.spacing;
+                }
+            }
+        }
+        // Frame 1: zero size, no cursor advance — tree solver corrects on frame 2.
     }
 
     /// Measure the size a closure would occupy without actually drawing.
@@ -1604,16 +1749,235 @@ impl<'f> Ui<'f> {
         let clip_rect =
             layout::Rect::new(self.cursor.x, self.cursor.y, self.region.w, self.region.h);
         let saved_clip = self.frame.active_clip();
-        let gpu_clip = match saved_clip {
-            Some(prev) => {
-                let prev_rect = layout::Rect::new(prev[0], prev[1], prev[2], prev[3]);
-                clip_rect.intersect(&prev_rect).unwrap_or(clip_rect)
-            }
-            None => clip_rect,
-        };
+        let gpu_clip = Self::intersect_gpu_clip(saved_clip, clip_rect);
         self.frame.set_active_clip(Some(gpu_clip.to_clip_array()));
         f(self);
         self.frame.set_active_clip(saved_clip);
+    }
+
+    // ── Scroll Helpers ──
+
+    /// Draw top/bottom scroll fade gradients for a scrollable container.
+    ///
+    /// Uses the container's own clip (not the parent-intersected clip) so
+    /// fade overlays aren't incorrectly shrunk by ancestor clips.
+    ///
+    /// * `container_clip` — the unclipped container rect (used as clip for fades)
+    /// * `content_x` — left edge of the content area (excludes scrollbar)
+    /// * `content_w` — width of the content area (excludes scrollbar)
+    /// * `visible_h` — viewport height
+    /// * `scroll_offset` — current scroll position
+    /// * `max_scroll` — maximum scroll offset
+    pub(crate) fn draw_scroll_fades(
+        &mut self,
+        container_clip: Rect,
+        content_x: f32,
+        content_w: f32,
+        visible_h: f32,
+        scroll_offset: f32,
+        max_scroll: f32,
+    ) {
+        let fade_h = self.theme.scroll_fade_height;
+        if fade_h <= 0.0 {
+            return;
+        }
+
+        self.frame
+            .set_active_clip(Some(container_clip.to_clip_array()));
+
+        let bg = self.theme.bg_base;
+        // Top fade: visible when scrolled down.
+        if scroll_offset > 0.5 {
+            paint::draw_scroll_fade(
+                self.frame,
+                Rect::new(content_x, container_clip.y, content_w, fade_h),
+                bg,
+                bg.with_alpha(0.0),
+                std::f32::consts::FRAC_PI_2,
+            );
+        }
+        // Bottom fade: visible when content extends below viewport.
+        if scroll_offset < max_scroll - 0.5 {
+            paint::draw_scroll_fade(
+                self.frame,
+                Rect::new(
+                    content_x,
+                    container_clip.y + visible_h - fade_h,
+                    content_w,
+                    fade_h,
+                ),
+                bg.with_alpha(0.0),
+                bg,
+                std::f32::consts::FRAC_PI_2,
+            );
+        }
+    }
+
+    // ── Sub-Region API ──
+
+    /// Intersect a rect with the current GPU clip, returning the visible portion.
+    ///
+    /// If there is no active clip, `rect` is returned unchanged. When the rects
+    /// don't overlap at all, returns `Rect::ZERO` — this prevents completely
+    /// clipped widgets from rendering or receiving input.
+    ///
+    /// This is the single source of truth for GPU clip intersection — all
+    /// container widgets should use this instead of hand-rolling the intersection.
+    fn intersect_gpu_clip(saved_clip: Option<[f32; 4]>, rect: Rect) -> Rect {
+        match saved_clip {
+            Some(prev) => rect
+                .intersect(&Rect::from_clip_array(prev))
+                .unwrap_or(Rect::ZERO),
+            None => rect,
+        }
+    }
+
+    /// Intersect a rect with the current hit-test clip, returning the visible
+    /// portion. If there is no active hit clip, `rect` is returned unchanged.
+    /// Returns `Rect::ZERO` when the rects don't overlap.
+    fn intersect_hit_clip(saved_hit_clip: Option<Rect>, rect: Rect) -> Rect {
+        match saved_hit_clip {
+            Some(prev) => rect.intersect(&prev).unwrap_or(Rect::ZERO),
+            None => rect,
+        }
+    }
+
+    /// Save a complete snapshot of the current layout state.
+    fn save_layout_state(&self) -> SavedLayoutState {
+        SavedLayoutState {
+            cursor: self.cursor,
+            region: self.region,
+            spacing: self.spacing,
+            gpu_clip: self.frame.active_clip(),
+            hit_clip: self.hit_clip,
+        }
+    }
+
+    /// Restore layout state from a snapshot.
+    fn restore_layout_state(&mut self, saved: &SavedLayoutState) {
+        self.frame.set_active_clip(saved.gpu_clip);
+        self.hit_clip = saved.hit_clip;
+        self.cursor = saved.cursor;
+        self.region = saved.region;
+        self.spacing = saved.spacing;
+    }
+
+    /// Run a closure inside a scoped sub-region with automatic save/restore of
+    /// all layout state (cursor, region, spacing, GPU clip, hit clip).
+    ///
+    /// This is the primary building block for container widgets. It:
+    /// 1. Saves all layout state
+    /// 2. Sets cursor/region to the given `rect` (with optional `inset`)
+    /// 3. Sets GPU clip and hit clip to `rect` (intersected with parent clips)
+    /// 4. Runs the closure
+    /// 5. Restores all layout state
+    /// 6. Advances the cursor past the sub-region (vertical direction only,
+    ///    by `rect.h + spacing`), unless `advance` is `false`
+    ///
+    /// # Arguments
+    /// * `rect` — The bounding rectangle for this sub-region.
+    /// * `inset` — Horizontal inset applied to cursor and region within `rect`
+    ///   (e.g. `theme.spacing_unit` to prevent glyph clipping at scissor edges).
+    /// * `clip` — Whether to set GPU clip and hit clip to `rect`.
+    /// * `advance` — Whether to advance `cursor.y` past the region on exit.
+    /// * `f` — The content closure.
+    pub fn sub_region(
+        &mut self,
+        rect: Rect,
+        inset: f32,
+        clip: bool,
+        advance: bool,
+        f: impl FnOnce(&mut Self),
+    ) {
+        let saved = self.save_layout_state();
+
+        // Open a tree container so flex children (e.g. scrollable_fill) can
+        // properly fill remaining space within this sub-region.
+        self.tree_build.open_container(
+            None,
+            LayoutStyle {
+                direction: Direction::Vertical,
+                gap: self.spacing,
+                max_height: Some(rect.h),
+                ..Default::default()
+            },
+        );
+
+        // Set up clip regions.
+        if clip {
+            let gpu_clip = Self::intersect_gpu_clip(saved.gpu_clip, rect);
+            self.frame.set_active_clip(Some(gpu_clip.to_clip_array()));
+            self.hit_clip = Some(Self::intersect_hit_clip(saved.hit_clip, rect));
+        }
+
+        // Set cursor and region with optional inset.
+        self.cursor = Vec2 {
+            x: rect.x + inset,
+            y: rect.y,
+        };
+        self.region = Rect::new(
+            rect.x + inset,
+            rect.y,
+            (rect.w - inset * 2.0).max(0.0),
+            rect.h,
+        );
+
+        f(self);
+
+        self.tree_build.close_container();
+        self.restore_layout_state(&saved);
+
+        if advance {
+            self.cursor.y += rect.h + self.spacing;
+        }
+    }
+
+    /// Variant of [`sub_region`](Ui::sub_region) that calls a `FnMut` closure
+    /// with a panel index, for cases like split panes where both panels share
+    /// mutable state.
+    pub fn sub_region_indexed(
+        &mut self,
+        rect: Rect,
+        inset: f32,
+        clip: bool,
+        index: usize,
+        f: &mut dyn FnMut(&mut Self, usize),
+    ) {
+        let saved = self.save_layout_state();
+
+        // Open a tree container so flex children (e.g. scrollable_fill) can
+        // properly fill remaining space within this sub-region.
+        self.tree_build.open_container(
+            None,
+            LayoutStyle {
+                direction: Direction::Vertical,
+                gap: self.spacing,
+                max_height: Some(rect.h),
+                ..Default::default()
+            },
+        );
+
+        if clip {
+            let gpu_clip = Self::intersect_gpu_clip(saved.gpu_clip, rect);
+            self.frame.set_active_clip(Some(gpu_clip.to_clip_array()));
+            self.hit_clip = Some(Self::intersect_hit_clip(saved.hit_clip, rect));
+        }
+
+        self.cursor = Vec2 {
+            x: rect.x + inset,
+            y: rect.y,
+        };
+        self.region = Rect::new(
+            rect.x + inset,
+            rect.y,
+            (rect.w - inset * 2.0).max(0.0),
+            rect.h,
+        );
+
+        f(self, index);
+
+        self.tree_build.close_container();
+        self.restore_layout_state(&saved);
     }
 
     /// Resolve foreground color: style stack override or theme default.
