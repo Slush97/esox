@@ -18,11 +18,6 @@ struct CachedImage {
     uv: esox_gfx::UvRect,
     /// Layer in the atlas.
     layer: u32,
-    /// Original pixel dimensions.
-    #[allow(dead_code)]
-    width: u32,
-    #[allow(dead_code)]
-    height: u32,
 }
 
 /// Image cache backed by a GPU atlas. Decodes and uploads RGBA8 images.
@@ -100,8 +95,6 @@ impl ImageCache {
             CachedImage {
                 uv,
                 layer: region.layer,
-                width: w,
-                height: h,
             },
         );
         self.dirty = true;

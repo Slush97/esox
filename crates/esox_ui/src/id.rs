@@ -53,6 +53,15 @@ pub const FOCUS_SALT: u64 = 0xe8b42d6f93a5c178;
 /// XOR salt for number-input inline-edit animation IDs.
 pub const EDIT_SALT: u64 = 0xED17_FACE;
 
+/// Multiplicative salt for deriving scrollbar thumb hover animation IDs.
+pub const THUMB_HOVER_SALT: u64 = 0x517cc1b727220a95;
+
+/// Multiplicative salt for deriving horizontal scrollbar thumb hover IDs.
+pub const THUMB_HOVER_H_SALT: u64 = 0x7a2b3c4d5e6f0a1b;
+
+/// Multiplicative salt for pagination per-page button IDs (golden ratio constant).
+pub const PAGE_BUTTON_SALT: u64 = 0x9E37_79B9;
+
 /// Compile-time widget ID from a string literal.
 /// `id!("my_widget")` → a `u64` constant, zero runtime cost.
 #[macro_export]

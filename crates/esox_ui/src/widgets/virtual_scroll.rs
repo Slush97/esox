@@ -185,7 +185,7 @@ pub(crate) fn draw_scrollbar(
 
     // Hover animation on thumb.
     let thumb_hovered = thumb_rect.contains(state.mouse.x, state.mouse.y);
-    let thumb_hover_id = id.wrapping_mul(0x517cc1b727220a95);
+    let thumb_hover_id = id.wrapping_mul(crate::id::THUMB_HOVER_SALT);
     let t = state.hover_t(
         thumb_hover_id,
         thumb_hovered || state.scrollbar_drag.is_some_and(|(did, _)| did == id),

@@ -199,7 +199,7 @@ impl<'f> Ui<'f> {
 
             // Hover animation on thumb.
             let thumb_hovered = thumb_rect.contains(self.state.mouse.x, self.state.mouse.y);
-            let thumb_hover_id = id.wrapping_mul(0x517cc1b727220a95);
+            let thumb_hover_id = id.wrapping_mul(crate::id::THUMB_HOVER_SALT);
             let t = self.state.hover_t(
                 thumb_hover_id,
                 thumb_hovered || self.state.scrollbar_drag.is_some_and(|(did, _)| did == id),
@@ -376,7 +376,7 @@ impl<'f> Ui<'f> {
             let thumb_rect = Rect::new(thumb_x, track_y, thumb_w, scrollbar_w);
 
             let thumb_hovered = thumb_rect.contains(self.state.mouse.x, self.state.mouse.y);
-            let thumb_hover_id = id.wrapping_mul(0x517cc1b727220a95);
+            let thumb_hover_id = id.wrapping_mul(crate::id::THUMB_HOVER_SALT);
             let t = self
                 .state
                 .hover_t(thumb_hover_id, thumb_hovered, self.theme.hover_duration_ms);
@@ -512,7 +512,7 @@ impl<'f> Ui<'f> {
                 container.y
             };
             let thumb_rect = Rect::new(track_x, thumb_y, scrollbar_w, thumb_h);
-            let thumb_hover_id = id.wrapping_mul(0x517cc1b727220a95);
+            let thumb_hover_id = id.wrapping_mul(crate::id::THUMB_HOVER_SALT);
             let t = self.state.hover_t(
                 thumb_hover_id,
                 thumb_rect.contains(self.state.mouse.x, self.state.mouse.y),
@@ -547,7 +547,7 @@ impl<'f> Ui<'f> {
                 container.x
             };
             let thumb_rect = Rect::new(thumb_x, track_y, thumb_w, scrollbar_w);
-            let thumb_hover_id = id.wrapping_mul(0x7a2b3c4d5e6f0a1b);
+            let thumb_hover_id = id.wrapping_mul(crate::id::THUMB_HOVER_H_SALT);
             let t = self.state.hover_t(
                 thumb_hover_id,
                 thumb_rect.contains(self.state.mouse.x, self.state.mouse.y),

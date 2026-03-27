@@ -1229,7 +1229,12 @@ impl ApplicationHandler<AppUserEvent> for App {
             WindowEvent::MouseWheel { delta, .. } => {
                 let delta_y = match delta {
                     winit::event::MouseScrollDelta::LineDelta(_, y) => y,
-                    winit::event::MouseScrollDelta::PixelDelta(pos) => pos.y as f32 / 20.0,
+                    // Convert pixel delta to approximate line delta. The
+                    // divisor is a rough average line height in pixels.
+                    winit::event::MouseScrollDelta::PixelDelta(pos) => {
+                        const PIXELS_PER_LINE: f32 = 20.0;
+                        pos.y as f32 / PIXELS_PER_LINE
+                    }
                 };
                 let (x, y) = self.cursor_position;
                 self.delegate

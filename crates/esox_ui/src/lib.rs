@@ -1767,63 +1767,6 @@ impl<'f> Ui<'f> {
 
     // ── Scroll Helpers ──
 
-    /// Draw top/bottom scroll fade gradients for a scrollable container.
-    ///
-    /// Uses the container's own clip (not the parent-intersected clip) so
-    /// fade overlays aren't incorrectly shrunk by ancestor clips.
-    ///
-    /// * `container_clip` — the unclipped container rect (used as clip for fades)
-    /// * `content_x` — left edge of the content area (excludes scrollbar)
-    /// * `content_w` — width of the content area (excludes scrollbar)
-    /// * `visible_h` — viewport height
-    /// * `scroll_offset` — current scroll position
-    /// * `max_scroll` — maximum scroll offset
-    #[allow(dead_code)]
-    pub(crate) fn draw_scroll_fades(
-        &mut self,
-        container_clip: Rect,
-        content_x: f32,
-        content_w: f32,
-        visible_h: f32,
-        scroll_offset: f32,
-        max_scroll: f32,
-    ) {
-        let fade_h = self.theme.scroll_fade_height;
-        if fade_h <= 0.0 {
-            return;
-        }
-
-        self.frame
-            .set_active_clip(Some(container_clip.to_clip_array()));
-
-        let bg = self.theme.bg_base;
-        // Top fade: visible when scrolled down.
-        if scroll_offset > 0.5 {
-            paint::draw_scroll_fade(
-                self.frame,
-                Rect::new(content_x, container_clip.y, content_w, fade_h),
-                bg,
-                bg.with_alpha(0.0),
-                std::f32::consts::FRAC_PI_2,
-            );
-        }
-        // Bottom fade: visible when content extends below viewport.
-        if scroll_offset < max_scroll - 0.5 {
-            paint::draw_scroll_fade(
-                self.frame,
-                Rect::new(
-                    content_x,
-                    container_clip.y + visible_h - fade_h,
-                    content_w,
-                    fade_h,
-                ),
-                bg.with_alpha(0.0),
-                bg,
-                std::f32::consts::FRAC_PI_2,
-            );
-        }
-    }
-
     // ── Sub-Region API ──
 
     /// Intersect a rect with the current GPU clip, returning the visible portion.
@@ -2049,41 +1992,7 @@ impl<'f> Ui<'f> {
         self.theme.button_height
     }
 
-    /// Resolve border color: style stack override or theme default.
-    #[allow(dead_code)]
-    pub(crate) fn resolve_border_color(&self) -> Color {
-        for s in self.style_stack.iter().rev() {
-            if let Some(c) = s.border_color {
-                return c;
-            }
-        }
-        self.theme.border
-    }
-
-    /// Resolve padding override from the style stack.
-    #[allow(dead_code)]
-    pub(crate) fn resolve_padding(&self) -> Option<layout::Spacing> {
-        for s in self.style_stack.iter().rev() {
-            if let Some(p) = s.padding {
-                return Some(p);
-            }
-        }
-        None
-    }
-
-    /// Resolve margin override from the style stack.
-    #[allow(dead_code)]
-    pub(crate) fn resolve_margin(&self) -> Option<layout::Spacing> {
-        for s in self.style_stack.iter().rev() {
-            if let Some(m) = s.margin {
-                return Some(m);
-            }
-        }
-        None
-    }
-
     /// Resolve border stroke width: style stack override or 1.0.
-    #[allow(dead_code)]
     pub(crate) fn resolve_border_width(&self) -> f32 {
         for s in self.style_stack.iter().rev() {
             if let Some(w) = s.border_width {
@@ -2094,7 +2003,6 @@ impl<'f> Ui<'f> {
     }
 
     /// Resolve opacity: style stack override or 1.0 (fully opaque).
-    #[allow(dead_code)]
     pub(crate) fn resolve_opacity(&self) -> f32 {
         for s in self.style_stack.iter().rev() {
             if let Some(o) = s.opacity {
@@ -2105,7 +2013,6 @@ impl<'f> Ui<'f> {
     }
 
     /// Resolve elevation/shadow override from the style stack.
-    #[allow(dead_code)]
     pub(crate) fn resolve_elevation(&self) -> Option<&theme::Elevation> {
         for s in self.style_stack.iter().rev() {
             if let Some(ref e) = s.elevation {
@@ -2125,52 +2032,7 @@ impl<'f> Ui<'f> {
         theme::TextAlign::Left
     }
 
-    /// Resolve minimum width constraint from the style stack.
-    #[allow(dead_code)]
-    pub(crate) fn resolve_min_width(&self) -> Option<f32> {
-        for s in self.style_stack.iter().rev() {
-            if s.min_width.is_some() {
-                return s.min_width;
-            }
-        }
-        None
-    }
-
-    /// Resolve maximum width constraint from the style stack.
-    #[allow(dead_code)]
-    pub(crate) fn resolve_max_width(&self) -> Option<f32> {
-        for s in self.style_stack.iter().rev() {
-            if s.max_width.is_some() {
-                return s.max_width;
-            }
-        }
-        None
-    }
-
-    /// Resolve minimum height constraint from the style stack.
-    #[allow(dead_code)]
-    pub(crate) fn resolve_min_height(&self) -> Option<f32> {
-        for s in self.style_stack.iter().rev() {
-            if s.min_height.is_some() {
-                return s.min_height;
-            }
-        }
-        None
-    }
-
-    /// Resolve maximum height constraint from the style stack.
-    #[allow(dead_code)]
-    pub(crate) fn resolve_max_height(&self) -> Option<f32> {
-        for s in self.style_stack.iter().rev() {
-            if s.max_height.is_some() {
-                return s.max_height;
-            }
-        }
-        None
-    }
-
     /// Resolve gradient override from the style stack.
-    #[allow(dead_code)]
     pub(crate) fn resolve_gradient(&self) -> Option<theme::Gradient> {
         for s in self.style_stack.iter().rev() {
             if let Some(g) = s.gradient {
@@ -2181,7 +2043,6 @@ impl<'f> Ui<'f> {
     }
 
     /// Resolve per-corner border radius: style stack override, or uniform from corner_radius.
-    #[allow(dead_code)]
     pub(crate) fn resolve_border_radius(&self) -> esox_gfx::BorderRadius {
         for s in self.style_stack.iter().rev() {
             if let Some([tl, tr, bl, br]) = s.per_corner_radius {
@@ -2546,15 +2407,6 @@ impl<'f> Ui<'f> {
         if self.state.a11y_enabled {
             self.state.a11y_pending_role = Some(role);
         }
-    }
-
-    /// Consume pending a11y label/role (called by widgets after register_widget).
-    #[allow(dead_code)]
-    pub(crate) fn consume_a11y(&mut self) -> (Option<String>, Option<state::A11yRole>) {
-        (
-            self.state.a11y_pending_label.take(),
-            self.state.a11y_pending_role.take(),
-        )
     }
 
     /// Push an accessibility node into the frame's a11y tree.

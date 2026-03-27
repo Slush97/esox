@@ -45,8 +45,6 @@ use crate::Ui;
 /// Builder for the sidebar layout. Passed to the closure in `ui.sidebar()`.
 pub struct SidebarBuilder<'a, 'f> {
     ui: &'a mut Ui<'f>,
-    #[allow(dead_code)]
-    scroll_id: u64,
 }
 
 impl<'a, 'f> SidebarBuilder<'a, 'f> {
@@ -82,7 +80,7 @@ impl<'f> Ui<'f> {
     /// The sidebar uses a `surface` background and manages layout spacing
     /// automatically. Use the `SidebarBuilder` methods inside the closure
     /// to define the header, sections, and footer.
-    pub fn sidebar(&mut self, id: u64, f: impl FnOnce(&mut SidebarBuilder<'_, 'f>)) {
+    pub fn sidebar(&mut self, _id: u64, f: impl FnOnce(&mut SidebarBuilder<'_, 'f>)) {
         // Draw surface background for the full sidebar region.
         let bg_rect = Rect::new(
             self.region.x - self.theme.spacing_unit,
@@ -92,10 +90,7 @@ impl<'f> Ui<'f> {
         );
         paint::draw_rounded_rect(self.frame, bg_rect, self.theme.bg_surface, 0.0);
 
-        let mut builder = SidebarBuilder {
-            ui: self,
-            scroll_id: fnv1a_mix(id, 0x5CDE_BA11),
-        };
+        let mut builder = SidebarBuilder { ui: self };
         f(&mut builder);
     }
 

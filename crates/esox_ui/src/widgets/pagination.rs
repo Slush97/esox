@@ -74,7 +74,7 @@ impl<'f> Ui<'f> {
                     PageEntry::Page(p) => {
                         let label = format!("{}", p + 1); // 1-indexed display
                         let is_current = p == cur;
-                        let btn_id = id ^ (p as u64 + 1).wrapping_mul(0x9E37_79B9);
+                        let btn_id = id ^ (p as u64 + 1).wrapping_mul(crate::id::PAGE_BUTTON_SALT);
                         if ui.page_number_button(btn_id, &label, is_current).clicked && !is_current
                         {
                             state.current_page = p;

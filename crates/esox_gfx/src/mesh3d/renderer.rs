@@ -43,9 +43,7 @@ use super::shaders_embedded::{SHADER_PREAMBLE, compile_shader_modules};
 /// and frame encoding. Shares a [`GpuContext`] with the 2D esox renderer.
 pub struct Renderer3D {
     // Bind group layouts.
-    #[allow(dead_code)]
     scene_bind_group_layout: wgpu::BindGroupLayout,
-    #[allow(dead_code)]
     light_bind_group_layout: wgpu::BindGroupLayout,
     material_bind_group_layout: wgpu::BindGroupLayout,
 

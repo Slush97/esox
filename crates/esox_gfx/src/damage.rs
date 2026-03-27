@@ -241,7 +241,8 @@ impl TileGrid {
         w: f32,
         h: f32,
     ) -> impl Iterator<Item = TileIndex> {
-        let col_start = (x.max(0.0) as u32 / TILE_SIZE).min(self.cols as u32 - 1) as u16;
+        let col_start =
+            (x.max(0.0) as u32 / TILE_SIZE).min(self.cols.saturating_sub(1) as u32) as u16;
         let col_end = ((x + w).ceil() as u32)
             .div_ceil(TILE_SIZE)
             .min(self.cols as u32) as u16;
