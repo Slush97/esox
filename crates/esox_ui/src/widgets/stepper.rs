@@ -25,12 +25,12 @@ impl<'f> Ui<'f> {
             return None;
         }
 
-        let circle_size = 28.0;
+        let circle_size = self.theme.space(crate::theme::SpacingScale::Xl) + self.theme.spacing_unit;
         let circle_r = circle_size / 2.0;
-        let line_h = 2.0;
+        let line_h = self.theme.spacing_unit * 0.5;
         let font_size = self.theme.font_size * 0.85;
-        let gap = 8.0;
-        let label_h = font_size + 4.0;
+        let gap = self.theme.content_spacing;
+        let label_h = font_size + self.theme.label_pad_y;
         let total_h = circle_size + gap + label_h;
 
         let rect = self.allocate_rect(self.region.w, total_h);
@@ -54,8 +54,9 @@ impl<'f> Ui<'f> {
             let step_id = fnv1a_mix(id, i as u64);
 
             // Hit area for the step.
+            let hit_pad = self.theme.spacing_unit;
             let hit_rect =
-                crate::layout::Rect::new(cx - circle_r - 4.0, rect.y, circle_size + 8.0, total_h);
+                crate::layout::Rect::new(cx - circle_r - hit_pad, rect.y, circle_size + hit_pad * 2.0, total_h);
             self.register_widget(step_id, hit_rect, WidgetKind::Button);
             let response = self.widget_response(step_id, hit_rect);
 
@@ -71,9 +72,10 @@ impl<'f> Ui<'f> {
 
             // Connecting line to the next step.
             if i + 1 < n {
-                let line_x = cx + circle_r + 4.0;
+                let line_gap = self.theme.spacing_unit;
+                let line_x = cx + circle_r + line_gap;
                 let next_cx = rect.x + circle_r + step_spacing * (i + 1) as f32;
-                let line_w = next_cx - circle_r - 4.0 - line_x;
+                let line_w = next_cx - circle_r - line_gap - line_x;
                 let line_color = if is_completed {
                     self.theme.accent
                 } else {

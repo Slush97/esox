@@ -51,7 +51,9 @@ impl<'f> Ui<'f> {
         let decoration = self.resolve_text_decoration();
         let transform = self.resolve_text_transform();
         let display = apply_transform(text, transform);
-        let rect = self.allocate_rect(self.region.w, font_size + self.theme.label_pad_y);
+        let text_w = self.text.measure_text(&display, font_size);
+        let alloc_w = self.label_alloc_width(text_w);
+        let rect = self.allocate_rect(alloc_w, font_size + self.theme.label_pad_y);
         let x = align_text_x(
             align,
             rect.x,
@@ -89,7 +91,9 @@ impl<'f> Ui<'f> {
     pub fn label_sized(&mut self, text: &str, size: TextSize) {
         let font_size = self.theme.resolve_text_size(size);
         let align = self.resolve_text_align();
-        let rect = self.allocate_rect(self.region.w, font_size + self.theme.label_pad_y);
+        let text_w = self.text.measure_text(text, font_size);
+        let alloc_w = self.label_alloc_width(text_w);
+        let rect = self.allocate_rect(alloc_w, font_size + self.theme.label_pad_y);
         let x = align_text_x(
             align,
             rect.x,
@@ -112,7 +116,9 @@ impl<'f> Ui<'f> {
     pub fn label_colored(&mut self, text: &str, color: Color) {
         let font_size = self.theme.font_size;
         let align = self.resolve_text_align();
-        let rect = self.allocate_rect(self.region.w, font_size + self.theme.label_pad_y);
+        let text_w = self.text.measure_text(text, font_size);
+        let alloc_w = self.label_alloc_width(text_w);
+        let rect = self.allocate_rect(alloc_w, font_size + self.theme.label_pad_y);
         let x = align_text_x(
             align,
             rect.x,
@@ -135,7 +141,9 @@ impl<'f> Ui<'f> {
     pub fn heading(&mut self, text: &str) {
         let font_size = self.theme.heading_font_size;
         let align = self.resolve_text_align();
-        let rect = self.allocate_rect(self.region.w, self.theme.heading_height);
+        let text_w = self.text.measure_text(text, font_size);
+        let alloc_w = self.label_alloc_width(text_w);
+        let rect = self.allocate_rect(alloc_w, self.theme.heading_height);
         let x = align_text_x(
             align,
             rect.x,
@@ -158,7 +166,9 @@ impl<'f> Ui<'f> {
     pub fn muted_label(&mut self, text: &str) {
         let font_size = self.theme.font_size;
         let align = self.resolve_text_align();
-        let rect = self.allocate_rect(self.region.w, font_size + self.theme.label_pad_y);
+        let text_w = self.text.measure_text(text, font_size);
+        let alloc_w = self.label_alloc_width(text_w);
+        let rect = self.allocate_rect(alloc_w, font_size + self.theme.label_pad_y);
         let x = align_text_x(
             align,
             rect.x,
@@ -180,7 +190,11 @@ impl<'f> Ui<'f> {
     /// Draw a small header label (for categories).
     pub fn header_label(&mut self, text: &str) {
         let header_font_size = self.theme.header_font_size;
-        let rect = self.allocate_rect(self.region.w, header_font_size + self.theme.label_pad_y);
+        let text_w =
+            self.text
+                .measure_text_spaced(text, header_font_size, self.theme.header_letter_spacing);
+        let alloc_w = self.label_alloc_width(text_w);
+        let rect = self.allocate_rect(alloc_w, header_font_size + self.theme.label_pad_y);
         self.text.draw_header_text(
             text,
             rect.x,
@@ -276,8 +290,8 @@ impl<'f> Ui<'f> {
         let line_height = font_size + self.theme.label_pad_y;
         let rect = self.allocate_rect(total_w.min(self.region.w), line_height);
 
-        let bg_pad = 2.0; // horizontal padding around background spans
-        let bg_radius = 3.0; // corner radius for background rects
+        let bg_pad = self.theme.spacing_unit * 0.5;
+        let bg_radius = self.theme.corner_radius * 0.5;
 
         let mut pen_x = rect.x;
         for span in &rich.spans {
