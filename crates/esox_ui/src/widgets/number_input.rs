@@ -215,11 +215,12 @@ impl<'f> Ui<'f> {
 
         // Handle inline editing.
         if editing {
-            let input = self
-                .state
-                .number_edit_buffers
-                .get_mut(&id)
-                .expect("edit buffer just inserted or was_editing confirmed it exists");
+            // Safety: edit buffer was just inserted above (value_clicked branch)
+            // or was_editing confirmed it existed. Use if-let for robustness.
+            let Some(input) = self.state.number_edit_buffers.get_mut(&id) else {
+                // Buffer unexpectedly missing — fall through to non-editing draw.
+                return response;
+            };
 
             // Process keyboard input when focused.
             if response.focused {

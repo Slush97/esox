@@ -18,8 +18,10 @@ impl<'f> Ui<'f> {
         let rect = self.allocate_rect(self.region.w, h);
         let v = value.clamp(0.0, 1.0);
 
+        // Derive a unique a11y ID from cursor position.
+        let a11y_id = (rect.x.to_bits() as u64) ^ ((rect.y.to_bits() as u64) << 32);
         self.push_a11y_node(crate::state::A11yNode {
-            id: 0,
+            id: a11y_id,
             role: crate::state::A11yRole::ProgressBar,
             label: format!("{:.0}%", v * 100.0),
             value: Some(v.to_string()),
@@ -75,8 +77,9 @@ impl<'f> Ui<'f> {
         let radius = h / 2.0;
         let rect = self.allocate_rect(self.region.w, h);
 
+        let a11y_id = (rect.x.to_bits() as u64) ^ ((rect.y.to_bits() as u64) << 32);
         self.push_a11y_node(crate::state::A11yNode {
-            id: 0,
+            id: a11y_id,
             role: crate::state::A11yRole::ProgressBar,
             label: format!("{:.0}%", v * 100.0),
             value: Some(v.to_string()),

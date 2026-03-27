@@ -11,8 +11,9 @@
 use esox_gfx::{Color, ShapeBuilder};
 
 use crate::layout::Rect;
+use crate::paint;
 use crate::response::Response;
-use crate::state::WidgetKind;
+use crate::state::{A11yNode, A11yRole, WidgetKind};
 use crate::Ui;
 
 impl<'f> Ui<'f> {
@@ -35,8 +36,38 @@ impl<'f> Ui<'f> {
         self.register_widget(id, content_rect, WidgetKind::Button);
         let response = self.widget_response(id, content_rect);
 
+        self.push_a11y_node(A11yNode {
+            id,
+            role: A11yRole::Button,
+            label: if revealed {
+                "Spoiler (revealed)".to_string()
+            } else {
+                "Spoiler — click to reveal".to_string()
+            },
+            value: None,
+            rect: content_rect,
+            focused: response.focused,
+            disabled: false,
+            expanded: Some(revealed),
+            selected: None,
+            checked: None,
+            value_range: None,
+            children: Vec::new(),
+        });
+
         if response.clicked && !revealed {
             self.state.reveal_spoiler(id);
+        }
+
+        // Focus ring when unrevealed.
+        if response.focused && !revealed {
+            paint::draw_focus_ring(
+                self.frame,
+                content_rect,
+                self.theme.focus_ring_color,
+                self.theme.corner_radius,
+                self.theme.focus_ring_expand,
+            );
         }
 
         if !revealed {

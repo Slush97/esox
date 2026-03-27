@@ -52,7 +52,7 @@ impl<'f> Ui<'f> {
         let disabled = response.disabled;
 
         // Parse current value, clamped to range.
-        let current: f32 = input.text.parse().unwrap_or(min);
+        let current: f32 = input.text.parse().unwrap_or(min); // safe: fallback to min on bad input
         let mut value = current.clamp(min, max);
 
         self.push_a11y_node(A11yNode {
@@ -332,7 +332,7 @@ impl<'f> Ui<'f> {
         let mut response = self.widget_response(id, slider_rect);
         let disabled = response.disabled;
 
-        let current: f32 = input.text.parse().unwrap_or(min);
+        let current: f32 = input.text.parse().unwrap_or(min); // safe: fallback to min on bad input
         let mut value = current.clamp(min, max);
 
         self.push_a11y_node(A11yNode {

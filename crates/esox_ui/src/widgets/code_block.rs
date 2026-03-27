@@ -17,8 +17,9 @@
 
 use esox_gfx::{Color, ShapeBuilder};
 
+use crate::id::HOVER_SALT;
 use crate::response::Response;
-use crate::state::WidgetKind;
+use crate::state::{A11yNode, A11yRole, WidgetKind};
 use crate::Ui;
 
 impl<'f> Ui<'f> {
@@ -101,33 +102,49 @@ impl<'f> Ui<'f> {
         let copy_rect =
             crate::layout::Rect::new(copy_rect_x, copy_rect_y, copy_rect_w, copy_rect_h);
 
-        let copy_hovered = copy_rect.contains(self.state.mouse.x, self.state.mouse.y);
-        let copy_clicked = copy_hovered
-            && self
-                .state
-                .mouse
-                .pending_click
-                .is_some_and(|(cx, cy, _)| copy_rect.contains(cx, cy));
+        // Register copy button as a proper widget for a11y + hit testing.
+        let copy_id = id ^ 0xC0_9700;
+        self.register_widget(copy_id, copy_rect, WidgetKind::Button);
+        let copy_response = self.widget_response(copy_id, copy_rect);
 
-        if copy_clicked {
-            self.state.mouse.pending_click = None;
-        }
+        self.push_a11y_node(A11yNode {
+            id: copy_id,
+            role: A11yRole::Button,
+            label: "Copy code".to_string(),
+            value: None,
+            rect: copy_rect,
+            focused: copy_response.focused,
+            disabled: false,
+            expanded: None,
+            selected: None,
+            checked: None,
+            value_range: None,
+            children: Vec::new(),
+        });
 
-        // Copy button background (subtle on hover).
-        if copy_hovered {
+        let copy_clicked = copy_response.clicked;
+
+        // Copy button hover animation.
+        let copy_hover_t = self.state.hover_t(
+            copy_id ^ HOVER_SALT,
+            copy_response.hovered,
+            self.theme.hover_duration_ms,
+        );
+        if copy_hover_t > 0.0 {
             self.frame.push(
                 ShapeBuilder::rounded_rect(copy_rect.x, copy_rect.y, copy_rect.w, copy_rect.h, 4.0)
-                    .color(Color::new(1.0, 1.0, 1.0, 0.1))
+                    .color(Color::new(1.0, 1.0, 1.0, 0.1 * copy_hover_t))
                     .build(),
             );
         }
 
+        let copy_text_color = crate::paint::lerp_color(fg_muted, fg, copy_hover_t);
         self.text.draw_text(
             copy_label,
             copy_rect.x + copy_pad,
             copy_rect.y + copy_pad * 0.5,
             copy_size,
-            if copy_hovered { fg } else { fg_muted },
+            copy_text_color,
             self.frame,
             self.gpu,
             self.resources,

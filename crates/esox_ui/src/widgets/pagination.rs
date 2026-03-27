@@ -117,23 +117,22 @@ impl<'f> Ui<'f> {
         let mut pages = Vec::with_capacity(9);
         pages.push(PageEntry::Page(0));
 
-        if current > 2 {
+        let start = current.saturating_sub(1).max(1);
+        let end = (current + 2).min(total - 1);
+
+        if start > 1 {
             pages.push(PageEntry::Ellipsis);
         }
 
-        let start = current.saturating_sub(1).max(1);
-        let end = (current + 2).min(total - 1);
         for p in start..end {
             pages.push(PageEntry::Page(p));
         }
 
-        if current + 3 < total {
+        if end < total - 1 {
             pages.push(PageEntry::Ellipsis);
         }
 
-        if total > 1 {
-            pages.push(PageEntry::Page(total - 1));
-        }
+        pages.push(PageEntry::Page(total - 1));
 
         pages
     }

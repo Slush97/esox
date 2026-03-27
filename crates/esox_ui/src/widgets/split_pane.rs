@@ -16,7 +16,7 @@
 //! });
 //! ```
 
-use crate::layout::{Rect, Vec2};
+use crate::layout::Rect;
 use crate::state::WidgetKind;
 use crate::Ui;
 
@@ -35,7 +35,23 @@ impl<'f> Ui<'f> {
         left: impl FnOnce(&mut Self),
         right: impl FnOnce(&mut Self),
     ) {
-        self.split_pane_inner(id, ratio, true, left, right);
+        let (first_rect, second_rect, total_h) = self.split_pane_core(id, ratio, true);
+        let inset = self.theme.spacing_unit;
+        self.sub_region(first_rect, inset, true, false, left);
+        self.sub_region(second_rect, inset, true, false, right);
+        self.cursor.y += total_h + self.spacing;
+    }
+
+    /// Single-callback variant of [`split_pane_h`] for cases where both panels
+    /// need mutable access to the same outer state (avoiding the two-closure
+    /// borrow conflict). The callback receives `(ui, panel_index)` where
+    /// `panel_index` is 0 for left and 1 for right.
+    pub fn split_pane_h_mut(&mut self, id: u64, ratio: f32, mut f: impl FnMut(&mut Self, usize)) {
+        let (first_rect, second_rect, total_h) = self.split_pane_core(id, ratio, true);
+        let inset = self.theme.spacing_unit;
+        self.sub_region_indexed(first_rect, inset, true, 0, &mut f);
+        self.sub_region_indexed(second_rect, inset, true, 1, &mut f);
+        self.cursor.y += total_h + self.spacing;
     }
 
     /// Vertical split pane: top / bottom with a draggable horizontal divider.
@@ -50,18 +66,22 @@ impl<'f> Ui<'f> {
         top: impl FnOnce(&mut Self),
         bottom: impl FnOnce(&mut Self),
     ) {
-        self.split_pane_inner(id, ratio, false, top, bottom);
+        let (first_rect, second_rect, total_h) = self.split_pane_core(id, ratio, false);
+        let inset = self.theme.spacing_unit;
+        self.sub_region(first_rect, inset, true, false, top);
+        self.sub_region(second_rect, inset, true, false, bottom);
+        self.cursor.y += total_h + self.spacing;
     }
 
-    /// Shared implementation for horizontal and vertical split panes.
-    fn split_pane_inner(
+    /// Shared core for all split pane variants: computes geometry, handles
+    /// divider interaction and drawing, and returns `(first_rect, second_rect,
+    /// total_h)` for the caller to render panels into.
+    fn split_pane_core(
         &mut self,
         id: u64,
         initial_ratio: f32,
         horizontal: bool,
-        first: impl FnOnce(&mut Self),
-        second: impl FnOnce(&mut Self),
-    ) {
+    ) -> (Rect, Rect, f32) {
         // Read or initialize stored ratio.
         let ratio = *self
             .state
@@ -69,56 +89,35 @@ impl<'f> Ui<'f> {
             .entry(id)
             .or_insert_with(|| initial_ratio.clamp(0.05, 0.95));
 
-        // Compute the total available rect. For horizontal splits we use the
-        // full region width; for vertical we need an explicit height. We use
-        // the remaining region height.
+        // Compute the total available rect.
         let total_w = self.region.w;
         let total_h = self.region.h - (self.cursor.y - self.region.y);
         let origin_x = self.cursor.x;
         let origin_y = self.cursor.y;
 
         // Calculate panel rects and divider rect.
+        let divider_size = self.theme.split_pane_divider;
         let (first_rect, divider_rect, second_rect) = if horizontal {
-            let available = total_w - self.theme.split_pane_divider;
+            let available = total_w - divider_size;
             let left_w = available * ratio;
             let right_w = available - left_w;
-            let lr = Rect::new(origin_x, origin_y, left_w, total_h);
-            let dr = Rect::new(
-                origin_x + left_w,
-                origin_y,
-                self.theme.split_pane_divider,
-                total_h,
-            );
-            let rr = Rect::new(
-                origin_x + left_w + self.theme.split_pane_divider,
-                origin_y,
-                right_w,
-                total_h,
-            );
-            (lr, dr, rr)
+            (
+                Rect::new(origin_x, origin_y, left_w, total_h),
+                Rect::new(origin_x + left_w, origin_y, divider_size, total_h),
+                Rect::new(origin_x + left_w + divider_size, origin_y, right_w, total_h),
+            )
         } else {
-            let available = total_h - self.theme.split_pane_divider;
+            let available = total_h - divider_size;
             let top_h = available * ratio;
             let bottom_h = available - top_h;
-            let tr = Rect::new(origin_x, origin_y, total_w, top_h);
-            let dr = Rect::new(
-                origin_x,
-                origin_y + top_h,
-                total_w,
-                self.theme.split_pane_divider,
-            );
-            let br = Rect::new(
-                origin_x,
-                origin_y + top_h + self.theme.split_pane_divider,
-                total_w,
-                bottom_h,
-            );
-            (tr, dr, br)
+            (
+                Rect::new(origin_x, origin_y, total_w, top_h),
+                Rect::new(origin_x, origin_y + top_h, total_w, divider_size),
+                Rect::new(origin_x, origin_y + top_h + divider_size, total_w, bottom_h),
+            )
         };
 
-        // --- Handle divider interaction ---
-
-        // Register divider for hit testing / cursor icon.
+        // --- Divider interaction ---
         let divider_id = id.wrapping_add(1);
         let kind = if horizontal {
             WidgetKind::SplitDividerH
@@ -139,24 +138,23 @@ impl<'f> Ui<'f> {
         if let Some((drag_id, _)) = self.state.split_drag {
             if drag_id == id && self.state.mouse_pressed {
                 let new_ratio = if horizontal {
-                    let available = total_w - self.theme.split_pane_divider;
+                    let available = total_w - divider_size;
                     if available > 0.0 {
-                        (self.state.mouse.x - origin_x - self.theme.split_pane_divider / 2.0)
-                            / available
+                        (self.state.mouse.x - origin_x - divider_size / 2.0) / available
                     } else {
                         ratio
                     }
                 } else {
-                    let available = total_h - self.theme.split_pane_divider;
+                    let available = total_h - divider_size;
                     if available > 0.0 {
-                        (self.state.mouse.y - origin_y - self.theme.split_pane_divider / 2.0)
-                            / available
+                        (self.state.mouse.y - origin_y - divider_size / 2.0) / available
                     } else {
                         ratio
                     }
                 };
-                let clamped = new_ratio.clamp(0.05, 0.95);
-                self.state.split_ratios.insert(id, clamped);
+                self.state
+                    .split_ratios
+                    .insert(id, new_ratio.clamp(0.05, 0.95));
                 self.state.damage.invalidate_all();
             }
         }
@@ -206,81 +204,6 @@ impl<'f> Ui<'f> {
             }
         }
 
-        // --- Draw first panel (left / top) ---
-        let saved_cursor = self.cursor;
-        let saved_region = self.region;
-        let saved_spacing = self.spacing;
-        let saved_clip = self.frame.active_clip();
-        let saved_hit_clip = self.hit_clip;
-
-        // Set clip for first panel.
-        let first_clip = match saved_clip {
-            Some(prev) => {
-                let prev_rect = Rect::new(prev[0], prev[1], prev[2], prev[3]);
-                first_rect.intersect(&prev_rect).unwrap_or(first_rect)
-            }
-            None => first_rect,
-        };
-        self.frame.set_active_clip(Some(first_clip.to_clip_array()));
-        self.hit_clip = Some(match saved_hit_clip {
-            Some(prev) => first_rect.intersect(&prev).unwrap_or(first_rect),
-            None => first_rect,
-        });
-
-        // Inset content by spacing_unit so glyphs don't start flush against
-        // the scissor boundary (negative bearing_x would be clipped).
-        let inset = self.theme.spacing_unit;
-        self.cursor = Vec2 {
-            x: first_rect.x + inset,
-            y: first_rect.y,
-        };
-        self.region = Rect::new(
-            first_rect.x + inset,
-            first_rect.y,
-            first_rect.w - inset * 2.0,
-            first_rect.h,
-        );
-        self.spacing = saved_spacing;
-
-        first(self);
-
-        // --- Draw second panel (right / bottom) ---
-        let second_clip = match saved_clip {
-            Some(prev) => {
-                let prev_rect = Rect::new(prev[0], prev[1], prev[2], prev[3]);
-                second_rect.intersect(&prev_rect).unwrap_or(second_rect)
-            }
-            None => second_rect,
-        };
-        self.frame
-            .set_active_clip(Some(second_clip.to_clip_array()));
-        self.hit_clip = Some(match saved_hit_clip {
-            Some(prev) => second_rect.intersect(&prev).unwrap_or(second_rect),
-            None => second_rect,
-        });
-
-        self.cursor = Vec2 {
-            x: second_rect.x + inset,
-            y: second_rect.y,
-        };
-        self.region = Rect::new(
-            second_rect.x + inset,
-            second_rect.y,
-            second_rect.w - inset * 2.0,
-            second_rect.h,
-        );
-        self.spacing = saved_spacing;
-
-        second(self);
-
-        // --- Restore state ---
-        self.frame.set_active_clip(saved_clip);
-        self.hit_clip = saved_hit_clip;
-        self.cursor = saved_cursor;
-        self.region = saved_region;
-        self.spacing = saved_spacing;
-
-        // Advance cursor past the entire split pane.
-        self.cursor.y += total_h + self.spacing;
+        (first_rect, second_rect, total_h)
     }
 }

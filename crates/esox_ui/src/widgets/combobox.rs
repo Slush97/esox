@@ -714,12 +714,15 @@ impl<'f> Ui<'f> {
                 if let Some(match_start) = choice_lower.find(&filter_text) {
                     let match_end = match_start + filter_text.len();
 
-                    // Before match.
-                    let before = &choice[..match_start];
-                    let before_w = self.text.measure_text(before, self.theme.font_size);
-                    if !before.is_empty() {
+                    // Guard against UTF-8 boundary mismatch when lowercasing
+                    // changes byte lengths (e.g. ß → ss). Fall back to
+                    // drawing the whole string undecorated.
+                    if match_end > choice.len()
+                        || !choice.is_char_boundary(match_start)
+                        || !choice.is_char_boundary(match_end)
+                    {
                         self.text.draw_ui_text(
-                            before,
+                            choice,
                             text_item_x,
                             text_item_y,
                             self.theme.fg,
@@ -727,34 +730,49 @@ impl<'f> Ui<'f> {
                             self.gpu,
                             self.resources,
                         );
-                    }
+                    } else {
+                        // Before match.
+                        let before = &choice[..match_start];
+                        let before_w = self.text.measure_text(before, self.theme.font_size);
+                        if !before.is_empty() {
+                            self.text.draw_ui_text(
+                                before,
+                                text_item_x,
+                                text_item_y,
+                                self.theme.fg,
+                                self.frame,
+                                self.gpu,
+                                self.resources,
+                            );
+                        }
 
-                    // Match portion (accent color).
-                    let matched = &choice[match_start..match_end];
-                    self.text.draw_ui_text(
-                        matched,
-                        text_item_x + before_w,
-                        text_item_y,
-                        self.theme.accent,
-                        self.frame,
-                        self.gpu,
-                        self.resources,
-                    );
-
-                    // After match.
-                    let after = &choice[match_end..];
-                    if !after.is_empty() {
-                        let match_w = self.text.measure_text(matched, self.theme.font_size);
+                        // Match portion (accent color).
+                        let matched = &choice[match_start..match_end];
                         self.text.draw_ui_text(
-                            after,
-                            text_item_x + before_w + match_w,
+                            matched,
+                            text_item_x + before_w,
                             text_item_y,
-                            self.theme.fg,
+                            self.theme.accent,
                             self.frame,
                             self.gpu,
                             self.resources,
                         );
-                    }
+
+                        // After match.
+                        let after = &choice[match_end..];
+                        if !after.is_empty() {
+                            let match_w = self.text.measure_text(matched, self.theme.font_size);
+                            self.text.draw_ui_text(
+                                after,
+                                text_item_x + before_w + match_w,
+                                text_item_y,
+                                self.theme.fg,
+                                self.frame,
+                                self.gpu,
+                                self.resources,
+                            );
+                        }
+                    } // end else (valid UTF-8 boundaries)
                 } else {
                     // Shouldn't happen (filtered), but fallback.
                     self.text.draw_ui_text(

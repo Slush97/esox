@@ -453,6 +453,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "discord_demo"
+version = "0.1.0"
+dependencies = [
+ "esox_font",
+ "esox_gfx",
+ "esox_input",
+ "esox_platform",
+ "esox_ui",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "dispatch"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

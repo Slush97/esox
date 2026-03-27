@@ -609,6 +609,7 @@ pub enum WidgetKind {
     SplitDividerH,
     SplitDividerV,
     Combobox,
+    Image,
     Custom(esox_input::CursorIcon),
 }
 
@@ -1279,6 +1280,7 @@ pub enum A11yRole {
     Link,
     SpinButton,
     Combobox,
+    Image,
 }
 
 /// A single accessibility node.
@@ -1708,7 +1710,8 @@ impl UiState {
                     | WidgetKind::Tab
                     | WidgetKind::TableRow
                     | WidgetKind::TreeNode
-                    | WidgetKind::Toggle => esox_input::CursorIcon::Pointer,
+                    | WidgetKind::Toggle
+                    | WidgetKind::Image => esox_input::CursorIcon::Pointer,
                     WidgetKind::Hyperlink => esox_input::CursorIcon::Pointer,
                     WidgetKind::Slider | WidgetKind::Scrollbar => esox_input::CursorIcon::Default,
                     WidgetKind::SplitDividerH => esox_input::CursorIcon::ColResize,

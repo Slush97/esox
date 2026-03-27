@@ -46,8 +46,9 @@ impl<'f> Ui<'f> {
             .prev_max_scroll
             .insert(id, ([max_scroll, 0.0], 0));
 
-        // Handle scroll_to.
+        // Handle scroll_to (clamped to valid item range).
         if let Some(target) = state.scroll_to.take() {
+            let target = target.min(state.item_count.saturating_sub(1));
             let target_top = target as f32 * item_height;
             let target_bottom = target_top + item_height;
             if target_top < offset {
