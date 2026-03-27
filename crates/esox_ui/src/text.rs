@@ -158,6 +158,8 @@ pub struct TextRenderer {
     bold_face: Option<FontFace>,
     /// Dedicated italic variant face (if available on the system).
     italic_face: Option<FontFace>,
+    /// Phosphor icon font face (embedded, always available).
+    icon_face: FontFace,
     shaper: TextShaper,
     rasterizer: GlyphRasterizer,
     cache: GlyphCache,
@@ -206,6 +208,12 @@ impl TextRenderer {
             tracing::debug!("loaded italic variant for UI font");
         }
 
+        let icon_face = FontFace::from_bytes(
+            crate::icon::ICON_FONT_ID,
+            crate::icon::ICON_FONT_DATA.to_vec(),
+        )
+        .map_err(|e| format!("failed to load icon font: {e}"))?;
+
         let allocator = ShelfAllocator::new(AtlasId(0), ATLAS_SIZE, ATLAS_SIZE);
         let atlas = AtlasTexture::new(&gpu.device, ATLAS_SIZE, ATLAS_SIZE, "ui_glyph_atlas");
 
@@ -213,6 +221,7 @@ impl TextRenderer {
             face,
             bold_face,
             italic_face,
+            icon_face,
             shaper: TextShaper::new(),
             rasterizer: GlyphRasterizer::new(),
             cache: GlyphCache::new(),
@@ -1046,6 +1055,70 @@ impl TextRenderer {
                 None
             }
         }
+    }
+
+    // ── Icon rendering ───────────────────────────────────────────────
+
+    /// Draw an icon glyph at the given position and size. Returns the advance width.
+    #[allow(clippy::too_many_arguments)]
+    pub fn draw_icon(
+        &mut self,
+        icon: crate::icon::Icon,
+        x: f32,
+        y: f32,
+        size: f32,
+        color: Color,
+        frame: &mut Frame,
+        gpu: &GpuContext,
+        resources: &mut RenderResources,
+    ) -> f32 {
+        let c = icon.codepoint();
+        let font_ref = self.icon_face.as_swash_ref();
+        let glyph_id = u32::from(font_ref.charmap().map(c));
+        if glyph_id == 0 {
+            return size; // .notdef — advance by size to keep layout stable
+        }
+
+        let size_tenths = (size * 10.0) as u32;
+        let key = GlyphKey {
+            font_id: crate::icon::ICON_FONT_ID,
+            glyph_id,
+            size_tenths,
+            style: 0,
+        };
+
+        let cached = match self.cache.get_or_insert(
+            key,
+            &self.icon_face,
+            &mut self.rasterizer,
+            &mut self.allocator,
+            size,
+            false,
+        ) {
+            Ok(c) => c,
+            Err(_) => return size,
+        };
+
+        if cached.region.w > 0 && cached.region.h > 0 {
+            let metrics = self.icon_face.metrics(size);
+            let (atlas_w, atlas_h) = self.allocator.size();
+            let uv = cached.region.to_uv_rect(atlas_w, atlas_h);
+            let gx = (x + cached.bearing_x).round();
+            let gy = (y + metrics.ascent - cached.bearing_y).round();
+            let gw = cached.region.w as f32;
+            let gh = cached.region.h as f32;
+
+            frame.push(make_textured_quad(gx, gy, gw, gh, uv, color));
+        }
+
+        self.flush_uploads(gpu, resources);
+        size
+    }
+
+    /// Measure the advance width of an icon at a given size.
+    /// Icons are square so this always returns `size`.
+    pub fn measure_icon(&self, _icon: crate::icon::Icon, size: f32) -> f32 {
+        size
     }
 }
 

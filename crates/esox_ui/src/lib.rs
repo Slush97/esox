@@ -39,6 +39,7 @@
 //! - [`lerp_color`] — interpolate between colors
 
 pub mod a11y;
+pub mod icon;
 pub mod id;
 #[cfg(feature = "markup")]
 pub mod interpret;
@@ -52,6 +53,7 @@ pub mod text;
 pub mod theme;
 mod widgets;
 
+pub use icon::Icon;
 pub use id::{fnv1a_mix, fnv1a_runtime, HOVER_SALT};
 pub use layout::{
     Align, Constraints, FlexItem, FlexWrap, GridPlacement, GridTrack, Justify, Rect, Spacing,

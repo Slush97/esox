@@ -175,6 +175,32 @@ impl AppDelegate for DemoApp {
                 ui.heading("esox_ui Demo");
                 ui.add_space(8.0);
 
+                // ── Icons ──
+                ui.header_label("ICONS");
+                ui.row(|ui| {
+                    use esox_ui::Icon;
+                    let icons = [
+                        Icon::House, Icon::Gear, Icon::MagnifyingGlass,
+                        Icon::Heart, Icon::Star, Icon::Bell, Icon::Envelope,
+                        Icon::ChatCircle, Icon::User, Icon::Folder,
+                        Icon::File, Icon::Trash, Icon::PencilSimple,
+                        Icon::Check, Icon::X, Icon::Plus, Icon::Minus,
+                        Icon::ArrowRight, Icon::Lightning, Icon::Sun,
+                    ];
+                    for icon in icons {
+                        ui.icon(icon, 22.0);
+                    }
+                });
+                ui.add_space(4.0);
+                ui.row(|ui| {
+                    use esox_ui::Icon;
+                    let accent = ui.theme().accent;
+                    ui.icon_colored(Icon::Heart, 28.0, esox_gfx::Color::new(1.0, 0.3, 0.3, 1.0));
+                    ui.icon_colored(Icon::Star, 28.0, esox_gfx::Color::new(1.0, 0.85, 0.0, 1.0));
+                    ui.icon_colored(Icon::Lightning, 28.0, accent);
+                });
+                ui.add_space(16.0);
+
                 // ── Flex Columns ──
                 ui.header_label("FLEX COLUMNS");
                 ui.columns_spaced(12.0, &[2.0, 1.0], |ui, col| {

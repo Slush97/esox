@@ -18,6 +18,7 @@ pub mod drop_zone;
 pub mod empty_state;
 pub mod form;
 pub mod hyperlink;
+pub mod icon;
 pub mod image;
 pub mod label;
 pub mod menu_bar;
