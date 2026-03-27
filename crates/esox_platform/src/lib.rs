@@ -283,9 +283,9 @@ fn convert_key_code(key: winit::keyboard::PhysicalKey) -> esox_input::KeyCode {
             WK::Comma => K::Comma,
             WK::Period => K::Period,
             WK::Slash => K::Slash,
-            _ => K::Escape, // fallback for unmapped codes
+            _ => K::Unknown,
         },
-        PhysicalKey::Unidentified(_) => K::Escape,
+        PhysicalKey::Unidentified(_) => K::Unknown,
     }
 }
 
@@ -851,7 +851,10 @@ impl ApplicationHandler<AppUserEvent> for App {
                             gpu.config.format,
                         );
                         self.black_bloom_view = Some(black_view);
-                        let bloom_view_ref = self.black_bloom_view.as_ref().unwrap();
+                        let bloom_view_ref = self
+                            .black_bloom_view
+                            .as_ref()
+                            .expect("bloom view must exist when bloom pass is active");
 
                         // Create bloom pass if bloom is enabled.
                         let bloom_bind_group_layout = if self.delegate.post_process_enabled() {
@@ -1065,7 +1068,11 @@ impl ApplicationHandler<AppUserEvent> for App {
                             .offscreen
                             .as_ref()
                             .map(|o| &o.sample_view)
-                            .unwrap_or_else(|| self.black_bloom_view.as_ref().unwrap());
+                            .unwrap_or_else(|| {
+                                self.black_bloom_view
+                                    .as_ref()
+                                    .expect("bloom view must exist when bloom pass is active")
+                            });
                         bloom.resize(&gpu.device, size.width, size.height, scene_view);
                     }
                     // Resize offscreen target if present.
@@ -1079,7 +1086,11 @@ impl ApplicationHandler<AppUserEvent> for App {
                             .bloom_pass
                             .as_ref()
                             .map(|b| b.result_view())
-                            .unwrap_or_else(|| self.black_bloom_view.as_ref().unwrap());
+                            .unwrap_or_else(|| {
+                                self.black_bloom_view
+                                    .as_ref()
+                                    .expect("bloom view must exist when bloom pass is active")
+                            });
                         offscreen.resize(
                             &gpu.device,
                             size.width,
@@ -1987,8 +1998,9 @@ pub struct Clipboard;
 impl Clipboard {
     /// Read text from the system clipboard, truncated to `max_bytes`.
     ///
-    /// Pass `0` for unlimited. Truncation avoids OOM when the clipboard holds
-    /// very large data and a program queries it via OSC 52.
+    /// Pass `0` for unlimited. Truncation is applied *after* the full read
+    /// because `arboard` has no streaming API — extremely large clipboard
+    /// contents may still cause high memory usage during the read itself.
     pub fn read(max_bytes: usize) -> Result<String, Error> {
         let mut clip = arboard::Clipboard::new()
             .map_err(|e| Error::Clipboard(format!("failed to open clipboard: {e}")))?;

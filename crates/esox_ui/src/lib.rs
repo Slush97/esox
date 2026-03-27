@@ -192,7 +192,11 @@ impl<'a, 'f> FlexBuilder<'a, 'f> {
         let child_count = flex_ui.child_index;
 
         if self.direction == Direction::Horizontal {
-            let ctx = self.ui.layout_stack.pop().unwrap();
+            let ctx = self
+                .ui
+                .layout_stack
+                .pop()
+                .expect("layout push/pop mismatch");
             let max_cross = ctx.max_cross;
             self.ui.cursor.x = saved_cursor.x;
             self.ui.cursor.y = saved_cursor.y + max_cross + saved_spacing;
@@ -240,7 +244,11 @@ impl<'a, 'f> FlexBuilder<'a, 'f> {
             };
             self.ui.layout_stack.push(ctx);
             f(self.ui);
-            let ctx = self.ui.layout_stack.pop().unwrap();
+            let ctx = self
+                .ui
+                .layout_stack
+                .pop()
+                .expect("layout push/pop mismatch");
             self.ui.cursor.x = ctx.saved_cursor.x;
             self.ui.cursor.y = ctx.saved_cursor.y + ctx.max_cross + saved_spacing;
             self.ui.spacing = saved_spacing;
@@ -770,7 +778,7 @@ impl<'f> Ui<'f> {
         };
         self.layout_stack.push(ctx);
         f(self);
-        let ctx = self.layout_stack.pop().unwrap();
+        let ctx = self.layout_stack.pop().expect("layout push/pop mismatch");
         // Restore cursor to below the tallest child.
         self.cursor.x = ctx.saved_cursor.x;
         self.cursor.y = ctx.saved_cursor.y + ctx.max_cross + self.spacing;
@@ -804,7 +812,7 @@ impl<'f> Ui<'f> {
         };
         self.layout_stack.push(ctx);
         f(self);
-        let ctx = self.layout_stack.pop().unwrap();
+        let ctx = self.layout_stack.pop().expect("layout push/pop mismatch");
         let max_cross = ctx.max_cross;
         self.cursor.x = ctx.saved_cursor.x;
         self.cursor.y = ctx.saved_cursor.y + max_cross + self.spacing;

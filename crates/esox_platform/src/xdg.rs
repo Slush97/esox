@@ -59,10 +59,18 @@ impl AppDirs {
 }
 
 /// Best-effort `$HOME` resolution.
+///
+/// Tries `$HOME` first, then `$XDG_RUNTIME_DIR` as a fallback. Only uses
+/// `/tmp` as a last resort (and logs a warning, since it's world-readable).
 fn home_dir() -> PathBuf {
-    std::env::var_os("HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("/tmp"))
+    if let Some(home) = std::env::var_os("HOME") {
+        return PathBuf::from(home);
+    }
+    if let Some(runtime) = std::env::var_os("XDG_RUNTIME_DIR") {
+        return PathBuf::from(runtime);
+    }
+    eprintln!("warning: $HOME is unset, falling back to /tmp — settings may be world-readable");
+    PathBuf::from("/tmp")
 }
 
 #[cfg(test)]

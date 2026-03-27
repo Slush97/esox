@@ -1179,7 +1179,10 @@ impl super::renderer::Renderer3D {
                     }
 
                     // Render 6 depth-only passes for this point light.
-                    let pipeline = &self.shadow_state.shadow_pass.as_ref().unwrap().pipeline;
+                    let Some(shadow_pass) = self.shadow_state.shadow_pass.as_ref() else {
+                        continue;
+                    };
+                    let pipeline = &shadow_pass.pipeline;
                     for fi in 0..6 {
                         let face_idx = li * 6 + fi;
                         let mut pass = point_pass.begin_face_pass(encoder, face_idx, pipeline);
@@ -1221,7 +1224,10 @@ impl super::renderer::Renderer3D {
                     omni.spot_light_vp[li] = vp.to_cols_array_2d();
                     spot_pass.update_layer(&gpu.queue, li, &vp);
 
-                    let pipeline = &self.shadow_state.shadow_pass.as_ref().unwrap().pipeline;
+                    let Some(shadow_pass) = self.shadow_state.shadow_pass.as_ref() else {
+                        continue;
+                    };
+                    let pipeline = &shadow_pass.pipeline;
                     let mut pass = spot_pass.begin_layer_pass(encoder, li, pipeline);
 
                     pass.set_vertex_buffer(0, self.mega_buffer.vertex_buffer.slice(..));

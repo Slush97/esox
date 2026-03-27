@@ -193,12 +193,13 @@ fn sample_channel(channel: &AnimChannel, time: f32) -> [f32; 4] {
     }
 
     // After last keyframe.
-    if time >= *times.last().unwrap() {
-        return *values.last().unwrap();
+    // SAFETY: `times` is guaranteed non-empty by the early return above.
+    if time >= *times.last().expect("times is non-empty (checked above)") {
+        return *values.last().expect("values is non-empty (checked above)");
     }
 
     // Binary search for the keyframe pair.
-    let idx = match times.binary_search_by(|t| t.partial_cmp(&time).unwrap()) {
+    let idx = match times.binary_search_by(|t| t.total_cmp(&time)) {
         Ok(i) => return values[i], // Exact match
         Err(i) => i,
     };

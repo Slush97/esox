@@ -275,7 +275,10 @@ impl super::renderer::Renderer3D {
         if self.particle_pipeline.is_none() {
             self.particle_pipeline = Some(ParticlePipeline::new(&gpu.device));
         }
-        let pipeline = self.particle_pipeline.as_ref().unwrap();
+        let pipeline = self
+            .particle_pipeline
+            .as_ref()
+            .expect("particle pipeline must be initialized (set on preceding line)");
         let pool = ParticlePool::new(&gpu.device, pipeline, capacity);
         let handle = ParticlePoolHandle(self.particle_pools.len() as u32);
         self.particle_pools.push(pool);

@@ -1976,7 +1976,9 @@ impl Renderer3D {
                     self.indirect_capacity = new_cap;
                 }
 
-                let indirect_buf = self.indirect_buffer.as_ref().unwrap();
+                let Some(indirect_buf) = self.indirect_buffer.as_ref() else {
+                    return;
+                };
 
                 // Build groups: contiguous runs in `ordered` with same pipeline+material+buffer source.
                 // Skinned meshes each get their own group since they use separate vertex/index buffers.

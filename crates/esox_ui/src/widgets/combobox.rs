@@ -80,13 +80,21 @@ impl<'f> Ui<'f> {
             if is_open {
                 // Close and clear filter.
                 self.state.overlay = None;
-                let input = self.state.combobox_inputs.get_mut(&id).unwrap();
+                let input = self
+                    .state
+                    .combobox_inputs
+                    .get_mut(&id)
+                    .expect("combobox input entry ensured by entry().or_default() above");
                 input.text.clear();
                 input.cursor = 0;
                 input.scroll_offset = 0.0;
             } else {
                 // Open dropdown with all options visible.
-                let input = self.state.combobox_inputs.get_mut(&id).unwrap();
+                let input = self
+                    .state
+                    .combobox_inputs
+                    .get_mut(&id)
+                    .expect("combobox input entry ensured by entry().or_default() above");
                 input.text.clear();
                 input.cursor = 0;
                 input.scroll_offset = 0.0;
@@ -166,7 +174,10 @@ impl<'f> Ui<'f> {
                     }
                     _ => {
                         // Text editing keys — process through InputState.
-                        let input = self.state.combobox_inputs.get_mut(&id).unwrap();
+                        let input =
+                            self.state.combobox_inputs.get_mut(&id).expect(
+                                "combobox input entry ensured by entry().or_default() above",
+                            );
                         let shift = modifiers.shift();
 
                         // Handle clipboard shortcuts.
@@ -213,7 +224,11 @@ impl<'f> Ui<'f> {
 
             // If text changed, re-filter the options.
             if text_changed {
-                let input = self.state.combobox_inputs.get(&id).unwrap();
+                let input = self
+                    .state
+                    .combobox_inputs
+                    .get(&id)
+                    .expect("combobox input entry ensured by entry().or_default() above");
                 let filter = input.text.to_lowercase();
 
                 if let Some(Overlay::ComboboxDropdown {
@@ -244,7 +259,11 @@ impl<'f> Ui<'f> {
                 }
 
                 // Update scroll for the input field.
-                let input = self.state.combobox_inputs.get_mut(&id).unwrap();
+                let input = self
+                    .state
+                    .combobox_inputs
+                    .get_mut(&id)
+                    .expect("combobox input entry ensured by entry().or_default() above");
                 let arrow_w = self.text.measure_text("\u{25BE}", self.theme.font_size)
                     + self.theme.input_padding;
                 let inner_w = rect.w - self.theme.input_padding * 2.0 - arrow_w;
@@ -275,7 +294,11 @@ impl<'f> Ui<'f> {
                     }
                 }
                 self.state.overlay = None;
-                let input = self.state.combobox_inputs.get_mut(&id).unwrap();
+                let input = self
+                    .state
+                    .combobox_inputs
+                    .get_mut(&id)
+                    .expect("combobox input entry ensured by entry().or_default() above");
                 input.text.clear();
                 input.cursor = 0;
                 input.scroll_offset = 0.0;
@@ -283,7 +306,11 @@ impl<'f> Ui<'f> {
 
             if close_dropdown {
                 self.state.overlay = None;
-                let input = self.state.combobox_inputs.get_mut(&id).unwrap();
+                let input = self
+                    .state
+                    .combobox_inputs
+                    .get_mut(&id)
+                    .expect("combobox input entry ensured by entry().or_default() above");
                 input.text.clear();
                 input.cursor = 0;
                 input.scroll_offset = 0.0;
@@ -375,7 +402,11 @@ impl<'f> Ui<'f> {
 
         if is_open {
             // Show filter text with cursor.
-            let input = self.state.combobox_inputs.get(&id).unwrap();
+            let input = self
+                .state
+                .combobox_inputs
+                .get(&id)
+                .expect("combobox input entry ensured by entry().or_default() above");
             let scroll = input.scroll_offset;
 
             if input.text.is_empty() {
@@ -404,7 +435,11 @@ impl<'f> Ui<'f> {
 
             // Cursor.
             if response.focused && self.state.cursor_blink {
-                let input = self.state.combobox_inputs.get(&id).unwrap();
+                let input = self
+                    .state
+                    .combobox_inputs
+                    .get(&id)
+                    .expect("combobox input entry ensured by entry().or_default() above");
                 let cursor_x_in_text = self
                     .text
                     .measure_text(&input.text[..input.cursor], self.theme.font_size);

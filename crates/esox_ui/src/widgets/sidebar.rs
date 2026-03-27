@@ -216,12 +216,7 @@ impl<'f> Ui<'f> {
 
         // Background: selected or hover.
         if item.selected {
-            paint::draw_rounded_rect(
-                self.frame,
-                rect,
-                self.theme.accent_dim,
-                0.0,
-            );
+            paint::draw_rounded_rect(self.frame, rect, self.theme.accent_dim, 0.0);
         } else {
             let hover_t = self.state.hover_t(
                 item.id ^ HOVER_SALT,
@@ -291,10 +286,7 @@ impl<'f> Ui<'f> {
                 };
                 let badge_font = font_size * 0.75;
                 let badge_pad = self.theme.spacing_unit;
-                let badge_w = self
-                    .text
-                    .measure_text(&badge_text, badge_font)
-                    + badge_pad * 2.0;
+                let badge_w = self.text.measure_text(&badge_text, badge_font) + badge_pad * 2.0;
                 let badge_h = badge_font + badge_pad;
                 let badge_x = rect.x + rect.w - pad_h - badge_w;
                 let badge_y = rect.y + (rect.h - badge_h) / 2.0;

@@ -54,12 +54,7 @@ impl<'f> Ui<'f> {
         let text_w = self.text.measure_text(&display, font_size);
         let alloc_w = self.label_alloc_width(text_w);
         let rect = self.allocate_rect(alloc_w, font_size + self.theme.label_pad_y);
-        let x = align_text_x(
-            align,
-            rect.x,
-            rect.w,
-            self.text.measure_text(&display, font_size),
-        );
+        let x = align_text_x(align, rect.x, rect.w, text_w);
         self.push_a11y_node(A11yNode {
             id: crate::id::fnv1a_runtime(text),
             role: A11yRole::Label,
@@ -94,12 +89,7 @@ impl<'f> Ui<'f> {
         let text_w = self.text.measure_text(text, font_size);
         let alloc_w = self.label_alloc_width(text_w);
         let rect = self.allocate_rect(alloc_w, font_size + self.theme.label_pad_y);
-        let x = align_text_x(
-            align,
-            rect.x,
-            rect.w,
-            self.text.measure_text(text, font_size),
-        );
+        let x = align_text_x(align, rect.x, rect.w, text_w);
         self.text.draw_text(
             text,
             x,
@@ -119,12 +109,7 @@ impl<'f> Ui<'f> {
         let text_w = self.text.measure_text(text, font_size);
         let alloc_w = self.label_alloc_width(text_w);
         let rect = self.allocate_rect(alloc_w, font_size + self.theme.label_pad_y);
-        let x = align_text_x(
-            align,
-            rect.x,
-            rect.w,
-            self.text.measure_text(text, font_size),
-        );
+        let x = align_text_x(align, rect.x, rect.w, text_w);
         self.text.draw_text(
             text,
             x,
@@ -144,12 +129,7 @@ impl<'f> Ui<'f> {
         let text_w = self.text.measure_text(text, font_size);
         let alloc_w = self.label_alloc_width(text_w);
         let rect = self.allocate_rect(alloc_w, self.theme.heading_height);
-        let x = align_text_x(
-            align,
-            rect.x,
-            rect.w,
-            self.text.measure_text(text, font_size),
-        );
+        let x = align_text_x(align, rect.x, rect.w, text_w);
         self.text.draw_text(
             text,
             x,
@@ -169,12 +149,7 @@ impl<'f> Ui<'f> {
         let text_w = self.text.measure_text(text, font_size);
         let alloc_w = self.label_alloc_width(text_w);
         let rect = self.allocate_rect(alloc_w, font_size + self.theme.label_pad_y);
-        let x = align_text_x(
-            align,
-            rect.x,
-            rect.w,
-            self.text.measure_text(text, font_size),
-        );
+        let x = align_text_x(align, rect.x, rect.w, text_w);
         self.text.draw_text(
             text,
             x,

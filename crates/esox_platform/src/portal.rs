@@ -186,14 +186,14 @@ pub fn start_portal_bridge(proxy: EventLoopProxy<AppUserEvent>) -> PortalHandle 
             let rt = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()
-                .expect("failed to create portal tokio runtime");
+                .expect("portal bridge requires a tokio runtime — is the system out of resources?");
 
             rt.block_on(async move {
                 let _ = proxy.send_event(AppUserEvent::PortalReady);
                 portal_loop(rx).await;
             });
         })
-        .expect("failed to spawn portal bridge thread");
+        .expect("portal bridge thread failed to spawn — is the system out of resources?");
 
     PortalHandle { tx }
 }

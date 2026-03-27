@@ -215,7 +215,11 @@ impl<'f> Ui<'f> {
 
         // Handle inline editing.
         if editing {
-            let input = self.state.number_edit_buffers.get_mut(&id).unwrap();
+            let input = self
+                .state
+                .number_edit_buffers
+                .get_mut(&id)
+                .expect("edit buffer just inserted or was_editing confirmed it exists");
 
             // Process keyboard input when focused.
             if response.focused {

@@ -132,6 +132,8 @@ pub enum KeyCode {
     Comma,
     Period,
     Slash,
+    /// An unmapped or unrecognized physical key.
+    Unknown,
 }
 
 /// Modifier key state.

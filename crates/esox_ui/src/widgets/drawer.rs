@@ -94,9 +94,9 @@ impl<'f> Ui<'f> {
 
         // Drawer position — slides in from edge.
         let drawer_x = if from_left {
-            vp.x + (drawer_w * (t - 1.0)) // slides from -drawer_w to 0
+            vp.x - drawer_w * (1.0 - t) // slides from vp.x-drawer_w to vp.x
         } else {
-            vp.x + vp.w - drawer_w * t // slides from vp.w to vp.w - drawer_w
+            vp.x + vp.w - drawer_w * t // slides from vp.x+vp.w to vp.x+vp.w-drawer_w
         };
         let drawer_rect = Rect::new(drawer_x, vp.y, drawer_w, vp.h);
 

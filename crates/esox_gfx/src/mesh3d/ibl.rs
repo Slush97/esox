@@ -185,7 +185,8 @@ impl IblState {
             sky_color,
             ground_color,
         );
-        Self::from_equirect(device, queue, &data, w, h).unwrap()
+        Self::from_equirect(device, queue, &data, w, h)
+            .expect("procedural sky data always has correct dimensions")
     }
 
     /// Generate IBL textures from equirectangular HDR image data.

@@ -25,7 +25,8 @@ impl<'f> Ui<'f> {
             return None;
         }
 
-        let circle_size = self.theme.space(crate::theme::SpacingScale::Xl) + self.theme.spacing_unit;
+        let circle_size =
+            self.theme.space(crate::theme::SpacingScale::Xl) + self.theme.spacing_unit;
         let circle_r = circle_size / 2.0;
         let line_h = self.theme.spacing_unit * 0.5;
         let font_size = self.theme.font_size * 0.85;
@@ -55,8 +56,12 @@ impl<'f> Ui<'f> {
 
             // Hit area for the step.
             let hit_pad = self.theme.spacing_unit;
-            let hit_rect =
-                crate::layout::Rect::new(cx - circle_r - hit_pad, rect.y, circle_size + hit_pad * 2.0, total_h);
+            let hit_rect = crate::layout::Rect::new(
+                cx - circle_r - hit_pad,
+                rect.y,
+                circle_size + hit_pad * 2.0,
+                total_h,
+            );
             self.register_widget(step_id, hit_rect, WidgetKind::Button);
             let response = self.widget_response(step_id, hit_rect);
 

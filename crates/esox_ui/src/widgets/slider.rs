@@ -76,14 +76,19 @@ impl<'f> Ui<'f> {
         } else {
             input.text.clone()
         };
-        let val_w_for_click = self.text.measure_text(&val_str_for_click, self.theme.font_size);
+        let val_w_for_click = self
+            .text
+            .measure_text(&val_str_for_click, self.theme.font_size);
         let val_gap_for_click = self.theme.input_padding;
 
         // Handle click and drag — map x to value.
-        let is_dragging = response.focused && self.state.mouse_pressed && rect.contains(self.state.mouse.x, self.state.mouse.y);
+        let is_dragging = response.focused
+            && self.state.mouse_pressed
+            && rect.contains(self.state.mouse.x, self.state.mouse.y);
         if response.clicked || is_dragging {
             let track_x = rect.x + self.theme.input_padding;
-            let track_w = rect.w - self.theme.input_padding * 2.0 - val_w_for_click - val_gap_for_click;
+            let track_w =
+                rect.w - self.theme.input_padding * 2.0 - val_w_for_click - val_gap_for_click;
             let rel = ((self.state.mouse.x - track_x) / track_w).clamp(0.0, 1.0);
             let new_value = min + rel * (max - min);
             if (new_value - value).abs() > 0.001 {

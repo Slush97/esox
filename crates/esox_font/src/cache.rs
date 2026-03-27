@@ -64,6 +64,13 @@ impl GlyphCache {
         size_px: f32,
         color: bool,
     ) -> Result<CachedGlyph, Error> {
+        // Encode the color request in style bit 2 so that mono and color
+        // rasterizations of the same glyph don't collide in the cache.
+        let mut key = key;
+        if color {
+            key.style |= 4;
+        }
+
         if let Some(cached) = self.entries.get(&key) {
             allocator.touch(cached.alloc_id);
             return Ok(*cached);

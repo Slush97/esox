@@ -55,7 +55,9 @@ impl AtspiBridge {
                 let rt = tokio::runtime::Builder::new_current_thread()
                     .enable_all()
                     .build()
-                    .expect("failed to create tokio runtime for atspi bridge");
+                    .expect(
+                        "AT-SPI bridge requires a tokio runtime — is the system out of resources?",
+                    );
                 rt.block_on(bridge_main(name, rx));
             })
             .ok()?;

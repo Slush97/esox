@@ -113,17 +113,6 @@ impl FontFallbackChain {
         self.resolve_codepoint(c).map(|f| (f, false))
     }
 
-    /// Resolve a grapheme cluster to the best font face.
-    ///
-    /// Tries shaping with each face in the chain and returns the first that
-    /// produces non-`.notdef` (glyph ID != 0) glyphs for the base character.
-    /// Falls back to the face for the first character if no face covers
-    /// the full cluster.
-    pub fn resolve_grapheme(&self, s: &str) -> Option<&FontFace> {
-        let base_char = s.chars().next()?;
-        self.faces.iter().find(|face| face.has_glyph(base_char))
-    }
-
     /// Number of fonts in the chain.
     pub fn len(&self) -> usize {
         self.faces.len()

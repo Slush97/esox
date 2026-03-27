@@ -120,10 +120,19 @@ impl InputState {
     }
 
     /// Insert a string at the cursor, replacing any selection.
+    ///
+    /// CRLF (`\r\n`) and lone `\r` are normalized to `\n` so that line
+    /// helpers throughout the widget code can rely on `\n`-only line endings.
     pub fn insert_str(&mut self, s: &str) {
         self.delete_selection();
-        self.text.insert_str(self.cursor, s);
-        self.cursor += s.len();
+        if s.contains('\r') {
+            let normalized = s.replace("\r\n", "\n").replace('\r', "\n");
+            self.text.insert_str(self.cursor, &normalized);
+            self.cursor += normalized.len();
+        } else {
+            self.text.insert_str(self.cursor, s);
+            self.cursor += s.len();
+        }
     }
 
     /// Delete the character before the cursor (Backspace).
@@ -1031,8 +1040,7 @@ impl KeyframeSequence {
             easing,
         });
         // Keep sorted by offset.
-        self.keyframes
-            .sort_by(|a, b| a.offset.partial_cmp(&b.offset).unwrap());
+        self.keyframes.sort_by(|a, b| a.offset.total_cmp(&b.offset));
         self
     }
 
