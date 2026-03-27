@@ -33,6 +33,7 @@
 use esox_gfx::Color;
 
 use crate::id::{fnv1a_mix, HOVER_SALT};
+use crate::layout::Rect;
 use crate::paint;
 use crate::response::Response;
 use crate::state::{A11yNode, A11yRole, WidgetKind};
@@ -82,13 +83,20 @@ impl<'f> Ui<'f> {
     /// automatically. Use the `SidebarBuilder` methods inside the closure
     /// to define the header, sections, and footer.
     pub fn sidebar(&mut self, id: u64, f: impl FnOnce(&mut SidebarBuilder<'_, 'f>)) {
-        self.surface(|ui| {
-            let mut builder = SidebarBuilder {
-                ui,
-                scroll_id: fnv1a_mix(id, 0x5CDE_BA11),
-            };
-            f(&mut builder);
-        });
+        // Draw surface background for the full sidebar region.
+        let bg_rect = Rect::new(
+            self.region.x - self.theme.spacing_unit,
+            self.region.y,
+            self.region.w + self.theme.spacing_unit * 2.0,
+            self.region.h,
+        );
+        paint::draw_rounded_rect(self.frame, bg_rect, self.theme.bg_surface, 0.0);
+
+        let mut builder = SidebarBuilder {
+            ui: self,
+            scroll_id: fnv1a_mix(id, 0x5CDE_BA11),
+        };
+        f(&mut builder);
     }
 
     /// Draw a sidebar with a scrollable body section between header and footer.
