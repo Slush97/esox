@@ -32,6 +32,7 @@ pub mod rating;
 pub mod scrollable;
 pub mod select;
 pub mod separator;
+pub mod sidebar;
 pub mod skeleton;
 pub mod slider;
 pub mod spinner;

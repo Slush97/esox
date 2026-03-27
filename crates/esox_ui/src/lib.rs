@@ -76,6 +76,7 @@ pub use widgets::form::FieldStatus;
 pub use widgets::image::{ImageCache, ImageHandle};
 pub use widgets::menu_bar::{Menu, MenuEntry, MenuItem};
 pub use widgets::pagination::PaginationState;
+pub use widgets::sidebar::{SidebarBuilder, SidebarItemBuilder};
 pub use widgets::table::{ColumnWidth, TableColumn};
 pub use widgets::tree::TreeNodeResponse;
 
