@@ -17,7 +17,7 @@ use esox_gfx::{BorderRadius, Color};
 
 use crate::layout::Rect;
 use crate::paint;
-use crate::theme::Elevation;
+use crate::theme::{Elevation, IntoPadding};
 use crate::Ui;
 
 /// Builder for a styled container with configurable bg, border, radius, and padding.
@@ -52,8 +52,10 @@ impl<'a, 'f> ContainerBuilder<'a, 'f> {
     }
 
     /// Set padding on all sides.
-    pub fn padding(mut self, pad: f32) -> Self {
-        self.pad = pad;
+    ///
+    /// Accepts either a raw `f32` pixel value or a [`SpacingScale`](crate::SpacingScale).
+    pub fn padding(mut self, pad: impl IntoPadding) -> Self {
+        self.pad = pad.resolve(self.ui.theme);
         self
     }
 
@@ -169,14 +171,8 @@ impl<'f> Ui<'f> {
 
         // Clip card content to prevent overflow (e.g. badges in tight rows).
         let saved_clip = self.frame.active_clip();
-        let card_clip = Rect::new(self.region.x, start_y, self.region.w, self.region.h);
-        let gpu_clip = match saved_clip {
-            Some(prev) => {
-                let prev_rect = Rect::new(prev[0], prev[1], prev[2], prev[3]);
-                card_clip.intersect(&prev_rect).unwrap_or(card_clip)
-            }
-            None => card_clip,
-        };
+        let card_clip_rect = Rect::new(self.region.x, start_y, self.region.w, self.region.h);
+        let gpu_clip = Self::intersect_gpu_clip(saved_clip, card_clip_rect);
         self.frame.set_active_clip(Some(gpu_clip.to_clip_array()));
 
         let saved_spacing = self.spacing;

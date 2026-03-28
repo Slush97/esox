@@ -98,6 +98,26 @@ pub enum SpacingScale {
     Custom(f32),
 }
 
+/// Convert a value into a concrete padding amount (in pixels).
+///
+/// Implemented for [`f32`] (pass-through) and [`SpacingScale`] (resolved
+/// via [`Theme::space`]).
+pub trait IntoPadding {
+    fn resolve(&self, theme: &Theme) -> f32;
+}
+
+impl IntoPadding for f32 {
+    fn resolve(&self, _theme: &Theme) -> f32 {
+        *self
+    }
+}
+
+impl IntoPadding for SpacingScale {
+    fn resolve(&self, theme: &Theme) -> f32 {
+        theme.space(*self)
+    }
+}
+
 /// 2D transform applied to a widget's GPU output.
 #[derive(Debug, Clone, Copy)]
 pub struct Transform2D {
@@ -452,10 +472,10 @@ impl Theme {
             fg_dim: Color::new(0.360, 0.360, 0.360, 1.0), // #5c5c5c muted labels
             fg_label: Color::new(0.720, 0.720, 0.720, 1.0), // #b8b8b8 form labels
 
-            // Blue accent — clean, not purple-shifted.
-            accent: Color::new(0.306, 0.533, 0.957, 1.0), // #4e88f4
-            accent_dim: Color::new(0.306, 0.533, 0.957, 0.18),
-            accent_hover: Color::new(0.431, 0.627, 0.973, 1.0), // #6ea0f8
+            // Blue accent — saturated enough for white text contrast (WCAG AA).
+            accent: Color::new(0.220, 0.420, 0.870, 1.0), // #386bde
+            accent_dim: Color::new(0.220, 0.420, 0.870, 0.18),
+            accent_hover: Color::new(0.306, 0.510, 0.920, 1.0), // #4e82eb
             focus_ring_color: Color::new(0.306, 0.533, 0.957, 0.50),
 
             green: Color::new(0.243, 0.812, 0.416, 1.0), // #3ecf6a
@@ -1007,7 +1027,7 @@ impl Theme {
             input_padding: 8.0,
             item_height: 32.0,
             font_size: 14.0,
-            header_font_size: 11.0,
+            header_font_size: 12.0,
             cursor_width: 1.5,
             cursor_blink_ms: 530,
 
@@ -1084,7 +1104,7 @@ impl Theme {
 
             line_spacing: 2.0,
             letter_spacing: 0.0,
-            header_letter_spacing: 1.5,
+            header_letter_spacing: 0.8,
 
             breakpoint_compact: 600.0,
             breakpoint_expanded: 1200.0,

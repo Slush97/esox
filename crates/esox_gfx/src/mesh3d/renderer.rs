@@ -43,9 +43,7 @@ use super::shaders_embedded::{SHADER_PREAMBLE, compile_shader_modules};
 /// and frame encoding. Shares a [`GpuContext`] with the 2D esox renderer.
 pub struct Renderer3D {
     // Bind group layouts.
-    #[allow(dead_code)]
     scene_bind_group_layout: wgpu::BindGroupLayout,
-    #[allow(dead_code)]
     light_bind_group_layout: wgpu::BindGroupLayout,
     material_bind_group_layout: wgpu::BindGroupLayout,
 
@@ -1976,7 +1974,9 @@ impl Renderer3D {
                     self.indirect_capacity = new_cap;
                 }
 
-                let indirect_buf = self.indirect_buffer.as_ref().unwrap();
+                let Some(indirect_buf) = self.indirect_buffer.as_ref() else {
+                    return;
+                };
 
                 // Build groups: contiguous runs in `ordered` with same pipeline+material+buffer source.
                 // Skinned meshes each get their own group since they use separate vertex/index buffers.

@@ -75,7 +75,8 @@ impl<'f> Ui<'f> {
         };
         paint::draw_rounded_rect(self.frame, rect, bg, radius);
 
-        // Label text.
+        // Label text — vertically centered.
+        let text_y = rect.y + (rect.h - font_size) / 2.0;
         let text_color = if response.disabled {
             self.theme.disabled_fg
         } else {
@@ -84,14 +85,14 @@ impl<'f> Ui<'f> {
         self.text.draw_ui_text(
             label,
             rect.x + pad_x,
-            rect.y + pad_y,
+            text_y,
             text_color,
             self.frame,
             self.gpu,
             self.resources,
         );
 
-        // × close indicator.
+        // × close indicator — same vertical center.
         let close_color = if response.disabled {
             self.theme.disabled_fg
         } else if response.hovered {
@@ -102,7 +103,7 @@ impl<'f> Ui<'f> {
         self.text.draw_ui_text(
             close_str,
             rect.x + pad_x + label_w + gap,
-            rect.y + pad_y,
+            text_y,
             close_color,
             self.frame,
             self.gpu,

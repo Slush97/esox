@@ -74,7 +74,7 @@ impl<'f> Ui<'f> {
                     PageEntry::Page(p) => {
                         let label = format!("{}", p + 1); // 1-indexed display
                         let is_current = p == cur;
-                        let btn_id = id ^ (p as u64 + 1).wrapping_mul(0x9E37_79B9);
+                        let btn_id = id ^ (p as u64 + 1).wrapping_mul(crate::id::PAGE_BUTTON_SALT);
                         if ui.page_number_button(btn_id, &label, is_current).clicked && !is_current
                         {
                             state.current_page = p;
@@ -117,23 +117,22 @@ impl<'f> Ui<'f> {
         let mut pages = Vec::with_capacity(9);
         pages.push(PageEntry::Page(0));
 
-        if current > 2 {
+        let start = current.saturating_sub(1).max(1);
+        let end = (current + 2).min(total - 1);
+
+        if start > 1 {
             pages.push(PageEntry::Ellipsis);
         }
 
-        let start = current.saturating_sub(1).max(1);
-        let end = (current + 2).min(total - 1);
         for p in start..end {
             pages.push(PageEntry::Page(p));
         }
 
-        if current + 3 < total {
+        if end < total - 1 {
             pages.push(PageEntry::Ellipsis);
         }
 
-        if total > 1 {
-            pages.push(PageEntry::Page(total - 1));
-        }
+        pages.push(PageEntry::Page(total - 1));
 
         pages
     }

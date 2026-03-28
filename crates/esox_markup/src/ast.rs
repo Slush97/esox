@@ -238,6 +238,9 @@ pub enum WidgetKind {
     Skeleton,
     /// `image` / `img` — image display. Props: `src`, `width`, `height`.
     Image,
+    /// `code-block` / `code` — code block with language label.
+    /// Text = code content. Props: `language`.
+    CodeBlock,
     /// `pill` / `status-pill` — status pill indicator. Text = label.
     /// Variants: `.success`, `.warning`, `.error`.
     /// Props: `bg`, `fg`.
@@ -303,6 +306,14 @@ pub enum WidgetKind {
     Menu,
     /// `menu-item` — a menu item. Text = label. Props: `action`.
     MenuItem,
+
+    // ── Content blocks ─────────────────────────────────────
+    /// `blockquote` / `quote` — left-border accented quote block.
+    /// Props: `accent` (color). Children rendered indented.
+    Blockquote,
+    /// `spoiler` — hidden content revealed on click.
+    /// Props: `bind` (for stable ID).
+    Spoiler,
 
     // ── Style scope ─────────────────────────────────────────
     /// `style` — apply style overrides to children.
@@ -374,6 +385,7 @@ impl WidgetKind {
             "rating" | "stars" => Self::Rating,
             "skeleton" => Self::Skeleton,
             "image" | "img" => Self::Image,
+            "code-block" | "codeblock" | "code" => Self::CodeBlock,
             "pill" | "status-pill" => Self::StatusPill,
 
             // Navigation
@@ -405,6 +417,10 @@ impl WidgetKind {
             "menu-bar" | "menubar" => Self::MenuBar,
             "menu" => Self::Menu,
             "menu-item" => Self::MenuItem,
+
+            // Content blocks
+            "blockquote" | "quote" => Self::Blockquote,
+            "spoiler" => Self::Spoiler,
 
             // Style
             "style" => Self::Style,
@@ -463,6 +479,7 @@ impl fmt::Display for WidgetKind {
             Self::Rating => "rating",
             Self::Skeleton => "skeleton",
             Self::Image => "image",
+            Self::CodeBlock => "code-block",
             Self::StatusPill => "pill",
             Self::Tabs => "tabs",
             Self::Breadcrumb => "breadcrumb",
@@ -484,6 +501,8 @@ impl fmt::Display for WidgetKind {
             Self::MenuBar => "menu-bar",
             Self::Menu => "menu",
             Self::MenuItem => "menu-item",
+            Self::Blockquote => "blockquote",
+            Self::Spoiler => "spoiler",
             Self::Style => "style",
             Self::Disabled => "disabled",
             Self::Custom(name) => name,

@@ -21,8 +21,8 @@ impl<'f> Ui<'f> {
     /// Draw an interactive star rating. `value` is 0..=max. Returns Response
     /// with `changed = true` when the user clicks a star.
     pub fn rating(&mut self, id: u64, value: &mut u8, max: u8) -> Response {
-        let star_size = 20.0;
-        let gap = 4.0;
+        let star_size = self.theme.font_size + self.theme.spacing_unit;
+        let gap = self.theme.spacing_unit;
         let max = max.max(1);
         let total_w = star_size * max as f32 + gap * (max as f32 - 1.0);
         let height = star_size;
@@ -138,8 +138,8 @@ impl<'f> Ui<'f> {
 
     /// Draw a read-only star rating display. `value` can be fractional (e.g., 3.5).
     pub fn rating_display(&mut self, value: f32, max: u8) {
-        let star_size = 16.0;
-        let gap = 3.0;
+        let star_size = self.theme.font_size;
+        let gap = self.theme.spacing_unit * 0.75;
         let max = max.max(1);
         let total_w = star_size * max as f32 + gap * (max as f32 - 1.0);
 

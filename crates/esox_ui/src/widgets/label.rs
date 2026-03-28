@@ -1,11 +1,11 @@
 //! Label widgets — text display without interaction.
 
-use esox_gfx::Color;
+use esox_gfx::{Color, ShapeBuilder};
 
 use crate::rich_text::RichText;
 use crate::state::{A11yNode, A11yRole};
 use crate::text::TruncationMode;
-use crate::theme::{TextAlign, TextSize, TextTransform};
+use crate::theme::{TextAlign, TextDecoration, TextSize, TextTransform};
 use crate::Ui;
 
 /// Compute the x position for text given alignment, container origin, width, and text width.
@@ -51,13 +51,10 @@ impl<'f> Ui<'f> {
         let decoration = self.resolve_text_decoration();
         let transform = self.resolve_text_transform();
         let display = apply_transform(text, transform);
-        let rect = self.allocate_rect(self.region.w, font_size + self.theme.label_pad_y);
-        let x = align_text_x(
-            align,
-            rect.x,
-            rect.w,
-            self.text.measure_text(&display, font_size),
-        );
+        let text_w = self.text.measure_text(&display, font_size);
+        let alloc_w = self.label_alloc_width(text_w);
+        let rect = self.allocate_rect(alloc_w, font_size + self.theme.label_pad_y);
+        let x = align_text_x(align, rect.x, rect.w, text_w);
         self.push_a11y_node(A11yNode {
             id: crate::id::fnv1a_runtime(text),
             role: A11yRole::Label,
@@ -89,13 +86,10 @@ impl<'f> Ui<'f> {
     pub fn label_sized(&mut self, text: &str, size: TextSize) {
         let font_size = self.theme.resolve_text_size(size);
         let align = self.resolve_text_align();
-        let rect = self.allocate_rect(self.region.w, font_size + self.theme.label_pad_y);
-        let x = align_text_x(
-            align,
-            rect.x,
-            rect.w,
-            self.text.measure_text(text, font_size),
-        );
+        let text_w = self.text.measure_text(text, font_size);
+        let alloc_w = self.label_alloc_width(text_w);
+        let rect = self.allocate_rect(alloc_w, font_size + self.theme.label_pad_y);
+        let x = align_text_x(align, rect.x, rect.w, text_w);
         self.text.draw_text(
             text,
             x,
@@ -112,13 +106,10 @@ impl<'f> Ui<'f> {
     pub fn label_colored(&mut self, text: &str, color: Color) {
         let font_size = self.theme.font_size;
         let align = self.resolve_text_align();
-        let rect = self.allocate_rect(self.region.w, font_size + self.theme.label_pad_y);
-        let x = align_text_x(
-            align,
-            rect.x,
-            rect.w,
-            self.text.measure_text(text, font_size),
-        );
+        let text_w = self.text.measure_text(text, font_size);
+        let alloc_w = self.label_alloc_width(text_w);
+        let rect = self.allocate_rect(alloc_w, font_size + self.theme.label_pad_y);
+        let x = align_text_x(align, rect.x, rect.w, text_w);
         self.text.draw_text(
             text,
             x,
@@ -135,13 +126,10 @@ impl<'f> Ui<'f> {
     pub fn heading(&mut self, text: &str) {
         let font_size = self.theme.heading_font_size;
         let align = self.resolve_text_align();
-        let rect = self.allocate_rect(self.region.w, self.theme.heading_height);
-        let x = align_text_x(
-            align,
-            rect.x,
-            rect.w,
-            self.text.measure_text(text, font_size),
-        );
+        let text_w = self.text.measure_text(text, font_size);
+        let alloc_w = self.label_alloc_width(text_w);
+        let rect = self.allocate_rect(alloc_w, self.theme.heading_height);
+        let x = align_text_x(align, rect.x, rect.w, text_w);
         self.text.draw_text(
             text,
             x,
@@ -158,13 +146,10 @@ impl<'f> Ui<'f> {
     pub fn muted_label(&mut self, text: &str) {
         let font_size = self.theme.font_size;
         let align = self.resolve_text_align();
-        let rect = self.allocate_rect(self.region.w, font_size + self.theme.label_pad_y);
-        let x = align_text_x(
-            align,
-            rect.x,
-            rect.w,
-            self.text.measure_text(text, font_size),
-        );
+        let text_w = self.text.measure_text(text, font_size);
+        let alloc_w = self.label_alloc_width(text_w);
+        let rect = self.allocate_rect(alloc_w, font_size + self.theme.label_pad_y);
+        let x = align_text_x(align, rect.x, rect.w, text_w);
         self.text.draw_text(
             text,
             x,
@@ -180,12 +165,16 @@ impl<'f> Ui<'f> {
     /// Draw a small header label (for categories).
     pub fn header_label(&mut self, text: &str) {
         let header_font_size = self.theme.header_font_size;
-        let rect = self.allocate_rect(self.region.w, header_font_size + self.theme.label_pad_y);
+        let text_w =
+            self.text
+                .measure_text_spaced(text, header_font_size, self.theme.header_letter_spacing);
+        let alloc_w = self.label_alloc_width(text_w);
+        let rect = self.allocate_rect(alloc_w, header_font_size + self.theme.label_pad_y);
         self.text.draw_header_text(
             text,
             rect.x,
             rect.y,
-            self.theme.fg_muted,
+            self.theme.fg_label,
             self.theme.header_letter_spacing,
             self.frame,
             self.gpu,
@@ -259,6 +248,9 @@ impl<'f> Ui<'f> {
     }
 
     /// Draw a single-line rich text label with styled spans.
+    ///
+    /// Supports per-span background colors (for inline code / highlights) and
+    /// per-span text decorations (underline, strikethrough).
     pub fn rich_label(&mut self, rich: &RichText<'_>) {
         let font_size = self.theme.font_size;
         let fg = self.theme.fg;
@@ -270,10 +262,11 @@ impl<'f> Ui<'f> {
             total_w += self.text.measure_text(span.text, size);
         }
 
-        let rect = self.allocate_rect(
-            total_w.min(self.region.w),
-            font_size + self.theme.label_pad_y,
-        );
+        let line_height = font_size + self.theme.label_pad_y;
+        let rect = self.allocate_rect(total_w.min(self.region.w), line_height);
+
+        let bg_pad = self.theme.spacing_unit * 0.5;
+        let bg_radius = self.theme.corner_radius * 0.5;
 
         let mut pen_x = rect.x;
         for span in &rich.spans {
@@ -284,6 +277,25 @@ impl<'f> Ui<'f> {
             } else {
                 0
             };
+
+            let span_w = self.text.measure_text(span.text, size);
+
+            // Background rect (for inline code, highlights).
+            if let Some(bg) = span.background {
+                self.frame.push(
+                    ShapeBuilder::rounded_rect(
+                        pen_x - bg_pad,
+                        rect.y,
+                        span_w + bg_pad * 2.0,
+                        line_height,
+                        bg_radius,
+                    )
+                    .color(bg)
+                    .build(),
+                );
+            }
+
+            // Draw glyphs.
             let ls = span.letter_spacing.unwrap_or(0.0);
             let advance = if ls != 0.0 {
                 self.text.draw_text_spaced(
@@ -310,11 +322,43 @@ impl<'f> Ui<'f> {
                     self.resources,
                 )
             };
+
+            // Per-span decoration (underline / strikethrough).
+            if !matches!(span.decoration, TextDecoration::None) && advance > 0.0 {
+                let metrics = self.text.face_metrics(size);
+                let thickness = metrics.stroke_size.max(1.0);
+
+                if matches!(
+                    span.decoration,
+                    TextDecoration::Underline | TextDecoration::Both
+                ) {
+                    let uy = rect.y + metrics.ascent - metrics.underline_offset;
+                    self.frame.push(
+                        ShapeBuilder::rect(pen_x, uy, advance, thickness)
+                            .color(color)
+                            .build(),
+                    );
+                }
+                if matches!(
+                    span.decoration,
+                    TextDecoration::Strikethrough | TextDecoration::Both
+                ) {
+                    let sy = rect.y + metrics.ascent - metrics.strikeout_offset;
+                    self.frame.push(
+                        ShapeBuilder::rect(pen_x, sy, advance, thickness)
+                            .color(color)
+                            .build(),
+                    );
+                }
+            }
+
             pen_x += advance;
         }
     }
 
     /// Draw a word-wrapped rich text label. Height varies based on content.
+    ///
+    /// Supports per-span background colors and text decorations.
     pub fn rich_label_wrapped(&mut self, rich: &RichText<'_>) {
         let font_size = self.theme.font_size;
         let fg = self.theme.fg;
@@ -329,6 +373,8 @@ impl<'f> Ui<'f> {
             size: Option<f32>,
             width: f32,
             weight: Option<esox_font::FontWeight>,
+            background: Option<Color>,
+            decoration: TextDecoration,
         }
 
         let space_width = self.text.measure_text(" ", font_size);
@@ -336,7 +382,6 @@ impl<'f> Ui<'f> {
 
         for span in &rich.spans {
             let size = span.size.unwrap_or(font_size);
-            // Split span into words.
             for word in span.text.split_whitespace() {
                 let w = self.text.measure_text(word, size);
                 words.push(StyledWord {
@@ -346,6 +391,8 @@ impl<'f> Ui<'f> {
                     size: span.size,
                     width: w,
                     weight: span.weight,
+                    background: span.background,
+                    decoration: span.decoration,
                 });
             }
         }
@@ -384,6 +431,9 @@ impl<'f> Ui<'f> {
         let total_height = lines.len() as f32 * line_height + self.theme.label_pad_y;
         let rect = self.allocate_rect(max_width, total_height);
 
+        let bg_pad = 2.0;
+        let bg_radius = 3.0;
+
         for (line_idx, line) in lines.iter().enumerate() {
             let mut pen_x = rect.x;
             let pen_y = rect.y + line_idx as f32 * line_height;
@@ -399,6 +449,22 @@ impl<'f> Ui<'f> {
                 } else {
                     0
                 };
+
+                // Background rect.
+                if let Some(bg) = word.background {
+                    self.frame.push(
+                        ShapeBuilder::rounded_rect(
+                            pen_x - bg_pad,
+                            pen_y,
+                            word.width + bg_pad * 2.0,
+                            line_height,
+                            bg_radius,
+                        )
+                        .color(bg)
+                        .build(),
+                    );
+                }
+
                 let advance = self.text.draw_text_styled(
                     word.text,
                     pen_x,
@@ -410,6 +476,36 @@ impl<'f> Ui<'f> {
                     self.gpu,
                     self.resources,
                 );
+
+                // Per-word decoration.
+                if !matches!(word.decoration, TextDecoration::None) && advance > 0.0 {
+                    let metrics = self.text.face_metrics(size);
+                    let thickness = metrics.stroke_size.max(1.0);
+
+                    if matches!(
+                        word.decoration,
+                        TextDecoration::Underline | TextDecoration::Both
+                    ) {
+                        let uy = pen_y + metrics.ascent - metrics.underline_offset;
+                        self.frame.push(
+                            ShapeBuilder::rect(pen_x, uy, advance, thickness)
+                                .color(color)
+                                .build(),
+                        );
+                    }
+                    if matches!(
+                        word.decoration,
+                        TextDecoration::Strikethrough | TextDecoration::Both
+                    ) {
+                        let sy = pen_y + metrics.ascent - metrics.strikeout_offset;
+                        self.frame.push(
+                            ShapeBuilder::rect(pen_x, sy, advance, thickness)
+                                .color(color)
+                                .build(),
+                        );
+                    }
+                }
+
                 pen_x += advance;
             }
         }

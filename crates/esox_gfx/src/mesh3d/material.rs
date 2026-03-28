@@ -36,7 +36,6 @@ pub enum BlendMode3D {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum CullMode3D {
     Back,
-    #[allow(dead_code)]
     Front,
     None,
 }

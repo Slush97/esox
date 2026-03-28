@@ -120,10 +120,19 @@ impl InputState {
     }
 
     /// Insert a string at the cursor, replacing any selection.
+    ///
+    /// CRLF (`\r\n`) and lone `\r` are normalized to `\n` so that line
+    /// helpers throughout the widget code can rely on `\n`-only line endings.
     pub fn insert_str(&mut self, s: &str) {
         self.delete_selection();
-        self.text.insert_str(self.cursor, s);
-        self.cursor += s.len();
+        if s.contains('\r') {
+            let normalized = s.replace("\r\n", "\n").replace('\r', "\n");
+            self.text.insert_str(self.cursor, &normalized);
+            self.cursor += normalized.len();
+        } else {
+            self.text.insert_str(self.cursor, s);
+            self.cursor += s.len();
+        }
     }
 
     /// Delete the character before the cursor (Backspace).
@@ -600,6 +609,7 @@ pub enum WidgetKind {
     SplitDividerH,
     SplitDividerV,
     Combobox,
+    Image,
     Custom(esox_input::CursorIcon),
 }
 
@@ -1031,8 +1041,7 @@ impl KeyframeSequence {
             easing,
         });
         // Keep sorted by offset.
-        self.keyframes
-            .sort_by(|a, b| a.offset.partial_cmp(&b.offset).unwrap());
+        self.keyframes.sort_by(|a, b| a.offset.total_cmp(&b.offset));
         self
     }
 
@@ -1271,6 +1280,7 @@ pub enum A11yRole {
     Link,
     SpinButton,
     Combobox,
+    Image,
 }
 
 /// A single accessibility node.
@@ -1361,6 +1371,8 @@ pub struct UiState {
     pub springs: HashMap<u64, SpringAnim>,
     /// Keyframe animations keyed by ID.
     pub keyframe_anims: HashMap<u64, KeyframeAnim>,
+    /// Spoiler widgets that have been revealed by the user.
+    pub revealed_spoilers: HashSet<u64>,
     /// Buffered scroll event: (mouse_x, mouse_y, delta_y).
     pub pending_scroll: Option<(f32, f32, f32)>,
     /// Active scrollbar drag: (scrollable_id, grab_offset_in_thumb).
@@ -1464,6 +1476,7 @@ impl UiState {
             anims: HashMap::new(),
             springs: HashMap::new(),
             keyframe_anims: HashMap::new(),
+            revealed_spoilers: HashSet::new(),
             pending_scroll: None,
             scrollbar_drag: None,
             mouse_pressed: false,
@@ -1697,7 +1710,8 @@ impl UiState {
                     | WidgetKind::Tab
                     | WidgetKind::TableRow
                     | WidgetKind::TreeNode
-                    | WidgetKind::Toggle => esox_input::CursorIcon::Pointer,
+                    | WidgetKind::Toggle
+                    | WidgetKind::Image => esox_input::CursorIcon::Pointer,
                     WidgetKind::Hyperlink => esox_input::CursorIcon::Pointer,
                     WidgetKind::Slider | WidgetKind::Scrollbar => esox_input::CursorIcon::Default,
                     WidgetKind::SplitDividerH => esox_input::CursorIcon::ColResize,
@@ -1831,6 +1845,16 @@ impl UiState {
         self.keyframe_anims
             .get(&id)
             .is_some_and(|ka| !ka.is_finished())
+    }
+
+    /// Whether a spoiler widget has been revealed.
+    pub fn spoiler_revealed(&self, id: u64) -> bool {
+        self.revealed_spoilers.contains(&id)
+    }
+
+    /// Mark a spoiler as revealed.
+    pub fn reveal_spoiler(&mut self, id: u64) {
+        self.revealed_spoilers.insert(id);
     }
 
     /// Advance focus to the next widget in the focus chain.

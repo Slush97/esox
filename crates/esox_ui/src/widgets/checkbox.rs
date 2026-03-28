@@ -9,6 +9,17 @@ use crate::state::{A11yNode, A11yRole, Easing, InputState, WidgetKind};
 use crate::Ui;
 
 impl<'f> Ui<'f> {
+    /// Draw a labeled checkbox with a direct `&mut bool`.
+    pub fn checkbox_bool(&mut self, id: u64, checked: &mut bool, label: &str) -> Response {
+        let mut input = InputState::new();
+        input.text = if *checked { "true" } else { "false" }.into();
+        let response = self.checkbox(id, &mut input, label);
+        if response.changed {
+            *checked = input.text == "true";
+        }
+        response
+    }
+
     /// Draw a labeled checkbox. State stored in `input.text` as "true" or "false".
     pub fn checkbox(&mut self, id: u64, input: &mut InputState, label: &str) -> Response {
         let row_h = self.theme.button_height;
@@ -105,7 +116,8 @@ impl<'f> Ui<'f> {
         let check_t = self.animate_bool(id ^ CHECK_SALT, checked, 120.0, Easing::EaseOutCubic);
         if check_t > 0.001 {
             let check = "\u{2713}";
-            let check_w = self.text.measure_text(check, 12.0);
+            let check_size = self.theme.checkbox_size - 2.0;
+            let check_w = self.text.measure_text(check, check_size);
             let base_color = if disabled {
                 self.theme.disabled_fg
             } else {
@@ -117,10 +129,11 @@ impl<'f> Ui<'f> {
                 base_color.b,
                 base_color.a * check_t,
             );
-            self.text.draw_ui_text(
+            self.text.draw_text(
                 check,
                 box_x + (self.theme.checkbox_size - check_w) / 2.0,
-                box_y + (self.theme.checkbox_size - 12.0) / 2.0,
+                box_y + (self.theme.checkbox_size - check_size) / 2.0,
+                check_size,
                 check_color,
                 self.frame,
                 self.gpu,

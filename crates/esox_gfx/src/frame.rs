@@ -334,6 +334,18 @@ impl Frame {
         self.overlay_mode = false;
     }
 
+    /// Shift the X position of instances in `[start..end)` by `dx` pixels.
+    pub fn offset_instances_x(&mut self, start: usize, end: usize, dx: f32) {
+        let end = end.min(self.instances.len());
+        for inst in &mut self.instances[start..end] {
+            inst.rect[0] += dx;
+            // Also shift clip_rect X if a clip is set.
+            if inst.clip_rect != [0.0; 4] {
+                inst.clip_rect[0] += dx;
+            }
+        }
+    }
+
     /// Shift the Y position of instances in `[start..end)` by `dy` pixels.
     pub fn offset_instances_y(&mut self, start: usize, end: usize, dy: f32) {
         let end = end.min(self.instances.len());

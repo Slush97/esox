@@ -218,9 +218,10 @@ impl<'f> Ui<'f> {
         };
 
         let item_h = self.theme.item_height;
-        let dd_x = anchor.x;
         let dd_y = anchor.y + anchor.h + self.theme.dropdown_gap;
+        // Dropdown width matches anchor — no wider than the trigger.
         let dd_w = anchor.w;
+        let dd_x = anchor.x;
         let dd_h = choices.len() as f32 * item_h;
 
         // Handle click within dropdown.

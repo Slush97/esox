@@ -408,8 +408,6 @@ impl<'f> Ui<'f> {
 struct VisualLine {
     text_start: usize,
     text_end: usize,
-    #[allow(dead_code)]
-    logical_line: usize,
 }
 
 /// Build visual lines from text with soft word wrap.
@@ -425,14 +423,13 @@ fn build_visual_lines(
         visual_lines.push(VisualLine {
             text_start: 0,
             text_end: 0,
-            logical_line: 0,
         });
         return visual_lines;
     }
 
     let mut pos = 0;
 
-    for (logical_line, line) in text.split('\n').enumerate() {
+    for line in text.split('\n') {
         let line_start = pos;
         let line_end = pos + line.len();
 
@@ -440,7 +437,6 @@ fn build_visual_lines(
             visual_lines.push(VisualLine {
                 text_start: line_start,
                 text_end: line_start,
-                logical_line,
             });
         } else {
             let wraps = text_renderer.wrap_lines(line, font_size, content_width);
@@ -448,7 +444,6 @@ fn build_visual_lines(
                 visual_lines.push(VisualLine {
                     text_start: line_start + ws,
                     text_end: line_start + we,
-                    logical_line,
                 });
             }
         }

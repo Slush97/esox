@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use esox_gfx::{AtlasId, AtlasManager, GpuContext};
 
 use crate::response::Response;
-use crate::state::WidgetKind;
+use crate::state::{A11yNode, A11yRole, WidgetKind};
 use crate::Ui;
 
 /// Handle to a loaded image in the cache.
@@ -18,11 +18,6 @@ struct CachedImage {
     uv: esox_gfx::UvRect,
     /// Layer in the atlas.
     layer: u32,
-    /// Original pixel dimensions.
-    #[allow(dead_code)]
-    width: u32,
-    #[allow(dead_code)]
-    height: u32,
 }
 
 /// Image cache backed by a GPU atlas. Decodes and uploads RGBA8 images.
@@ -100,8 +95,6 @@ impl ImageCache {
             CachedImage {
                 uv,
                 layer: region.layer,
-                width: w,
-                height: h,
             },
         );
         self.dirty = true;
@@ -151,8 +144,23 @@ impl<'f> Ui<'f> {
         height: f32,
     ) -> Response {
         let rect = self.allocate_rect_keyed(id, width, height);
-        self.register_widget(id, rect, WidgetKind::Button);
+        self.register_widget(id, rect, WidgetKind::Image);
         let response = self.widget_response(id, rect);
+
+        self.push_a11y_node(A11yNode {
+            id,
+            role: A11yRole::Image,
+            label: String::new(),
+            value: None,
+            rect,
+            focused: response.focused,
+            disabled: response.disabled,
+            expanded: None,
+            selected: None,
+            checked: None,
+            value_range: None,
+            children: Vec::new(),
+        });
 
         if let Some(img) = cache.get(handle) {
             self.frame.push(esox_gfx::QuadInstance {

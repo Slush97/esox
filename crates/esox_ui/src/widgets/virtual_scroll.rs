@@ -9,7 +9,7 @@
 //! });
 //! ```
 
-use crate::layout::{Rect, Vec2};
+use crate::layout::Rect;
 use crate::paint;
 use crate::response::Response;
 use crate::state::{VirtualScrollState, WidgetKind};
@@ -46,8 +46,9 @@ impl<'f> Ui<'f> {
             .prev_max_scroll
             .insert(id, ([max_scroll, 0.0], 0));
 
-        // Handle scroll_to.
+        // Handle scroll_to (clamped to valid item range).
         if let Some(target) = state.scroll_to.take() {
+            let target = target.min(state.item_count.saturating_sub(1));
             let target_top = target as f32 * item_height;
             let target_bottom = target_top + item_height;
             if target_top < offset {
@@ -93,82 +94,29 @@ impl<'f> Ui<'f> {
         let last_visible = ((offset + visible_height) / item_height).ceil() as usize;
         let last_visible = last_visible.min(state.item_count);
 
-        // Save layout state.
-        let saved_cursor = self.cursor;
-        let saved_region = self.region;
-        let saved_spacing = self.spacing;
-        let saved_active_clip = self.frame.active_clip();
-        let saved_hit_clip = self.hit_clip;
+        // Save layout state and set clipping.
+        let saved = self.save_layout_state();
 
-        // Set clipping.
         let container_clip = Rect::new(container.x, container.y, container.w, container.h);
-        let gpu_clip = match saved_active_clip {
-            Some(prev) => {
-                let prev_rect = Rect::new(prev[0], prev[1], prev[2], prev[3]);
-                container_clip
-                    .intersect(&prev_rect)
-                    .unwrap_or(container_clip)
-            }
-            None => container_clip,
-        };
+        let gpu_clip = Self::intersect_gpu_clip(saved.gpu_clip, container_clip);
         self.frame.set_active_clip(Some(gpu_clip.to_clip_array()));
-        self.hit_clip = Some(match saved_hit_clip {
-            Some(prev) => container_clip.intersect(&prev).unwrap_or(container_clip),
-            None => container_clip,
-        });
+        self.hit_clip = Some(Self::intersect_hit_clip(saved.hit_clip, container_clip));
 
         // Render visible items.
         self.spacing = 0.0;
         for i in first_visible..last_visible {
-            self.cursor = Vec2 {
-                x: container.x,
-                y: container.y + i as f32 * item_height - offset,
-            };
+            self.cursor.x = container.x;
+            self.cursor.y = container.y + i as f32 * item_height - offset;
             self.region = Rect::new(container.x, self.cursor.y, content_width, item_height);
             f(self, i);
         }
 
-        // --- Scroll edge gradient fades ---
-        // Use the container's own clip (not the parent-intersected gpu_clip) so
-        // fade overlays aren't incorrectly shrunk by ancestor clips.
-        let fade_h = self.theme.scroll_fade_height;
-        if fade_h > 0.0 {
-            self.frame
-                .set_active_clip(Some(container_clip.to_clip_array()));
-
-            let bg = self.theme.bg_base;
-            if offset > 0.5 {
-                paint::draw_scroll_fade(
-                    self.frame,
-                    Rect::new(container.x, container.y, content_width, fade_h),
-                    bg,
-                    bg.with_alpha(0.0),
-                    std::f32::consts::FRAC_PI_2,
-                );
-            }
-            if offset < max_scroll - 0.5 {
-                paint::draw_scroll_fade(
-                    self.frame,
-                    Rect::new(
-                        container.x,
-                        container.y + visible_height - fade_h,
-                        content_width,
-                        fade_h,
-                    ),
-                    bg.with_alpha(0.0),
-                    bg,
-                    std::f32::consts::FRAC_PI_2,
-                );
-            }
-        }
+        // Scroll edge gradient fades disabled — the visual effect is distracting
+        // and the logic doesn't handle all edge cases well.
 
         // Restore layout state.
-        self.cursor = saved_cursor;
-        self.cursor.y = container.y + container.h + saved_spacing;
-        self.region = saved_region;
-        self.spacing = saved_spacing;
-        self.frame.set_active_clip(saved_active_clip);
-        self.hit_clip = saved_hit_clip;
+        self.restore_layout_state(&saved);
+        self.cursor.y = container.y + container.h + self.spacing;
 
         // Draw scrollbar.
         if content_height > visible_height {
@@ -238,7 +186,7 @@ pub(crate) fn draw_scrollbar(
 
     // Hover animation on thumb.
     let thumb_hovered = thumb_rect.contains(state.mouse.x, state.mouse.y);
-    let thumb_hover_id = id.wrapping_mul(0x517cc1b727220a95);
+    let thumb_hover_id = id.wrapping_mul(crate::id::THUMB_HOVER_SALT);
     let t = state.hover_t(
         thumb_hover_id,
         thumb_hovered || state.scrollbar_drag.is_some_and(|(did, _)| did == id),

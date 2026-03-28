@@ -29,7 +29,7 @@ pub enum TruncationMode {
 /// Initial atlas dimensions in texels. Must be large enough to hold all unique
 /// (glyph, size, style) combinations used within a single frame — mid-frame
 /// eviction corrupts UV coordinates already pushed to the instance buffer.
-const ATLAS_SIZE: u32 = 1024;
+const ATLAS_SIZE: u32 = 2048;
 
 // ── Shaped-run cache ────────────────────────────────────────────────────────
 
@@ -158,6 +158,8 @@ pub struct TextRenderer {
     bold_face: Option<FontFace>,
     /// Dedicated italic variant face (if available on the system).
     italic_face: Option<FontFace>,
+    /// Phosphor icon font face (embedded, always available).
+    icon_face: FontFace,
     shaper: TextShaper,
     rasterizer: GlyphRasterizer,
     cache: GlyphCache,
@@ -165,6 +167,10 @@ pub struct TextRenderer {
     atlas: AtlasTexture,
     atlas_bound: bool,
     shape_cache: ShapeCache,
+    /// Standard UI font size, synced from the theme. Used by `draw_ui_text`.
+    ui_font_size: f32,
+    /// Header font size, synced from the theme. Used by `draw_header_text`.
+    header_font_size: f32,
 }
 
 impl TextRenderer {
@@ -202,6 +208,12 @@ impl TextRenderer {
             tracing::debug!("loaded italic variant for UI font");
         }
 
+        let icon_face = FontFace::from_bytes(
+            crate::icon::ICON_FONT_ID,
+            crate::icon::ICON_FONT_DATA.to_vec(),
+        )
+        .map_err(|e| format!("failed to load icon font: {e}"))?;
+
         let allocator = ShelfAllocator::new(AtlasId(0), ATLAS_SIZE, ATLAS_SIZE);
         let atlas = AtlasTexture::new(&gpu.device, ATLAS_SIZE, ATLAS_SIZE, "ui_glyph_atlas");
 
@@ -209,6 +221,7 @@ impl TextRenderer {
             face,
             bold_face,
             italic_face,
+            icon_face,
             shaper: TextShaper::new(),
             rasterizer: GlyphRasterizer::new(),
             cache: GlyphCache::new(),
@@ -216,7 +229,19 @@ impl TextRenderer {
             atlas,
             atlas_bound: false,
             shape_cache: ShapeCache::new(),
+            ui_font_size: 16.0,
+            header_font_size: 12.0,
         })
+    }
+
+    /// Update font sizes from the theme (called each frame in Ui::begin).
+    pub fn set_ui_font_size(&mut self, size: f32) {
+        self.ui_font_size = size;
+    }
+
+    /// Update the header font size from the theme.
+    pub fn set_header_font_size(&mut self, size: f32) {
+        self.header_font_size = size;
     }
 
     // ── Font loading ──────────────────────────────────────────────────
@@ -388,8 +413,8 @@ impl TextRenderer {
         }
     }
 
-    /// Draw text at the standard UI font size (14px).
-    // Convenience wrapper — delegates to draw_text with a fixed size.
+    /// Draw text at the standard UI font size (synced from theme).
+    // Convenience wrapper — delegates to draw_text with the theme font size.
     #[allow(clippy::too_many_arguments)]
     pub fn draw_ui_text(
         &mut self,
@@ -401,10 +426,10 @@ impl TextRenderer {
         gpu: &GpuContext,
         resources: &mut RenderResources,
     ) -> f32 {
-        self.draw_text(text, x, y, 14.0, color, frame, gpu, resources)
+        self.draw_text(text, x, y, self.ui_font_size, color, frame, gpu, resources)
     }
 
-    /// Draw text at the header font size (11px) with header letter spacing.
+    /// Draw text at the header font size (synced from theme) with letter spacing.
     #[allow(clippy::too_many_arguments)]
     pub fn draw_header_text(
         &mut self,
@@ -421,7 +446,7 @@ impl TextRenderer {
             text,
             x,
             y,
-            11.0,
+            self.header_font_size,
             color,
             letter_spacing,
             frame,
@@ -449,6 +474,11 @@ impl TextRenderer {
     /// Line height (cell_height) for a given font size.
     pub fn line_height(&mut self, size: f32) -> f32 {
         self.face.metrics(size).cell_height
+    }
+
+    /// Full font metrics for a given size (ascent, descent, stroke offsets, etc.).
+    pub fn face_metrics(&mut self, size: f32) -> esox_font::FontMetrics {
+        self.face.metrics(size)
     }
 
     /// Measure wrapped text dimensions. Returns `(max_line_width, total_height)`
@@ -1025,6 +1055,70 @@ impl TextRenderer {
                 None
             }
         }
+    }
+
+    // ── Icon rendering ───────────────────────────────────────────────
+
+    /// Draw an icon glyph at the given position and size. Returns the advance width.
+    #[allow(clippy::too_many_arguments)]
+    pub fn draw_icon(
+        &mut self,
+        icon: crate::icon::Icon,
+        x: f32,
+        y: f32,
+        size: f32,
+        color: Color,
+        frame: &mut Frame,
+        gpu: &GpuContext,
+        resources: &mut RenderResources,
+    ) -> f32 {
+        let c = icon.codepoint();
+        let font_ref = self.icon_face.as_swash_ref();
+        let glyph_id = u32::from(font_ref.charmap().map(c));
+        if glyph_id == 0 {
+            return size; // .notdef — advance by size to keep layout stable
+        }
+
+        let size_tenths = (size * 10.0) as u32;
+        let key = GlyphKey {
+            font_id: crate::icon::ICON_FONT_ID,
+            glyph_id,
+            size_tenths,
+            style: 0,
+        };
+
+        let cached = match self.cache.get_or_insert(
+            key,
+            &self.icon_face,
+            &mut self.rasterizer,
+            &mut self.allocator,
+            size,
+            false,
+        ) {
+            Ok(c) => c,
+            Err(_) => return size,
+        };
+
+        if cached.region.w > 0 && cached.region.h > 0 {
+            let metrics = self.icon_face.metrics(size);
+            let (atlas_w, atlas_h) = self.allocator.size();
+            let uv = cached.region.to_uv_rect(atlas_w, atlas_h);
+            let gx = (x + cached.bearing_x).round();
+            let gy = (y + metrics.ascent - cached.bearing_y).round();
+            let gw = cached.region.w as f32;
+            let gh = cached.region.h as f32;
+
+            frame.push(make_textured_quad(gx, gy, gw, gh, uv, color));
+        }
+
+        self.flush_uploads(gpu, resources);
+        size
+    }
+
+    /// Measure the advance width of an icon at a given size.
+    /// Icons are square so this always returns `size`.
+    pub fn measure_icon(&self, _icon: crate::icon::Icon, size: f32) -> f32 {
+        size
     }
 }
 

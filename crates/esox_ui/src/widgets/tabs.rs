@@ -38,11 +38,15 @@ impl<'f> Ui<'f> {
         let prev_selected = state.selected;
         let response = self.tab_bar(id, state, labels);
 
-        // Tab content fade animation.
-        if state.selected != prev_selected || response.changed {
-            // Selection changed — restart fade.
-        }
+        // Tab content fade animation — restart when selection changes.
         let fade_id = fnv1a_mix(id, TAB_FADE_SALT);
+        if state.selected != prev_selected || response.changed {
+            if let Some(anim) = self.state.anims.get_mut(&fade_id) {
+                anim.from = 0.0;
+                anim.to = 1.0;
+                anim.start = std::time::Instant::now();
+            }
+        }
         let _fade_t = self.state.anim_t(
             fade_id,
             1.0,

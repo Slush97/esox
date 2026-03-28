@@ -51,7 +51,7 @@ impl<'f> Ui<'f> {
         self.text.draw_text(
             &text,
             rect.x + (rect.w - text_w) / 2.0,
-            rect.y + pad_y,
+            rect.y + (rect.h - font_size) / 2.0,
             font_size,
             fg,
             self.frame,
@@ -69,7 +69,7 @@ impl<'f> Ui<'f> {
 
     /// Draw a small colored dot badge (no number) — a "new" indicator.
     pub fn badge_dot(&mut self) {
-        let dot_size = 8.0;
+        let dot_size = self.theme.spacing_unit * 2.0;
         let rect = self.allocate_rect(dot_size, dot_size);
         let radius = dot_size / 2.0;
 
@@ -103,7 +103,7 @@ impl<'f> Ui<'f> {
         self.text.draw_text(
             label,
             rect.x + (rect.w - text_w) / 2.0,
-            rect.y + pad_y,
+            rect.y + (rect.h - font_size) / 2.0,
             font_size,
             fg,
             self.frame,

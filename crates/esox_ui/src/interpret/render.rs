@@ -100,6 +100,7 @@ fn dispatch(
         }
         WidgetKind::Badge => render_badge(ui, node),
         WidgetKind::Avatar => render_avatar(ui, node),
+        WidgetKind::CodeBlock => render_code_block(ui, node, child_index, id_ctx),
         WidgetKind::Skeleton => render_skeleton(ui, node),
         WidgetKind::StatusPill => render_pill(ui, node),
         WidgetKind::Alert => render_alert(ui, node, child_index, state, id_ctx, actions),
@@ -199,6 +200,14 @@ fn dispatch(
                 render_nodes(ui, &node.children, state, id_ctx, actions);
             });
         }
+        WidgetKind::Blockquote => {
+            let accent =
+                resolve::color_prop(node, "accent", ui.theme()).unwrap_or(ui.theme().accent);
+            ui.blockquote_colored(accent, |ui| {
+                render_nodes(ui, &node.children, state, id_ctx, actions);
+            });
+        }
+        WidgetKind::Spoiler => render_spoiler(ui, node, child_index, state, id_ctx, actions),
         WidgetKind::Style => {
             // Style node's props were already handled by build_style + with_style
             // in render_node. Just render children.
@@ -432,10 +441,20 @@ fn render_badge(ui: &mut Ui<'_>, node: &Node) {
 fn render_avatar(ui: &mut Ui<'_>, node: &Node) {
     let initials = node.text.as_deref().unwrap_or("?");
     let size = node.prop_f32("size").unwrap_or(32.0);
-    if let Some(bg) = resolve::color_prop(node, "bg", ui.theme()) {
-        ui.avatar_colored(initials, size, bg);
-    } else {
-        ui.avatar(initials, size);
+    let bg = resolve::color_prop(node, "bg", ui.theme());
+    let status = node.prop_str("status").and_then(|s| match s {
+        "online" => Some(crate::widgets::avatar::Status::Online),
+        "idle" => Some(crate::widgets::avatar::Status::Idle),
+        "dnd" | "do-not-disturb" => Some(crate::widgets::avatar::Status::DoNotDisturb),
+        "offline" => Some(crate::widgets::avatar::Status::Offline),
+        _ => None,
+    });
+
+    match (bg, status) {
+        (Some(bg), Some(st)) => ui.avatar_colored_with_status(initials, size, bg, st),
+        (None, Some(st)) => ui.avatar_with_status(initials, size, st),
+        (Some(bg), None) => ui.avatar_colored(initials, size, bg),
+        (None, None) => ui.avatar(initials, size),
     }
 }
 
@@ -1500,4 +1519,37 @@ fn render_menu_bar(
             }
         }
     }
+}
+
+// ── Veil P0 widgets ──────────────────────────────────────────────────────
+
+fn render_code_block(ui: &mut Ui<'_>, node: &Node, child_index: usize, id_ctx: &IdCtx) {
+    let code = node.text.as_deref().unwrap_or("");
+    let language = node.prop_str("language");
+    let bind = node.prop_str("bind");
+    let id = id_ctx.widget_id(bind, child_index);
+
+    if let Some(lang) = language {
+        ui.code_block_lang(id, lang, code);
+    } else {
+        ui.code_block(id, code);
+    }
+}
+
+fn render_spoiler(
+    ui: &mut Ui<'_>,
+    node: &Node,
+    child_index: usize,
+    state: &mut MarkupState,
+    id_ctx: &mut IdCtx,
+    actions: &mut Vec<Action>,
+) {
+    let bind = node.prop_str("bind");
+    let id = id_ctx.widget_id(bind, child_index);
+
+    id_ctx.push(id);
+    ui.spoiler(id, |ui| {
+        render_nodes(ui, &node.children, state, id_ctx, actions);
+    });
+    id_ctx.pop();
 }

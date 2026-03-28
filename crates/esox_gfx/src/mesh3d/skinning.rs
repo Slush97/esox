@@ -252,7 +252,10 @@ impl super::renderer::Renderer3D {
         if self.skinning_pipeline.is_none() {
             self.skinning_pipeline = Some(SkinningPipeline::new(&gpu.device));
         }
-        let pipeline = self.skinning_pipeline.as_ref().unwrap();
+        let pipeline = self
+            .skinning_pipeline
+            .as_ref()
+            .expect("skinning pipeline must be initialized (set on preceding line)");
 
         let skinned = SkinnedMesh::new(&gpu.device, pipeline, mesh_data, skin_data, joint_count);
 

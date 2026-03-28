@@ -34,7 +34,12 @@ impl<'f> Ui<'f> {
 
     /// Draw an accent-colored action button (full region width).
     pub fn button(&mut self, id: u64, label: &str) -> Response {
-        let btn_w = self.region.w;
+        let btn_w = if self.is_in_row() {
+            let label_w = self.text.measure_text(label, self.resolve_font_size());
+            (label_w + self.theme.input_padding * 4.0).max(self.theme.small_button_min_w)
+        } else {
+            self.region.w
+        };
         self.button_inner(id, label, btn_w)
     }
 

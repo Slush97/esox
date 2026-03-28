@@ -14,12 +14,16 @@ pub fn draw_border(frame: &mut Frame, rect: Rect, color: Color) {
 ///
 /// Uses a stroked SDF rounded rect so the border follows the corner radius
 /// instead of drawing straight lines that poke out at the corners.
+/// The stroke is drawn fully inside the rect so the border never exceeds
+/// the widget bounds.
 pub fn draw_rounded_border(frame: &mut Frame, rect: Rect, color: Color, radius: f32) {
+    let sw = 1.0;
+    let half = sw * 0.5;
     frame.push(
-        ShapeBuilder::rect(rect.x, rect.y, rect.w, rect.h)
+        ShapeBuilder::rect(rect.x + half, rect.y + half, rect.w - sw, rect.h - sw)
             .color(color)
-            .border_radius(BorderRadius::uniform(radius))
-            .stroke(1.0)
+            .border_radius(BorderRadius::uniform((radius - half).max(0.0)))
+            .stroke(sw)
             .build(),
     );
 }

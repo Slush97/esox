@@ -27,8 +27,10 @@ impl<'f> Ui<'f> {
         let rect = self.allocate_rect(size, size);
         self.state.spinner_active = true;
 
+        // Derive a unique a11y ID from cursor position.
+        let a11y_id = (rect.x.to_bits() as u64) ^ ((rect.y.to_bits() as u64) << 32);
         self.push_a11y_node(A11yNode {
-            id: 0,
+            id: a11y_id,
             role: A11yRole::ProgressBar,
             label: "Loading".to_string(),
             value: None,

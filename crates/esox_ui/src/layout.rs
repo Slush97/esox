@@ -111,8 +111,26 @@ pub struct Rect {
 }
 
 impl Rect {
+    /// A zero-sized rect at the origin. Used as the "completely clipped" sentinel.
+    pub const ZERO: Self = Self {
+        x: 0.0,
+        y: 0.0,
+        w: 0.0,
+        h: 0.0,
+    };
+
     pub fn new(x: f32, y: f32, w: f32, h: f32) -> Self {
         Self { x, y, w, h }
+    }
+
+    /// Construct from a `[x, y, w, h]` GPU clip array.
+    pub fn from_clip_array(a: [f32; 4]) -> Self {
+        Self {
+            x: a[0],
+            y: a[1],
+            w: a[2],
+            h: a[3],
+        }
     }
 
     /// Whether the point (px, py) is inside this rect.
@@ -335,7 +353,11 @@ pub enum FlexWrap {
     WrapReverse,
 }
 
-/// Saved layout context for nested row/padding/scroll.
+/// Saved layout state for nested horizontal/vertical groups.
+///
+/// Some fields (origin, region, spacing, clip_rect) are stored for
+/// future layout features but not yet read back. Suppressing the
+/// warning to keep the struct complete.
 #[allow(dead_code)]
 pub(crate) struct LayoutContext {
     pub direction: Direction,
