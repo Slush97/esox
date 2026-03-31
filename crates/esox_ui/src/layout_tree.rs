@@ -459,11 +459,20 @@ impl LayoutTree {
         }
 
         // Collect child info for flex distribution.
+        // Skip Overflow::Scroll containers — they are positioned internally by
+        // the scrollable widget, not by the parent's flex layout. The measure
+        // pass already excludes them from the parent's intrinsic size.
         let mut child_info: Vec<ChildFlexInfo> = Vec::new();
+        let mut scroll_children: Vec<NodeId> = Vec::new();
         {
             let mut child = self.nodes[id.index()].first_child;
             while let Some(c) = child {
                 let cn = &self.nodes[c.index()];
+                if cn.style.overflow == Overflow::Scroll {
+                    scroll_children.push(c);
+                    child = cn.next_sibling;
+                    continue;
+                }
                 let (iw, ih) = cn.intrinsic;
                 let basis = cn.style.flex_basis.unwrap_or(match dir {
                     Direction::Horizontal => iw,
@@ -484,6 +493,13 @@ impl LayoutTree {
                 });
                 child = cn.next_sibling;
             }
+        }
+
+        // Arrange scroll containers with the full content area — they handle
+        // their own internal layout and should not participate in flex.
+        for sc in scroll_children {
+            let scroll_rect = Rect::new(area.x, area.y, area.w, area.h);
+            self.arrange(sc, scroll_rect, child_scroll_ancestor, child_scroll_origin);
         }
 
         let n = child_info.len();
@@ -627,12 +643,23 @@ impl LayoutTree {
             Direction::Vertical => area.h,
         };
 
-        // Collect children.
+        // Collect children, skipping Overflow::Scroll containers (same as arrange).
         let mut children: Vec<NodeId> = Vec::new();
+        let mut scroll_children: Vec<NodeId> = Vec::new();
         let mut child = self.nodes[id.index()].first_child;
         while let Some(c) = child {
-            children.push(c);
+            if self.nodes[c.index()].style.overflow == Overflow::Scroll {
+                scroll_children.push(c);
+            } else {
+                children.push(c);
+            }
             child = self.nodes[c.index()].next_sibling;
+        }
+
+        // Arrange scroll containers with the full content area.
+        for sc in scroll_children {
+            let scroll_rect = Rect::new(area.x, area.y, area.w, area.h);
+            self.arrange(sc, scroll_rect, scroll_ancestor, scroll_origin);
         }
 
         if children.is_empty() {
@@ -810,11 +837,17 @@ impl LayoutTree {
         let num_cols = col_defs.len().max(1);
         let _num_rows = row_defs.len().max(1);
 
-        // Collect children with their placements.
+        // Collect children with their placements, skipping Overflow::Scroll containers.
         let mut children = Vec::new();
+        let mut scroll_children: Vec<NodeId> = Vec::new();
         let mut cid = self.nodes[id.index()].first_child;
         let mut auto_index: usize = 0;
         while let Some(c) = cid {
+            if self.nodes[c.index()].style.overflow == Overflow::Scroll {
+                scroll_children.push(c);
+                cid = self.nodes[c.index()].next_sibling;
+                continue;
+            }
             let placement = self.nodes[c.index()]
                 .style
                 .grid_placement
@@ -827,6 +860,12 @@ impl LayoutTree {
             children.push((c, placement));
             auto_index += 1;
             cid = self.nodes[c.index()].next_sibling;
+        }
+
+        // Arrange scroll containers with the full content area.
+        let content_rect = Rect::new(content_x, content_y, content_w, content_h);
+        for sc in scroll_children {
+            self.arrange(sc, content_rect, scroll_ancestor, scroll_origin);
         }
 
         // Resolve column widths.

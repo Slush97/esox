@@ -668,6 +668,8 @@ pub struct App {
     last_redraw: std::time::Instant,
     /// Whether a redraw has been requested but not yet serviced.
     redraw_pending: bool,
+    /// Force the next frame to skip the damage check (e.g. after resize).
+    force_next_redraw: bool,
     /// Whether the cursor is currently grabbed (locked + hidden).
     cursor_grabbed: bool,
     /// Count of consecutive render failures (for device-lost recovery).
@@ -710,6 +712,7 @@ impl App {
             monitor_refresh_hz: 60,
             last_redraw: std::time::Instant::now(),
             redraw_pending: false,
+            force_next_redraw: true,
             cursor_grabbed: false,
             consecutive_render_failures: 0,
             screenshot_pending: false,
@@ -1045,6 +1048,7 @@ impl ApplicationHandler<AppUserEvent> for App {
                 if let Some(gpu) = self.gpu.as_mut() {
                     gpu.resize(size.width, size.height);
                     self.delegate.on_resize(size.width, size.height, gpu);
+                    self.force_next_redraw = true;
                     // Recreate MSAA texture at new size.
                     if gpu.sample_count > 1 {
                         self.msaa_view = Some(create_msaa_texture(
@@ -1310,6 +1314,7 @@ impl ApplicationHandler<AppUserEvent> for App {
                 if let Some(gpu) = self.gpu.as_ref() {
                     self.delegate.on_scale_changed(scale_factor, gpu);
                 }
+                self.force_next_redraw = true;
             }
             WindowEvent::RedrawRequested => {
                 self.last_redraw = std::time::Instant::now();
@@ -1474,6 +1479,7 @@ impl ApplicationHandler<AppUserEvent> for App {
                     }
                     self.pp_bind_group_layout = Some(pp_layout);
                     self.pipeline_registry = Some(registry);
+                    self.force_next_redraw = true;
                 }
 
                 // Handle HDR mode change (requires surface reconfiguration + full rebuild).
@@ -1624,6 +1630,7 @@ impl ApplicationHandler<AppUserEvent> for App {
                     }
                     self.pp_bind_group_layout = Some(pp_layout);
                     self.pipeline_registry = Some(registry);
+                    self.force_next_redraw = true;
                 }
 
                 // Poll for async-compiled pipelines from the background thread.
@@ -1643,8 +1650,11 @@ impl ApplicationHandler<AppUserEvent> for App {
 
                     // Frame-skip: if no damage was detected during the frame and
                     // no continuous animation is running, skip GPU submission.
-                    let skip_gpu =
-                        !self.delegate.needs_redraw() && !self.delegate.needs_continuous_redraw();
+                    // Always render after a resize or on the first frame.
+                    let skip_gpu = !self.force_next_redraw
+                        && !self.delegate.needs_redraw()
+                        && !self.delegate.needs_continuous_redraw();
+                    self.force_next_redraw = false;
 
                     if skip_gpu {
                         self.perf.end_frame(0, 0);

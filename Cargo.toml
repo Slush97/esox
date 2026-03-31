@@ -7,13 +7,6 @@ members = [
     "crates/esox_ui",
     "crates/esox_platform",
     "examples/demo",
-    "examples/layout_showcase",
-    "examples/material_showcase",
-    "examples/google_showcase",
-    "examples/feature_showcase",
-    "examples/markup_demo",
-    "examples/discord_demo",
-    "examples/widget_showcase",
     "crates/esox_markup",
 ]
 

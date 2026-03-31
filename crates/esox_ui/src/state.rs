@@ -1440,6 +1440,10 @@ pub struct UiState {
     pub(crate) anim_rects: HashMap<u64, Rect>,
     /// Whether the most recently completed frame had any damage (latched before reset).
     frame_had_damage: bool,
+    /// Previous viewport dimensions for automatic layout invalidation.
+    pub(crate) prev_viewport: Option<(f32, f32)>,
+    /// Previous scale factor for automatic layout invalidation.
+    pub(crate) prev_scale_factor: Option<f32>,
 }
 
 /// IME (Input Method Editor) composition state.
@@ -1515,6 +1519,8 @@ impl UiState {
             mouse_moved: false,
             anim_rects: HashMap::new(),
             frame_had_damage: true,
+            prev_viewport: None,
+            prev_scale_factor: None,
         }
     }
 
@@ -1749,6 +1755,14 @@ impl UiState {
     /// `on_redraw()` returns.
     pub fn needs_redraw(&self) -> bool {
         self.frame_had_damage
+    }
+
+    /// Invalidate the cached layout tree, forcing fresh cursor-based
+    /// positioning on the next frame. Call this after the viewport size
+    /// changes so stale solved positions from the old size are not reused.
+    pub fn invalidate_layout(&mut self) {
+        self.layout_cache = None;
+        self.damage.invalidate_all();
     }
 
     /// Get or update a hover animation, returning the current interpolation value.
