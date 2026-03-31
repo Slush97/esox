@@ -26,8 +26,8 @@ impl<'f> Ui<'f> {
     pub fn accordion(
         &mut self,
         id: u64,
-        sections: &[&str],
         open_index: &mut Option<usize>,
+        sections: &[&str],
         mut content: impl FnMut(&mut Self, usize),
     ) {
         for (i, &title) in sections.iter().enumerate() {

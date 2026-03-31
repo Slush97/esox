@@ -28,15 +28,19 @@ const TAB_SLIDE_W_SALT: u64 = 0x7AB5_01D7_0000_0002;
 
 impl<'f> Ui<'f> {
     /// Tab bar + content area. Closure draws content for the selected tab.
+    #[allow(deprecated)]
     pub fn tabs(
         &mut self,
         id: u64,
-        state: &mut TabState,
+        selected: &mut usize,
         labels: &[&str],
         content: impl FnOnce(&mut Self, usize),
     ) -> Response {
+        let mut state = TabState {
+            selected: *selected,
+        };
         let prev_selected = state.selected;
-        let response = self.tab_bar(id, state, labels);
+        let response = self.tab_bar_state(id, &mut state, labels);
 
         // Tab content fade animation — restart when selection changes.
         let fade_id = fnv1a_mix(id, TAB_FADE_SALT);
@@ -54,12 +58,25 @@ impl<'f> Ui<'f> {
             Easing::EaseOutCubic,
         );
 
-        content(self, state.selected);
+        *selected = state.selected;
+        content(self, *selected);
         response
     }
 
     /// Tab bar only (no content area).
-    pub fn tab_bar(&mut self, id: u64, state: &mut TabState, labels: &[&str]) -> Response {
+    #[allow(deprecated)]
+    pub fn tab_bar(&mut self, id: u64, selected: &mut usize, labels: &[&str]) -> Response {
+        let mut state = TabState {
+            selected: *selected,
+        };
+        let response = self.tab_bar_state(id, &mut state, labels);
+        *selected = state.selected;
+        response
+    }
+
+    /// Tab bar only, using `TabState`.
+    #[deprecated(note = "use tab_bar() with &mut usize instead")]
+    pub fn tab_bar_state(&mut self, id: u64, state: &mut TabState, labels: &[&str]) -> Response {
         let font_size = self.theme.font_size;
         let pad = self.theme.input_padding;
         let indicator_h = self.theme.tab_indicator_height;

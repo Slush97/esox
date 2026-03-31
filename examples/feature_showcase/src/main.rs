@@ -6,7 +6,7 @@ use esox_gfx::{Color, Frame, GpuContext, RenderResources};
 use esox_platform::config::{PlatformConfig, WindowConfig};
 use esox_platform::{AppDelegate, Clipboard, MouseInputEvent};
 use esox_ui::{
-    ClipboardProvider, GridPlacement, GridTrack, Rect, RichText, Status, TabState, TextDecoration,
+    ClipboardProvider, GridPlacement, GridTrack, Rect, RichText, Status, TextDecoration,
     TextRenderer, TextTransform, Theme, ThemeTransition, Transform2D, UiState, WidgetStyle, id,
 };
 
@@ -34,7 +34,7 @@ struct FeatureShowcase {
     transition: Option<ThemeTransition>,
 
     // Navigation
-    tab_state: TabState,
+    tab_state: usize,
 
     // Widgets tab
     accordion_open: Option<usize>,
@@ -73,7 +73,7 @@ impl FeatureShowcase {
             base_dark,
             theme,
             transition: None,
-            tab_state: TabState::new(),
+            tab_state: 0,
             accordion_open: Some(0),
             rating_value: 3,
             alert_visible: true,
@@ -165,7 +165,7 @@ impl AppDelegate for FeatureShowcase {
             });
 
             // ── Tabs ──
-            let selected = self.tab_state.selected;
+            let selected = self.tab_state;
             ui.tabs(
                 id!("main_tabs"),
                 &mut self.tab_state,
@@ -259,8 +259,8 @@ impl AppDelegate for FeatureShowcase {
                                 ui.add_space(4.0);
                                 ui.accordion(
                                     id!("faq"),
-                                    &["What is Esox?", "How does rendering work?", "Is it accessible?"],
                                     &mut self.accordion_open,
+                                    &["What is Esox?", "How does rendering work?", "Is it accessible?"],
                                     |ui, i| match i {
                                         0 => {
                                             ui.paragraph(
@@ -1289,9 +1289,7 @@ impl AppDelegate for FeatureShowcase {
     }
 
     fn needs_continuous_redraw(&self) -> bool {
-        self.transition.is_some()
-            || self.ui_state.needs_continuous_redraw()
-            || self.tab_state.selected == 4 // Transforms tab has animations
+        self.transition.is_some() || self.ui_state.needs_continuous_redraw() || self.tab_state == 4 // Transforms tab has animations
     }
 
     fn cursor_icon(&self, x: f64, y: f64) -> esox_platform::esox_input::CursorIcon {

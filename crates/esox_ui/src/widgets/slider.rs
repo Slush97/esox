@@ -8,15 +8,16 @@ use crate::state::{A11yNode, A11yRole, InputState, WidgetKind};
 use crate::Ui;
 
 impl<'f> Ui<'f> {
-    /// Typed f32 slider — takes `&mut f32` directly, no `InputState` boilerplate.
-    pub fn slider_f32(&mut self, id: u64, value: &mut f32, min: f32, max: f32) -> Response {
+    /// Draw a horizontal slider with a direct `&mut f32`.
+    #[allow(deprecated)]
+    pub fn slider(&mut self, id: u64, value: &mut f32, min: f32, max: f32) -> Response {
         let mut input = InputState::new();
         input.text = if (max - min) >= 10.0 {
             format!("{}", (*value).round() as i32)
         } else {
             format!("{:.2}", *value)
         };
-        let response = self.slider(id, &mut input, min, max);
+        let response = self.slider_input(id, &mut input, min, max);
         if response.changed {
             if let Ok(v) = input.text.parse::<f32>() {
                 *value = v.clamp(min, max);
@@ -25,7 +26,8 @@ impl<'f> Ui<'f> {
         response
     }
 
-    /// Typed f64 slider — takes `&mut f64` directly, no `InputState` boilerplate.
+    /// Draw a horizontal slider with a direct `&mut f64`.
+    #[allow(deprecated)]
     pub fn slider_f64(&mut self, id: u64, value: &mut f64, min: f64, max: f64) -> Response {
         let mut input = InputState::new();
         input.text = if (max - min) >= 10.0 {
@@ -33,7 +35,7 @@ impl<'f> Ui<'f> {
         } else {
             format!("{:.2}", *value)
         };
-        let response = self.slider(id, &mut input, min as f32, max as f32);
+        let response = self.slider_input(id, &mut input, min as f32, max as f32);
         if response.changed {
             if let Ok(v) = input.text.parse::<f64>() {
                 *value = v.clamp(min, max);
@@ -44,7 +46,14 @@ impl<'f> Ui<'f> {
 
     /// Draw a horizontal slider. Value is stored in `input.text` as a decimal string.
     /// Clicking anywhere on the track sets the value proportionally.
-    pub fn slider(&mut self, id: u64, input: &mut InputState, min: f32, max: f32) -> Response {
+    #[deprecated(note = "use slider() with &mut f32 instead")]
+    pub fn slider_input(
+        &mut self,
+        id: u64,
+        input: &mut InputState,
+        min: f32,
+        max: f32,
+    ) -> Response {
         let rect = self.allocate_rect_keyed(id, self.region.w, self.theme.button_height);
         self.register_widget(id, rect, WidgetKind::Slider);
 
@@ -258,7 +267,7 @@ impl<'f> Ui<'f> {
     ///
     /// Displays the current value with `unit` appended (e.g., "14 px") centered
     /// above the thumb, and `min`/`max` labels at the track endpoints.
-    pub fn slider_f32_labeled(
+    pub fn slider_labeled(
         &mut self,
         id: u64,
         value: &mut f32,

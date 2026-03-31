@@ -10,10 +10,11 @@ use crate::Ui;
 
 impl<'f> Ui<'f> {
     /// Draw a labeled toggle switch with a direct `&mut bool`.
-    pub fn toggle_bool(&mut self, id: u64, checked: &mut bool, label: &str) -> Response {
+    #[allow(deprecated)]
+    pub fn toggle(&mut self, id: u64, checked: &mut bool, label: &str) -> Response {
         let mut input = InputState::new();
         input.text = if *checked { "true" } else { "false" }.into();
-        let response = self.toggle(id, &mut input, label);
+        let response = self.toggle_input(id, &mut input, label);
         if response.changed {
             *checked = input.text == "true";
         }
@@ -21,7 +22,8 @@ impl<'f> Ui<'f> {
     }
 
     /// Draw a labeled toggle switch. State stored in `input.text` as "true" or "false".
-    pub fn toggle(&mut self, id: u64, input: &mut InputState, label: &str) -> Response {
+    #[deprecated(note = "use toggle() with &mut bool instead")]
+    pub fn toggle_input(&mut self, id: u64, input: &mut InputState, label: &str) -> Response {
         let row_h = self.theme.button_height;
         let tw = self.theme.toggle_width;
         let th = self.theme.toggle_height;

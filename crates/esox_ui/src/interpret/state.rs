@@ -17,33 +17,44 @@ use crate::widgets::pagination::PaginationState;
 /// control the UI or react to changes.
 #[derive(Default)]
 pub struct MarkupState {
-    /// Text inputs, text areas, checkboxes, toggles, radios, sliders.
+    /// Text inputs, text areas.
     pub(crate) inputs: HashMap<String, InputState>,
-    /// Select dropdowns.
-    pub(crate) selects: HashMap<String, SelectState>,
-    /// Tab bars.
-    pub(crate) tabs: HashMap<String, TabState>,
+    /// Select dropdown indices.
+    pub(crate) select_indices: HashMap<String, usize>,
+    /// Tab bar selected indices.
+    pub(crate) tab_indices: HashMap<String, usize>,
     /// Data tables.
     pub(crate) tables: HashMap<String, TableState>,
     /// Tree views.
     pub(crate) trees: HashMap<String, TreeState>,
     /// Virtual scroll views.
     pub(crate) vscrolls: HashMap<String, VirtualScrollState>,
-    /// Pagination controls.
-    pub(crate) paginations: HashMap<String, PaginationState>,
-    /// Bool state: modal/drawer/popover open, dismissable alert visible.
+    /// Pagination current page indices.
+    pub(crate) pagination_indices: HashMap<String, usize>,
+    /// Bool state: checkbox, toggle, modal/drawer/popover open.
     pub(crate) bools: HashMap<String, bool>,
     /// Float state: number_input values.
     pub(crate) floats: HashMap<String, f64>,
+    /// Slider values (f32).
+    pub(crate) slider_values: HashMap<String, f32>,
     /// Rating values (u8).
     pub(crate) u8s: HashMap<String, u8>,
+    /// Radio selected indices.
+    pub(crate) radio_indices: HashMap<String, usize>,
     /// Accordion open section index.
     pub(crate) accordion_open: HashMap<String, Option<usize>>,
     /// Combobox selected index.
     pub(crate) comboboxes: HashMap<String, Option<usize>>,
     /// Previous frame's color values for transition animation.
-    /// Keyed by "{widget_id}_{property}" to track when colors change.
     pub(crate) prev_colors: HashMap<String, Color>,
+
+    // Deprecated — kept for backward compatibility with old API users.
+    #[deprecated(note = "use select_indices instead")]
+    pub(crate) selects: HashMap<String, SelectState>,
+    #[deprecated(note = "use tab_indices instead")]
+    pub(crate) tabs: HashMap<String, TabState>,
+    #[deprecated(note = "use pagination_indices instead")]
+    pub(crate) paginations: HashMap<String, PaginationState>,
 }
 
 impl MarkupState {
@@ -66,13 +77,9 @@ impl MarkupState {
 
     // ── Bool (checkbox/toggle via InputState, or overlay open) ──────
 
-    /// Get a boolean value. Checks `bools` map first, then `inputs` (for
-    /// checkbox/toggle where state is stored as `"true"`/`"false"` text).
+    /// Get a boolean value (checkbox, toggle, modal/drawer open state).
     pub fn get_bool(&self, bind: &str) -> Option<bool> {
-        if let Some(b) = self.bools.get(bind) {
-            return Some(*b);
-        }
-        self.inputs.get(bind).map(|s| s.text == "true")
+        self.bools.get(bind).copied()
     }
 
     /// Set a boolean value in the `bools` map (for modal/drawer open state).
@@ -80,10 +87,9 @@ impl MarkupState {
         self.bools.insert(bind.to_string(), val);
     }
 
-    /// Set a checkbox/toggle value via InputState.
+    /// Set a checkbox/toggle value.
     pub fn set_checked(&mut self, bind: &str, checked: bool) {
-        self.inputs.entry(bind.to_string()).or_default().text =
-            if checked { "true" } else { "false" }.to_string();
+        self.bools.insert(bind.to_string(), checked);
     }
 
     // ── Float (number_input) ────────────────────────────────────────
@@ -114,45 +120,39 @@ impl MarkupState {
 
     /// Get the selected index of a select or combobox widget.
     pub fn get_selected(&self, bind: &str) -> Option<usize> {
-        if let Some(s) = self.selects.get(bind) {
-            return Some(s.selected_index);
+        if let Some(&idx) = self.select_indices.get(bind) {
+            return Some(idx);
         }
         self.comboboxes.get(bind).and_then(|o| *o)
     }
 
     /// Set the selected index of a select widget.
     pub fn set_selected(&mut self, bind: &str, idx: usize) {
-        self.selects
-            .entry(bind.to_string())
-            .or_default()
-            .selected_index = idx;
+        self.select_indices.insert(bind.to_string(), idx);
     }
 
     // ── Tabs ────────────────────────────────────────────────────────
 
     /// Get the active tab index.
     pub fn get_tab(&self, bind: &str) -> Option<usize> {
-        self.tabs.get(bind).map(|t| t.selected)
+        self.tab_indices.get(bind).copied()
     }
 
     /// Set the active tab index.
     pub fn set_tab(&mut self, bind: &str, idx: usize) {
-        self.tabs.entry(bind.to_string()).or_default().selected = idx;
+        self.tab_indices.insert(bind.to_string(), idx);
     }
 
     // ── Pagination ──────────────────────────────────────────────────
 
     /// Get the current page (0-indexed).
     pub fn get_page(&self, bind: &str) -> Option<usize> {
-        self.paginations.get(bind).map(|p| p.current_page)
+        self.pagination_indices.get(bind).copied()
     }
 
     /// Set the current page (0-indexed).
     pub fn set_page(&mut self, bind: &str, page: usize) {
-        self.paginations
-            .entry(bind.to_string())
-            .or_default()
-            .current_page = page;
+        self.pagination_indices.insert(bind.to_string(), page);
     }
 
     // ── Accordion ───────────────────────────────────────────────────
@@ -177,19 +177,26 @@ impl MarkupState {
     // ── Utility ─────────────────────────────────────────────────────
 
     /// Clear all stored state.
+    #[allow(deprecated)]
     pub fn clear(&mut self) {
         self.inputs.clear();
-        self.selects.clear();
-        self.tabs.clear();
+        self.select_indices.clear();
+        self.tab_indices.clear();
         self.tables.clear();
         self.trees.clear();
         self.vscrolls.clear();
-        self.paginations.clear();
+        self.pagination_indices.clear();
         self.bools.clear();
         self.floats.clear();
+        self.slider_values.clear();
         self.u8s.clear();
+        self.radio_indices.clear();
         self.accordion_open.clear();
         self.comboboxes.clear();
+        // Deprecated fields
+        self.selects.clear();
+        self.tabs.clear();
+        self.paginations.clear();
     }
 }
 
