@@ -1751,6 +1751,14 @@ impl UiState {
         self.frame_had_damage
     }
 
+    /// Invalidate the cached layout tree, forcing fresh cursor-based
+    /// positioning on the next frame. Call this after the viewport size
+    /// changes so stale solved positions from the old size are not reused.
+    pub fn invalidate_layout(&mut self) {
+        self.layout_cache = None;
+        self.damage.invalidate_all();
+    }
+
     /// Get or update a hover animation, returning the current interpolation value.
     /// On first call the animation starts settled at the appropriate end value.
     pub fn hover_t(&mut self, id: u64, is_hovered: bool, duration_ms: f32) -> f32 {
