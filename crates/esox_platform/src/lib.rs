@@ -1314,6 +1314,7 @@ impl ApplicationHandler<AppUserEvent> for App {
                 if let Some(gpu) = self.gpu.as_ref() {
                     self.delegate.on_scale_changed(scale_factor, gpu);
                 }
+                self.force_next_redraw = true;
             }
             WindowEvent::RedrawRequested => {
                 self.last_redraw = std::time::Instant::now();
@@ -1478,6 +1479,7 @@ impl ApplicationHandler<AppUserEvent> for App {
                     }
                     self.pp_bind_group_layout = Some(pp_layout);
                     self.pipeline_registry = Some(registry);
+                    self.force_next_redraw = true;
                 }
 
                 // Handle HDR mode change (requires surface reconfiguration + full rebuild).
@@ -1628,6 +1630,7 @@ impl ApplicationHandler<AppUserEvent> for App {
                     }
                     self.pp_bind_group_layout = Some(pp_layout);
                     self.pipeline_registry = Some(registry);
+                    self.force_next_redraw = true;
                 }
 
                 // Poll for async-compiled pipelines from the background thread.

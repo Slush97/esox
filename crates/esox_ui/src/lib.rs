@@ -537,6 +537,20 @@ impl<'f> Ui<'f> {
         text.set_header_font_size(theme.header_font_size);
         state.begin_frame(theme.scroll_friction);
 
+        // Auto-invalidate layout when viewport size or scale factor changes.
+        let vp = (viewport.w, viewport.h);
+        if state.prev_viewport.is_some_and(|prev| prev != vp) {
+            state.invalidate_layout();
+        }
+        state.prev_viewport = Some(vp);
+        if state
+            .prev_scale_factor
+            .is_some_and(|prev| prev != state.scale_factor)
+        {
+            state.invalidate_layout();
+        }
+        state.prev_scale_factor = Some(state.scale_factor);
+
         // Set up tile grid for partial redraw if available.
         if let Some(ref mut grid) = state.tile_grid {
             grid.resize(viewport.w as u32, viewport.h as u32);

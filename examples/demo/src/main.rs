@@ -1,9 +1,7 @@
 use esox_gfx::{Frame, GpuContext, RenderResources};
 use esox_platform::config::{PlatformConfig, WindowConfig};
 use esox_platform::{AppDelegate, Clipboard, MouseInputEvent};
-use esox_ui::{
-    ClipboardProvider, InputState, Rect, TextRenderer, Theme, UiState, id,
-};
+use esox_ui::{ClipboardProvider, InputState, Rect, TextRenderer, Theme, UiState, id};
 
 struct PlatformClipboard;
 
@@ -70,7 +68,13 @@ impl AppDelegate for App {
         let text = self.text.as_mut().unwrap();
         let vp = Rect::new(0.0, 0.0, self.viewport.0 as f32, self.viewport.1 as f32);
         let mut ui = esox_ui::Ui::begin(
-            frame, gpu, resources, text, &mut self.ui_state, &self.theme, vp,
+            frame,
+            gpu,
+            resources,
+            text,
+            &mut self.ui_state,
+            &self.theme,
+            vp,
         );
 
         let scroll_h = self.viewport.1 as f32;
@@ -136,8 +140,12 @@ impl AppDelegate for App {
     fn on_mouse(&mut self, event: MouseInputEvent) {
         match event {
             MouseInputEvent::Moved { x, y } => {
-                self.ui_state
-                    .process_mouse_move(x as f32, y as f32, self.theme.item_height, self.theme.dropdown_gap);
+                self.ui_state.process_mouse_move(
+                    x as f32,
+                    y as f32,
+                    self.theme.item_height,
+                    self.theme.dropdown_gap,
+                );
             }
             MouseInputEvent::Press { x, y, button: 0 } => {
                 self.ui_state.process_mouse_click(x as f32, y as f32);

@@ -643,12 +643,23 @@ impl LayoutTree {
             Direction::Vertical => area.h,
         };
 
-        // Collect children.
+        // Collect children, skipping Overflow::Scroll containers (same as arrange).
         let mut children: Vec<NodeId> = Vec::new();
+        let mut scroll_children: Vec<NodeId> = Vec::new();
         let mut child = self.nodes[id.index()].first_child;
         while let Some(c) = child {
-            children.push(c);
+            if self.nodes[c.index()].style.overflow == Overflow::Scroll {
+                scroll_children.push(c);
+            } else {
+                children.push(c);
+            }
             child = self.nodes[c.index()].next_sibling;
+        }
+
+        // Arrange scroll containers with the full content area.
+        for sc in scroll_children {
+            let scroll_rect = Rect::new(area.x, area.y, area.w, area.h);
+            self.arrange(sc, scroll_rect, scroll_ancestor, scroll_origin);
         }
 
         if children.is_empty() {
@@ -826,11 +837,17 @@ impl LayoutTree {
         let num_cols = col_defs.len().max(1);
         let _num_rows = row_defs.len().max(1);
 
-        // Collect children with their placements.
+        // Collect children with their placements, skipping Overflow::Scroll containers.
         let mut children = Vec::new();
+        let mut scroll_children: Vec<NodeId> = Vec::new();
         let mut cid = self.nodes[id.index()].first_child;
         let mut auto_index: usize = 0;
         while let Some(c) = cid {
+            if self.nodes[c.index()].style.overflow == Overflow::Scroll {
+                scroll_children.push(c);
+                cid = self.nodes[c.index()].next_sibling;
+                continue;
+            }
             let placement = self.nodes[c.index()]
                 .style
                 .grid_placement
@@ -843,6 +860,12 @@ impl LayoutTree {
             children.push((c, placement));
             auto_index += 1;
             cid = self.nodes[c.index()].next_sibling;
+        }
+
+        // Arrange scroll containers with the full content area.
+        let content_rect = Rect::new(content_x, content_y, content_w, content_h);
+        for sc in scroll_children {
+            self.arrange(sc, content_rect, scroll_ancestor, scroll_origin);
         }
 
         // Resolve column widths.
