@@ -30,14 +30,14 @@ const MAX_VISIBLE_ITEMS: usize = 8;
 impl<'f> Ui<'f> {
     /// Draw a combobox (filterable dropdown).
     ///
-    /// `options` is the full list of choices. `selected` is the index of the
-    /// currently selected option (mutated on selection). Returns a `Response`
+    /// `selected` is the index of the currently selected option (mutated on
+    /// selection). `options` is the full list of choices. Returns a `Response`
     /// with `changed = true` when the selection changes.
     pub fn combobox(
         &mut self,
         id: u64,
-        options: &[&str],
         selected: &mut Option<usize>,
+        options: &[&str],
     ) -> Response {
         let rect = self.allocate_rect_keyed(id, self.region.w, self.theme.button_height);
         self.register_widget(id, rect, WidgetKind::Combobox);

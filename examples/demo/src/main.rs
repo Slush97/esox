@@ -5,8 +5,8 @@ use esox_platform::config::{PlatformConfig, WindowConfig};
 use esox_platform::{AppDelegate, Clipboard, MouseInputEvent};
 use esox_ui::{
     ClipboardProvider, ColumnWidth, FieldStatus, ImageCache, ImageHandle, InputState, ModalAction,
-    Rect, RichText, SelectState, TabState, TableColumn, TableState, TextRenderer, Theme, TreeState,
-    UiState, VirtualScrollState, fnv1a_mix, id,
+    Rect, RichText, TableColumn, TableState, TextRenderer, Theme, TreeState, UiState,
+    VirtualScrollState, fnv1a_mix, id,
 };
 
 /// Clipboard provider backed by the platform clipboard.
@@ -28,17 +28,17 @@ struct DemoApp {
     base_theme: Theme,
     theme: Theme,
     viewport: (u32, u32),
-    checkbox_states: HashMap<u64, InputState>,
-    slider_state: InputState,
+    checkbox_states: HashMap<u64, bool>,
+    slider_state: f32,
     text_input_state: InputState,
     text_area_state: InputState,
     text_area_disabled_state: InputState,
     text_area_wrapped_state: InputState,
-    select_state: SelectState,
-    radio_state: InputState,
+    select_state: usize,
+    radio_state: usize,
     progress: f32,
     // Tier 3 state.
-    tab_state: TabState,
+    tab_state: usize,
     table_state: TableState,
     tree_state: TreeState,
     virtual_scroll_state: VirtualScrollState,
@@ -51,16 +51,13 @@ struct DemoApp {
     confirm_modal_open: bool,
     confirm_result: String,
     // New widgets.
-    toggle_state: InputState,
+    toggle_state: bool,
     number_value: f64,
     combobox_selected: Option<usize>,
 }
 
 impl DemoApp {
     fn new() -> Self {
-        let mut slider = InputState::new();
-        slider.text = "50".into();
-
         let mut ui_state = UiState::new();
         ui_state.clipboard = Some(Box::new(PlatformClipboard));
         Self {
@@ -70,7 +67,7 @@ impl DemoApp {
             theme: Theme::dark(),
             viewport: (650, 1400),
             checkbox_states: HashMap::new(),
-            slider_state: slider,
+            slider_state: 50.0,
             text_input_state: InputState::new(),
             text_area_state: InputState::new(),
             text_area_disabled_state: {
@@ -83,14 +80,10 @@ impl DemoApp {
                 s.text = "This text area uses soft word wrap. Long lines will break at word boundaries instead of extending beyond the widget. Try typing a long sentence to see it in action.".into();
                 s
             },
-            select_state: SelectState::new(),
-            radio_state: {
-                let mut s = InputState::new();
-                s.text = "0".into();
-                s
-            },
+            select_state: 0,
+            radio_state: 0,
             progress: 0.7,
-            tab_state: TabState::new(),
+            tab_state: 0,
             table_state: TableState::new(),
             tree_state: {
                 let mut t = TreeState::new();
@@ -104,7 +97,7 @@ impl DemoApp {
             modal_open: false,
             confirm_modal_open: false,
             confirm_result: String::new(),
-            toggle_state: InputState::new(),
+            toggle_state: false,
             number_value: 42.0,
             combobox_selected: None,
         }
@@ -234,7 +227,7 @@ impl AppDelegate for DemoApp {
                 ui.add_space(16.0);
 
                 ui.header_label("COMBOBOX");
-                ui.combobox(id!("demo_combo"), &["Apple", "Banana", "Cherry", "Date", "Elderberry"], &mut self.combobox_selected);
+                ui.combobox(id!("demo_combo"), &mut self.combobox_selected, &["Apple", "Banana", "Cherry", "Date", "Elderberry"]);
                 ui.add_space(16.0);
 
                 ui.header_label("SPINNER");
@@ -526,7 +519,7 @@ impl AppDelegate for DemoApp {
 
         if let Some((sel_id, sel_idx)) = ui.finish() {
             if sel_id == id!("demo_select") {
-                self.select_state.selected_index = sel_idx;
+                self.select_state = sel_idx;
             } else if sel_id == id!("demo_combo") {
                 self.combobox_selected = Some(sel_idx);
             }

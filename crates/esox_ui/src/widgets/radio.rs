@@ -7,9 +7,30 @@ use crate::state::{A11yNode, A11yRole, InputState, WidgetKind};
 use crate::Ui;
 
 impl<'f> Ui<'f> {
-    /// Draw a labeled radio button. All options in a group share the same `InputState`,
-    /// where `input.text` stores the selected option's index as a string (e.g., `"0"`, `"2"`).
+    /// Draw a labeled radio button. All options in a group share a `&mut usize`
+    /// that stores the selected option's index.
+    #[allow(deprecated)]
     pub fn radio(
+        &mut self,
+        id: u64,
+        selected: &mut usize,
+        option_index: usize,
+        label: &str,
+    ) -> Response {
+        let mut input = InputState::new();
+        input.text = format!("{selected}");
+        let response = self.radio_input(id, &mut input, option_index, label);
+        if response.changed {
+            if let Ok(v) = input.text.parse::<usize>() {
+                *selected = v;
+            }
+        }
+        response
+    }
+
+    /// Draw a labeled radio button using `InputState` (stores index as string).
+    #[deprecated(note = "use radio() with &mut usize instead")]
+    pub fn radio_input(
         &mut self,
         id: u64,
         input: &mut InputState,

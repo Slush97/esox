@@ -66,6 +66,10 @@ pub struct LayoutStyle {
 
     // Grid item placement (for children of a grid container).
     pub grid_placement: Option<GridPlacement>,
+
+    /// For scroll content containers: the scroll offset key (the raw widget id,
+    /// not the salted content key) used to look up scroll offsets in `UiState`.
+    pub scroll_offset_key: Option<u64>,
 }
 
 impl Default for LayoutStyle {
@@ -92,6 +96,7 @@ impl Default for LayoutStyle {
             grid_column_gap: None,
             grid_row_gap: None,
             grid_placement: None,
+            scroll_offset_key: None,
         }
     }
 }
@@ -114,6 +119,13 @@ pub struct LayoutNode {
     pub first_child: Option<NodeId>,
     pub last_child: Option<NodeId>,
     pub next_sibling: Option<NodeId>,
+
+    /// Nearest scroll container ancestor (if any). Used to compute scroll-aware
+    /// positions in [`LayoutTree::lookup_scrolled`].
+    pub scroll_ancestor: Option<NodeId>,
+    /// Position relative to the nearest scroll container's content origin.
+    /// Only meaningful when `scroll_ancestor` is `Some`.
+    pub local_rect: Rect,
 }
 
 impl LayoutNode {
@@ -128,6 +140,8 @@ impl LayoutNode {
             first_child: None,
             last_child: None,
             next_sibling: None,
+            scroll_ancestor: None,
+            local_rect: Rect::default(),
         }
     }
 }
@@ -184,6 +198,62 @@ impl LayoutTree {
             .map(|id| self.nodes[id.index()].rect)
     }
 
+    /// Lookup a solved rect by widget key, adjusting for current scroll offsets.
+    ///
+    /// For nodes inside a scrollable, reconstructs absolute position from the
+    /// stored scroll-relative `local_rect` and the current scroll offset.
+    /// Handles nested scrollables by walking the ancestor chain.
+    ///
+    /// `get_scroll` maps a scroll container's offset key to its `[y, x]` offset.
+    pub fn lookup_scrolled(
+        &self,
+        key: u64,
+        get_scroll: impl Fn(u64) -> Option<[f32; 2]>,
+    ) -> Option<Rect> {
+        let id = *self.key_index.get(&key)?;
+        let node = &self.nodes[id.index()];
+
+        if node.scroll_ancestor.is_none() {
+            // Not inside a scrollable — return absolute rect directly.
+            return Some(node.rect);
+        }
+
+        // Walk the scroll ancestor chain to accumulate offsets.
+        let mut local = node.local_rect;
+        let mut ancestor_id = node.scroll_ancestor;
+
+        while let Some(aid) = ancestor_id {
+            let ancestor = &self.nodes[aid.index()];
+            let offset_key = ancestor.style.scroll_offset_key.unwrap_or(ancestor.key);
+            let scroll_off = get_scroll(offset_key).unwrap_or([0.0, 0.0]);
+
+            // Translate local position to absolute using ancestor's rect and scroll offset.
+            local = Rect::new(
+                local.x + ancestor.rect.x - scroll_off[1],
+                local.y + ancestor.rect.y - scroll_off[0],
+                local.w,
+                local.h,
+            );
+
+            // If this ancestor is also inside a scrollable, make local relative
+            // to the next ancestor and continue.
+            if let Some(outer_aid) = ancestor.scroll_ancestor {
+                let outer = &self.nodes[outer_aid.index()];
+                local = Rect::new(
+                    local.x - outer.rect.x,
+                    local.y - outer.rect.y,
+                    local.w,
+                    local.h,
+                );
+                ancestor_id = Some(outer_aid);
+            } else {
+                ancestor_id = None;
+            }
+        }
+
+        Some(local)
+    }
+
     /// Lookup the intrinsic (measured) size by widget key.
     pub fn intrinsic_size(&self, key: u64) -> Option<(f32, f32)> {
         self.key_index
@@ -211,7 +281,7 @@ impl LayoutTree {
     pub fn solve(&mut self, viewport: Rect) {
         if let Some(root) = self.root {
             self.measure(root);
-            self.arrange(root, viewport);
+            self.arrange(root, viewport, None, (0.0, 0.0));
         }
     }
 
@@ -242,6 +312,12 @@ impl LayoutTree {
         let mut child = node.first_child;
         while let Some(c) = child {
             let cn = &self.nodes[c.index()];
+            // Skip scroll containers — they clip content internally.
+            // Their parent sees the viewport leaf, not the content container.
+            if cn.style.overflow == Overflow::Scroll {
+                child = cn.next_sibling;
+                continue;
+            }
             let margin = &cn.style.margin;
             let (cw, ch) = cn.intrinsic;
             let (c_main, c_cross) = match dir {
@@ -281,36 +357,52 @@ impl LayoutTree {
             h = h.max(min);
         }
 
-        // Scroll containers clip their content internally, so they should not
-        // inflate the parent's intrinsic size with the full content height.
-        // Report zero — the parent already has a viewport leaf for the visible
-        // area.  arrange() for scroll children produces unused solved positions
-        // (scroll_depth > 0 bypasses the cache), so this is safe.
-        if self.nodes[id.index()].style.overflow == Overflow::Scroll {
-            self.nodes[id.index()].intrinsic = (0.0, 0.0);
-        } else {
-            self.nodes[id.index()].intrinsic = (w, h);
-        }
+        // Scroll containers keep their real intrinsic sizes (needed by arrange
+        // to compute content layout). They don't inflate the parent because the
+        // parent's measure loop skips Overflow::Scroll children.
+        self.nodes[id.index()].intrinsic = (w, h);
     }
 
     /// Top-down: distribute space from root to leaves.
     ///
     /// `available` already has the node's own margin applied by the parent.
-    fn arrange(&mut self, id: NodeId, available: Rect) {
+    /// `scroll_ancestor` / `scroll_origin` track the nearest scroll container
+    /// so that descendants can store scroll-relative positions.
+    fn arrange(
+        &mut self,
+        id: NodeId,
+        available: Rect,
+        scroll_ancestor: Option<NodeId>,
+        scroll_origin: (f32, f32),
+    ) {
         self.nodes[id.index()].rect = available;
 
-        // For scroll containers, use intrinsic height for content layout.
-        let rect = if self.nodes[id.index()].style.overflow == Overflow::Scroll {
-            let (iw, ih) = self.nodes[id.index()].intrinsic;
-            Rect::new(
-                available.x,
-                available.y,
-                available.w.max(iw),
-                ih.max(available.h),
-            )
-        } else {
-            available
-        };
+        // Store scroll-relative position for nodes inside a scrollable.
+        self.nodes[id.index()].scroll_ancestor = scroll_ancestor;
+        if scroll_ancestor.is_some() {
+            self.nodes[id.index()].local_rect = Rect::new(
+                available.x - scroll_origin.0,
+                available.y - scroll_origin.1,
+                available.w,
+                available.h,
+            );
+        }
+
+        // For scroll containers, use intrinsic height for content layout
+        // and become the new scroll ancestor for descendants.
+        let (rect, child_scroll_ancestor, child_scroll_origin) =
+            if self.nodes[id.index()].style.overflow == Overflow::Scroll {
+                let (iw, ih) = self.nodes[id.index()].intrinsic;
+                let content_rect = Rect::new(
+                    available.x,
+                    available.y,
+                    available.w.max(iw),
+                    ih.max(available.h),
+                );
+                (content_rect, Some(id), (available.x, available.y))
+            } else {
+                (available, scroll_ancestor, scroll_origin)
+            };
 
         if self.nodes[id.index()].is_leaf {
             return;
@@ -318,7 +410,7 @@ impl LayoutTree {
 
         // Dispatch to grid solver if this is a grid container.
         if self.nodes[id.index()].style.grid_columns.is_some() {
-            self.arrange_grid(id, rect);
+            self.arrange_grid(id, rect, child_scroll_ancestor, child_scroll_origin);
             return;
         }
 
@@ -352,7 +444,17 @@ impl LayoutTree {
         };
 
         if wrap != FlexWrap::NoWrap {
-            self.arrange_wrapped(id, dir, &area, gap, align, justify, wrap);
+            self.arrange_wrapped(
+                id,
+                dir,
+                &area,
+                gap,
+                align,
+                justify,
+                wrap,
+                child_scroll_ancestor,
+                child_scroll_origin,
+            );
             return;
         }
 
@@ -489,7 +591,12 @@ impl LayoutTree {
                 ),
             };
 
-            self.arrange(ci.id, child_rect);
+            self.arrange(
+                ci.id,
+                child_rect,
+                child_scroll_ancestor,
+                child_scroll_origin,
+            );
 
             main_pos += main_size
                 + gap
@@ -512,6 +619,8 @@ impl LayoutTree {
         align: Align,
         justify: Justify,
         wrap: FlexWrap,
+        scroll_ancestor: Option<NodeId>,
+        scroll_origin: (f32, f32),
     ) {
         let available_main = match dir {
             Direction::Horizontal => area.w,
@@ -659,7 +768,7 @@ impl LayoutTree {
                     ),
                 };
 
-                self.arrange(cid, child_rect);
+                self.arrange(cid, child_rect, scroll_ancestor, scroll_origin);
 
                 main_pos += basis
                     + gap
@@ -678,7 +787,13 @@ impl LayoutTree {
     ///
     /// Resolves column/row track sizes (Fixed, Auto, Fr), places children
     /// according to their `grid_placement`, and recursively arranges each.
-    fn arrange_grid(&mut self, id: NodeId, rect: Rect) {
+    fn arrange_grid(
+        &mut self,
+        id: NodeId,
+        rect: Rect,
+        scroll_ancestor: Option<NodeId>,
+        scroll_origin: (f32, f32),
+    ) {
         let node = &self.nodes[id.index()];
         let pad = node.style.padding;
         let col_gap = node.style.grid_column_gap.unwrap_or(node.style.gap);
@@ -760,13 +875,22 @@ impl LayoutTree {
             let h: f32 = row_sizes[r..end_r].iter().sum::<f32>()
                 + row_gap * (end_r - r).saturating_sub(1) as f32;
 
-            self.arrange(child_id, Rect::new(x, y, w, h));
+            self.arrange(
+                child_id,
+                Rect::new(x, y, w, h),
+                scroll_ancestor,
+                scroll_origin,
+            );
         }
     }
 }
 
 /// Resolve grid track sizes from definitions and available space.
-fn resolve_tracks(
+///
+/// Pass empty slices for `children` and `nodes` when child intrinsics are not
+/// available (e.g. cursor-based grid layout on frame 1). Auto tracks will
+/// receive zero space in that case.
+pub fn resolve_tracks(
     defs: &[GridTrack],
     available: f32,
     gap: f32,
@@ -840,7 +964,7 @@ fn resolve_tracks(
 }
 
 /// Compute cumulative start positions from track sizes and gap.
-fn track_positions(sizes: &[f32], gap: f32, origin: f32) -> Vec<f32> {
+pub fn track_positions(sizes: &[f32], gap: f32, origin: f32) -> Vec<f32> {
     let mut positions = Vec::with_capacity(sizes.len());
     let mut pos = origin;
     for &size in sizes {

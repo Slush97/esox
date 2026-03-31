@@ -12,7 +12,24 @@ use crate::Ui;
 
 impl<'f> Ui<'f> {
     /// Draw a select field. Returns a Response where `changed` indicates a new selection.
-    pub fn select(&mut self, id: u64, select: &mut SelectState, choices: &[&str]) -> Response {
+    #[allow(deprecated)]
+    pub fn select(&mut self, id: u64, selected: &mut usize, choices: &[&str]) -> Response {
+        let mut state = SelectState {
+            selected_index: *selected,
+        };
+        let response = self.select_state(id, &mut state, choices);
+        *selected = state.selected_index;
+        response
+    }
+
+    /// Draw a select field using `SelectState`.
+    #[deprecated(note = "use select() with &mut usize instead")]
+    pub fn select_state(
+        &mut self,
+        id: u64,
+        select: &mut SelectState,
+        choices: &[&str],
+    ) -> Response {
         let rect = self.allocate_rect_keyed(id, self.region.w, self.theme.button_height);
         self.register_widget(id, rect, WidgetKind::Select);
 

@@ -3403,6 +3403,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "widget_showcase"
+version = "0.1.0"
+dependencies = [
+ "esox_font",
+ "esox_gfx",
+ "esox_input",
+ "esox_platform",
+ "esox_ui",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "winapi-util"
 version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"

@@ -5,8 +5,8 @@ use esox_platform::config::{PlatformConfig, WindowConfig};
 use esox_platform::{AppDelegate, Clipboard, MouseInputEvent};
 use esox_ui::{
     ClipboardProvider, ColumnWidth, FieldStatus, InputState, ModalAction, Rect, RichText,
-    SelectState, TabState, TableColumn, TableState, TextRenderer, Theme, ThemeTransition,
-    TreeState, UiState, VirtualScrollState, WidgetStyle, id,
+    TableColumn, TableState, TextRenderer, Theme, ThemeTransition, TreeState, UiState,
+    VirtualScrollState, WidgetStyle, id,
 };
 
 struct PlatformClipboard;
@@ -33,7 +33,7 @@ struct MaterialShowcase {
     transition: Option<ThemeTransition>,
 
     // Navigation
-    tab_state: TabState,
+    tab_state: usize,
 
     // Overview state
     upload_progress: f32,
@@ -42,13 +42,13 @@ struct MaterialShowcase {
     name_input: InputState,
     email_input: InputState,
     bio_input: InputState,
-    role_select: SelectState,
+    role_select: usize,
     country_combo: Option<usize>,
     experience_value: f64,
     font_size_value: f64,
-    newsletter_cb: HashMap<u64, InputState>,
-    notifications_toggle: InputState,
-    priority_radio: InputState,
+    newsletter_cb: HashMap<u64, bool>,
+    notifications_toggle: bool,
+    priority_radio: usize,
 
     // Data state
     table_state: TableState,
@@ -73,9 +73,6 @@ impl MaterialShowcase {
         let mut email = InputState::new();
         email.text = "bad-email@@".into();
 
-        let mut priority = InputState::new();
-        priority.text = "1".into();
-
         Self {
             ui_state,
             text: None,
@@ -85,18 +82,18 @@ impl MaterialShowcase {
             base_dark,
             theme,
             transition: None,
-            tab_state: TabState::new(),
+            tab_state: 0,
             upload_progress: 0.0,
             name_input: InputState::new(),
             email_input: email,
             bio_input: InputState::new(),
-            role_select: SelectState::new(),
+            role_select: 0,
             country_combo: None,
             experience_value: 5.0,
             font_size_value: 14.0,
             newsletter_cb: HashMap::new(),
-            notifications_toggle: InputState::new(),
-            priority_radio: priority,
+            notifications_toggle: false,
+            priority_radio: 1,
             table_state: TableState::new(),
             tree_state: {
                 let mut t = TreeState::new();
@@ -190,7 +187,7 @@ impl AppDelegate for MaterialShowcase {
             });
 
             // ── Tabs ──
-            let selected = self.tab_state.selected;
+            let selected = self.tab_state;
             ui.tabs(
                 id!("ms_tabs"),
                 &mut self.tab_state,
@@ -374,6 +371,7 @@ impl AppDelegate for MaterialShowcase {
                                 ui.form_field("Country", FieldStatus::None, "", |ui| {
                                     ui.combobox(
                                         id!("ms_country"),
+                                        &mut self.country_combo,
                                         &[
                                             "United States",
                                             "Germany",
@@ -383,7 +381,6 @@ impl AppDelegate for MaterialShowcase {
                                             "India",
                                             "Canada",
                                         ],
-                                        &mut self.country_combo,
                                     )
                                 });
 

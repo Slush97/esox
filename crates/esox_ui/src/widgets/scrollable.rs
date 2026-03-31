@@ -106,14 +106,15 @@ impl<'f> Ui<'f> {
                 direction: Direction::Vertical,
                 gap: self.spacing,
                 overflow: Overflow::Scroll,
+                scroll_offset_key: Some(id),
                 ..Default::default()
             },
         );
-        self.scroll_depth += 1;
+
         let content_start_y = self.cursor.y;
         f(self);
         let content_height = self.cursor.y - content_start_y - self.spacing; // subtract trailing spacing
-        self.scroll_depth -= 1;
+
         self.tree_build.close_container();
 
         // Scroll edge gradient fades disabled — the visual effect is distracting
@@ -316,14 +317,15 @@ impl<'f> Ui<'f> {
                 direction: Direction::Horizontal,
                 gap: self.spacing,
                 overflow: Overflow::Scroll,
+                scroll_offset_key: Some(id),
                 ..Default::default()
             },
         );
-        self.scroll_depth += 1;
+
         let content_start_x = self.cursor.x;
         f(self);
         let content_width = self.cursor.x - content_start_x - self.spacing;
-        self.scroll_depth -= 1;
+
         self.tree_build.close_container();
 
         self.restore_layout_state(&saved);
@@ -452,15 +454,16 @@ impl<'f> Ui<'f> {
                 direction: Direction::Vertical,
                 gap: self.spacing,
                 overflow: Overflow::Scroll,
+                scroll_offset_key: Some(id),
                 ..Default::default()
             },
         );
-        self.scroll_depth += 1;
+
         let content_start = self.cursor;
         f(self);
         let content_width = self.cursor.x - content_start.x - self.spacing;
         let content_height = self.cursor.y - content_start.y - self.spacing;
-        self.scroll_depth -= 1;
+
         self.tree_build.close_container();
 
         self.restore_layout_state(&saved);

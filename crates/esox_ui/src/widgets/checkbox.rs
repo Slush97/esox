@@ -10,10 +10,11 @@ use crate::Ui;
 
 impl<'f> Ui<'f> {
     /// Draw a labeled checkbox with a direct `&mut bool`.
-    pub fn checkbox_bool(&mut self, id: u64, checked: &mut bool, label: &str) -> Response {
+    #[allow(deprecated)]
+    pub fn checkbox(&mut self, id: u64, checked: &mut bool, label: &str) -> Response {
         let mut input = InputState::new();
         input.text = if *checked { "true" } else { "false" }.into();
-        let response = self.checkbox(id, &mut input, label);
+        let response = self.checkbox_input(id, &mut input, label);
         if response.changed {
             *checked = input.text == "true";
         }
@@ -21,7 +22,8 @@ impl<'f> Ui<'f> {
     }
 
     /// Draw a labeled checkbox. State stored in `input.text` as "true" or "false".
-    pub fn checkbox(&mut self, id: u64, input: &mut InputState, label: &str) -> Response {
+    #[deprecated(note = "use checkbox() with &mut bool instead")]
+    pub fn checkbox_input(&mut self, id: u64, input: &mut InputState, label: &str) -> Response {
         let row_h = self.theme.button_height;
         let rect = self.allocate_rect_keyed(id, self.region.w, row_h);
         self.register_widget(id, rect, WidgetKind::Checkbox);

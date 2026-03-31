@@ -630,8 +630,8 @@ fn render_checkbox(
     let key = id_ctx.state_key(bind, child_index);
     let id = id_ctx.widget_id(bind, child_index);
     let label = node.text.as_deref().unwrap_or("");
-    let input = state.inputs.entry(key.clone()).or_default();
-    let resp = ui.checkbox(id, input, label);
+    let checked = state.bools.entry(key.clone()).or_insert(false);
+    let resp = ui.checkbox(id, checked, label);
     check_change(resp.changed, node, &key, actions);
 }
 
@@ -647,8 +647,8 @@ fn render_toggle(
     let key = id_ctx.state_key(bind, child_index);
     let id = id_ctx.widget_id(bind, child_index);
     let label = node.text.as_deref().unwrap_or("");
-    let input = state.inputs.entry(key.clone()).or_default();
-    let resp = ui.toggle(id, input, label);
+    let checked = state.bools.entry(key.clone()).or_insert(false);
+    let resp = ui.toggle(id, checked, label);
     check_change(resp.changed, node, &key, actions);
 }
 
@@ -665,8 +665,8 @@ fn render_radio(
     let id = id_ctx.widget_id(bind, child_index);
     let label = node.text.as_deref().unwrap_or("");
     let option_index = node.prop_f64("value").unwrap_or(0.0) as usize;
-    let input = state.inputs.entry(key.clone()).or_default();
-    let resp = ui.radio(id, input, option_index, label);
+    let selected = state.radio_indices.entry(key.clone()).or_insert(0);
+    let resp = ui.radio(id, selected, option_index, label);
     check_change(resp.changed, node, &key, actions);
 }
 
@@ -683,8 +683,8 @@ fn render_slider(
     let id = id_ctx.widget_id(bind, child_index);
     let min = node.prop_f32("min").unwrap_or(0.0);
     let max = node.prop_f32("max").unwrap_or(100.0);
-    let input = state.inputs.entry(key.clone()).or_default();
-    let resp = ui.slider(id, input, min, max);
+    let value = state.slider_values.entry(key.clone()).or_insert(min);
+    let resp = ui.slider(id, value, min, max);
     check_change(resp.changed, node, &key, actions);
 }
 
@@ -706,8 +706,8 @@ fn render_select(
         .map(String::from)
         .collect();
     let options: Vec<&str> = options_owned.iter().map(|s| s.as_str()).collect();
-    let select = state.selects.entry(key.clone()).or_default();
-    let resp = ui.select(id, select, &options);
+    let selected = state.select_indices.entry(key.clone()).or_insert(0);
+    let resp = ui.select(id, selected, &options);
     check_change(resp.changed, node, &key, actions);
 }
 
@@ -730,7 +730,7 @@ fn render_combobox(
         .collect();
     let options: Vec<&str> = options_owned.iter().map(|s| s.as_str()).collect();
     let selected = state.comboboxes.entry(key.clone()).or_insert(None);
-    let resp = ui.combobox(id, &options, selected);
+    let resp = ui.combobox(id, selected, &options);
     check_change(resp.changed, node, &key, actions);
 }
 
@@ -1072,22 +1072,20 @@ fn render_tabs(
     let labels: Vec<&str> = labels_owned.iter().map(|s| s.as_str()).collect();
 
     // Remove state to avoid double borrow
-    let mut tab_state = state.tabs.remove(&key).unwrap_or_default();
+    let mut selected = state.tab_indices.remove(&key).unwrap_or(0);
 
     id_ctx.push(id);
-    ui.tabs(id, &mut tab_state, &labels, |ui, selected| {
+    ui.tabs(id, &mut selected, &labels, |ui, sel| {
         // Render the child corresponding to the selected tab
-        if let Some(child) = node.children.get(selected) {
-            render_node(ui, child, selected, state, id_ctx, actions);
+        if let Some(child) = node.children.get(sel) {
+            render_node(ui, child, sel, state, id_ctx, actions);
         } else if node.children.len() == 1 {
             render_nodes(ui, &node.children, state, id_ctx, actions);
         }
     });
     id_ctx.pop();
 
-    // Re-insert state
-    let selected = tab_state.selected;
-    state.tabs.insert(key.clone(), tab_state);
+    state.tab_indices.insert(key.clone(), selected);
 
     if let Some(action_name) = node.prop_str("action") {
         // We can't detect "changed" directly without comparing to previous,
@@ -1216,7 +1214,7 @@ fn render_accordion(
     let mut open_idx = state.accordion_open.remove(&key).unwrap_or(None);
 
     id_ctx.push(id);
-    ui.accordion(id, &sections, &mut open_idx, |ui, section_idx| {
+    ui.accordion(id, &mut open_idx, &sections, |ui, section_idx| {
         if let Some(child) = node.children.get(section_idx) {
             render_node(ui, child, section_idx, state, id_ctx, actions);
         }
@@ -1389,10 +1387,9 @@ fn render_pagination(
     let id = id_ctx.widget_id(bind, child_index);
     let total = node.prop_f64("total-pages").unwrap_or(1.0) as usize;
 
-    let mut ps = state.paginations.remove(&key).unwrap_or_default();
-    let resp = ui.pagination(id, &mut ps, total);
-    let page = ps.current_page;
-    state.paginations.insert(key.clone(), ps);
+    let mut page = state.pagination_indices.remove(&key).unwrap_or(0);
+    let resp = ui.pagination(id, &mut page, total);
+    state.pagination_indices.insert(key.clone(), page);
 
     if resp.changed {
         if let Some(action_name) = node.prop_str("action") {

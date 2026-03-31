@@ -6,8 +6,8 @@ use esox_platform::config::{PlatformConfig, WindowConfig};
 use esox_platform::{AppDelegate, Clipboard, MouseInputEvent};
 use esox_ui::{
     ClipboardProvider, ColumnWidth, FieldStatus, InputState, ModalAction, Rect, RichText,
-    SelectState, TabState, TableColumn, TableState, TextRenderer, Theme, ThemeBuilder,
-    ThemeTransition, TreeState, UiState, VirtualScrollState, id,
+    TableColumn, TableState, TextRenderer, Theme, ThemeBuilder, ThemeTransition, TreeState,
+    UiState, VirtualScrollState, id,
 };
 
 // ── Static data ──────────────────────────────────────────────────────────────
@@ -222,7 +222,7 @@ struct GoogleShowcase {
     pending_clear: Option<[f32; 4]>,
 
     // Navigation
-    tab_state: TabState,
+    tab_state: usize,
     search_input: InputState,
 
     // Dashboard
@@ -236,19 +236,19 @@ struct GoogleShowcase {
     add_user_open: bool,
     new_user_name: InputState,
     new_user_email: InputState,
-    new_user_dept: SelectState,
-    new_user_role: SelectState,
+    new_user_dept: usize,
+    new_user_role: usize,
 
     // Settings
     profile_name: InputState,
     profile_email: InputState,
     profile_bio: InputState,
-    pref_role: SelectState,
+    pref_role: usize,
     pref_country: Option<usize>,
     font_size_value: f64,
-    notif_toggle: InputState,
-    checkboxes: HashMap<u64, InputState>,
-    update_radio: InputState,
+    notif_toggle: bool,
+    checkboxes: HashMap<u64, bool>,
+    update_radio: usize,
     delete_confirm_open: bool,
 
     // Messages
@@ -272,9 +272,6 @@ impl GoogleShowcase {
         let mut email = InputState::new();
         email.text = "bad-email@@".into();
 
-        let mut radio = InputState::new();
-        radio.text = "0".into();
-
         let bg = base_light.bg_base;
         Self {
             ui_state,
@@ -286,7 +283,7 @@ impl GoogleShowcase {
             theme,
             transition: None,
             pending_clear: Some([bg.r, bg.g, bg.b, bg.a]),
-            tab_state: TabState::new(),
+            tab_state: 0,
             search_input: InputState::new(),
             upload_progress: 0.0,
             activity_scroll: VirtualScrollState::new(50),
@@ -300,17 +297,17 @@ impl GoogleShowcase {
             add_user_open: false,
             new_user_name: InputState::new(),
             new_user_email: InputState::new(),
-            new_user_dept: SelectState::new(),
-            new_user_role: SelectState::new(),
+            new_user_dept: 0,
+            new_user_role: 0,
             profile_name: InputState::new(),
             profile_email: email,
             profile_bio: InputState::new(),
-            pref_role: SelectState::new(),
+            pref_role: 0,
             pref_country: Some(0),
             font_size_value: 14.0,
-            notif_toggle: InputState::new(),
+            notif_toggle: false,
             checkboxes: HashMap::new(),
-            update_radio: radio,
+            update_radio: 0,
             delete_confirm_open: false,
             msg_scroll: VirtualScrollState::new(1_000),
             selected_msg: None,
@@ -588,12 +585,12 @@ impl GoogleShowcase {
         profile_name: &mut InputState,
         profile_email: &mut InputState,
         profile_bio: &mut InputState,
-        pref_role: &mut SelectState,
+        pref_role: &mut usize,
         pref_country: &mut Option<usize>,
         font_size_value: &mut f64,
-        notif_toggle: &mut InputState,
-        checkboxes: &mut HashMap<u64, InputState>,
-        update_radio: &mut InputState,
+        notif_toggle: &mut bool,
+        checkboxes: &mut HashMap<u64, bool>,
+        update_radio: &mut usize,
         delete_confirm_open: &mut bool,
     ) {
         // Profile.
@@ -663,6 +660,7 @@ impl GoogleShowcase {
                 ui.form_field("Region", FieldStatus::None, "", |ui| {
                     ui.combobox(
                         id!("pref_country"),
+                        pref_country,
                         &[
                             "United States",
                             "Canada",
@@ -675,7 +673,6 @@ impl GoogleShowcase {
                             "India",
                             "South Korea",
                         ],
-                        pref_country,
                     )
                 });
 
@@ -866,7 +863,7 @@ impl AppDelegate for GoogleShowcase {
         }
 
         let upload_progress = self.upload_progress;
-        let selected_tab = self.tab_state.selected;
+        let selected_tab = self.tab_state;
 
         let text = self.text.as_mut().unwrap();
         let vp = Rect::new(0.0, 0.0, self.viewport.0 as f32, self.viewport.1 as f32);

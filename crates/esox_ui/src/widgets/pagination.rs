@@ -41,7 +41,24 @@ impl<'f> Ui<'f> {
     ///
     /// Renders: `<< < [page numbers] > >>` with ellipsis for large page counts.
     /// Returns a Response with `changed = true` when the page changes.
+    #[allow(deprecated)]
     pub fn pagination(
+        &mut self,
+        id: u64,
+        current_page: &mut usize,
+        total_pages: usize,
+    ) -> Response {
+        let mut state = PaginationState {
+            current_page: *current_page,
+        };
+        let response = self.pagination_state(id, &mut state, total_pages);
+        *current_page = state.current_page;
+        response
+    }
+
+    /// Draw pagination controls using `PaginationState`.
+    #[deprecated(note = "use pagination() with &mut usize instead")]
+    pub fn pagination_state(
         &mut self,
         id: u64,
         state: &mut PaginationState,

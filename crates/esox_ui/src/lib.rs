@@ -372,15 +372,18 @@ impl<'a, 'f> GridBuilder<'a, 'f> {
         let saved_region = self.ui.region;
         let saved_spacing = self.ui.spacing;
 
-        // Compute track sizes inline so the grid works inside scrollables,
-        // where prev_layout lookups are disabled.
+        // Compute track sizes using the canonical resolver. Empty children/nodes
+        // slices mean Auto tracks get zero space (same as frame-1 behaviour).
+        // The tree solver handles Auto tracks with child intrinsics on frame 2+.
         let available_w = self.ui.region.w;
         let available_h = self.ui.region.h;
-        let col_sizes = resolve_grid_tracks_inline(&self.columns, available_w, self.col_gap);
-        let row_sizes = resolve_grid_tracks_inline(&self.rows, available_h, self.row_gap);
+        let col_sizes =
+            layout_tree::resolve_tracks(&self.columns, available_w, self.col_gap, &[], true, &[]);
+        let row_sizes =
+            layout_tree::resolve_tracks(&self.rows, available_h, self.row_gap, &[], false, &[]);
 
-        let col_positions = grid_track_positions(&col_sizes, self.col_gap, saved_cursor.x);
-        let row_positions = grid_track_positions(&row_sizes, self.row_gap, saved_cursor.y);
+        let col_positions = layout_tree::track_positions(&col_sizes, self.col_gap, saved_cursor.x);
+        let row_positions = layout_tree::track_positions(&row_sizes, self.row_gap, saved_cursor.y);
 
         let mut grid_ui = GridUi {
             ui: self.ui,
@@ -406,66 +409,6 @@ impl<'a, 'f> GridBuilder<'a, 'f> {
 
         self.ui.tree_build.close_container();
     }
-}
-
-/// Resolve grid track sizes from definitions and available space (inline version).
-fn resolve_grid_tracks_inline(defs: &[layout::GridTrack], available: f32, gap: f32) -> Vec<f32> {
-    if defs.is_empty() {
-        return vec![available];
-    }
-
-    let total_gap = gap * (defs.len().saturating_sub(1)) as f32;
-    let mut remaining = (available - total_gap).max(0.0);
-    let mut sizes = vec![0.0f32; defs.len()];
-    let mut total_fr = 0.0f32;
-
-    // First pass: resolve Fixed tracks, accumulate Fr.
-    for (i, track) in defs.iter().enumerate() {
-        match *track {
-            layout::GridTrack::Fixed(px) => {
-                sizes[i] = px;
-                remaining -= px;
-            }
-            layout::GridTrack::Auto => {
-                // Without child measurement, Auto tracks get no space here.
-                // The tree solver handles Auto in arrange_grid for non-scroll contexts.
-            }
-            layout::GridTrack::MinMax(min, _) => {
-                sizes[i] = min;
-                remaining -= min;
-                total_fr += 1.0;
-            }
-            layout::GridTrack::Fr(fr) => {
-                total_fr += fr;
-            }
-        }
-    }
-
-    // Second pass: distribute remaining space to Fr and MinMax tracks.
-    remaining = remaining.max(0.0);
-    if total_fr > 0.0 {
-        let per_fr = remaining / total_fr;
-        for (i, track) in defs.iter().enumerate() {
-            match *track {
-                layout::GridTrack::Fr(fr) => sizes[i] = per_fr * fr,
-                layout::GridTrack::MinMax(min, max) => sizes[i] = (min + per_fr).min(max),
-                _ => {}
-            }
-        }
-    }
-
-    sizes
-}
-
-/// Compute cumulative start positions from track sizes and gap.
-fn grid_track_positions(sizes: &[f32], gap: f32, origin: f32) -> Vec<f32> {
-    let mut positions = Vec::with_capacity(sizes.len());
-    let mut pos = origin;
-    for &size in sizes {
-        positions.push(pos);
-        pos += size + gap;
-    }
-    positions
 }
 
 /// Context for placing cells within a grid layout.
@@ -576,9 +519,6 @@ pub struct Ui<'f> {
     tree_build: TreeBuildContext,
     /// Solved layout tree from the previous frame (for position lookups).
     prev_layout: Option<LayoutTree>,
-    /// Nesting depth inside scroll containers. Cache lookups are skipped when > 0
-    /// because cached absolute positions don't account for scroll offset changes.
-    scroll_depth: u32,
 }
 
 impl<'f> Ui<'f> {
@@ -605,9 +545,8 @@ impl<'f> Ui<'f> {
         }
 
         // Move the solved layout tree from last frame into prev_layout.
-        // Cache lookups are skipped inside scroll containers (via scroll_depth)
-        // because cached absolute positions don't account for scroll offset
-        // changes between frames.
+        // The tree solver now stores scroll-relative positions, so lookups
+        // work correctly inside scrollables via lookup_scrolled().
         let prev_layout = state.layout_cache.take();
 
         let mut tree_build = TreeBuildContext::new();
@@ -639,7 +578,6 @@ impl<'f> Ui<'f> {
             style_stack: Vec::new(),
             tree_build,
             prev_layout,
-            scroll_depth: 0,
         }
     }
 
@@ -689,18 +627,17 @@ impl<'f> Ui<'f> {
     // ── Layout ──
 
     /// Allocate a rectangle in the current layout direction.
+    ///
+    /// On frame 2+, uses the previous frame's solved layout tree (including
+    /// scroll-aware positions). On frame 1 (or for new widgets), falls back
+    /// to simple cursor advancement.
     pub fn allocate_rect(&mut self, w: f32, h: f32) -> Rect {
         // Record this leaf in the layout tree.
         let node_id = self.tree_build.add_leaf(None, w, h);
         let node_key = self.tree_build.tree.node(node_id).key;
 
-        let rect = if let Some(solved) = self
-            .prev_layout
-            .as_ref()
-            .filter(|_| self.scroll_depth == 0)
-            .and_then(|t| t.lookup(node_key))
-        {
-            // Use solved position from previous frame. Advance cursor for compatibility.
+        let rect = if let Some(solved) = self.lookup_solved(node_key) {
+            // Advance cursor to stay in sync with solved positions.
             match self.layout_stack.last() {
                 Some(ctx) if ctx.direction == Direction::Horizontal => {
                     self.cursor.x = solved.x + solved.w + self.spacing;
@@ -711,22 +648,7 @@ impl<'f> Ui<'f> {
             }
             solved
         } else {
-            // Cursor fallback (first frame / new widgets).
-            match self.layout_stack.last() {
-                Some(ctx) if ctx.direction == Direction::Horizontal => {
-                    let remaining = (self.region.w - (self.cursor.x - self.region.x)).max(0.0);
-                    let actual_w = w.min(remaining);
-                    let r = Rect::new(self.cursor.x, self.cursor.y, actual_w, h);
-                    self.cursor.x += actual_w + self.spacing;
-                    r
-                }
-                _ => {
-                    let actual_w = w.min(self.region.w);
-                    let r = Rect::new(self.cursor.x, self.cursor.y, actual_w, h);
-                    self.cursor.y += h + self.spacing;
-                    r
-                }
-            }
+            self.cursor_fallback(w, h)
         };
 
         // Track max_cross for horizontal layouts.
@@ -746,6 +668,36 @@ impl<'f> Ui<'f> {
             self.state.debug_widget_rects.push((rect, 0, kind));
         }
         rect
+    }
+
+    /// Look up a solved rect from the previous frame, adjusting for scroll offsets.
+    fn lookup_solved(&self, node_key: u64) -> Option<Rect> {
+        let scroll_offsets = &self.state.scroll_offsets;
+        self.prev_layout.as_ref().and_then(|t| {
+            t.lookup_scrolled(node_key, |offset_key| {
+                scroll_offsets.get(&offset_key).map(|(off, _)| *off)
+            })
+        })
+    }
+
+    /// Frame-1 cursor fallback: position a widget using simple cursor advancement.
+    /// Used when no solved layout is available (first frame or new widgets).
+    fn cursor_fallback(&mut self, w: f32, h: f32) -> Rect {
+        match self.layout_stack.last() {
+            Some(ctx) if ctx.direction == Direction::Horizontal => {
+                let remaining = (self.region.w - (self.cursor.x - self.region.x)).max(0.0);
+                let actual_w = w.min(remaining);
+                let r = Rect::new(self.cursor.x, self.cursor.y, actual_w, h);
+                self.cursor.x += actual_w + self.spacing;
+                r
+            }
+            _ => {
+                let actual_w = w.min(self.region.w);
+                let r = Rect::new(self.cursor.x, self.cursor.y, actual_w, h);
+                self.cursor.y += h + self.spacing;
+                r
+            }
+        }
     }
 
     /// Set a key override for the next `allocate_rect` call.
@@ -1176,12 +1128,7 @@ impl<'f> Ui<'f> {
         let node_key = self.tree_build.tree.node(node_id).key;
 
         // On frame 2+, advance cursor past the solved spacer rect.
-        if let Some(solved) = self
-            .prev_layout
-            .as_ref()
-            .filter(|_| self.scroll_depth == 0)
-            .and_then(|t| t.lookup(node_key))
-        {
+        if let Some(solved) = self.lookup_solved(node_key) {
             match self.layout_stack.last() {
                 Some(ctx) if ctx.direction == Direction::Horizontal => {
                     self.cursor.x = solved.x + solved.w + self.spacing;
