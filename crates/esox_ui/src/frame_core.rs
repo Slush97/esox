@@ -67,6 +67,23 @@ pub struct LogicalSize {
     pub height: f32,
 }
 
+/// A backend-neutral linear RGBA color.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Color {
+    pub r: f32,
+    pub g: f32,
+    pub b: f32,
+    pub a: f32,
+}
+
+impl Color {
+    pub const BLACK: Self = Self::rgba(0.0, 0.0, 0.0, 1.0);
+
+    pub const fn rgba(r: f32, g: f32, b: f32, a: f32) -> Self {
+        Self { r, g, b, a }
+    }
+}
+
 impl LogicalSize {
     pub const fn new(width: f32, height: f32) -> Self {
         Self { width, height }
@@ -141,9 +158,17 @@ impl Default for TextProperties {
 #[derive(Clone, Debug, PartialEq)]
 pub enum PaintPrimitive {
     Box,
+    SolidRect {
+        color: Color,
+    },
+    Border {
+        color: Color,
+        width: f32,
+    },
     Text {
         content: String,
         properties: TextProperties,
+        color: Color,
     },
     Image {
         resource: u64,
@@ -194,6 +219,10 @@ pub struct Element {
     kind: ElementKind,
     children: Vec<Self>,
     flex_grow: f32,
+    padding: f32,
+    size: Size<Option<f32>>,
+    min_size: Size<Option<f32>>,
+    max_size: Size<Option<f32>>,
     paint: Option<PaintPrimitive>,
     interactive: bool,
     semantics: Option<SemanticProperties>,
@@ -212,6 +241,7 @@ impl Element {
             } => PaintPrimitive::Text {
                 content: content.clone(),
                 properties: properties.clone(),
+                color: Color::BLACK,
             },
             ElementKind::Image(resource) => PaintPrimitive::Image {
                 resource: *resource,
@@ -225,6 +255,10 @@ impl Element {
             kind,
             children: Vec::new(),
             flex_grow: 0.0,
+            padding: 0.0,
+            size: Size::NONE,
+            min_size: Size::NONE,
+            max_size: Size::NONE,
             paint: Some(paint),
             interactive: false,
             semantics: None,
@@ -287,6 +321,30 @@ impl Element {
     /// Let this node consume remaining space on its parent's main axis.
     pub fn with_flex_grow(mut self, grow: f32) -> Self {
         self.flex_grow = grow;
+        self
+    }
+
+    /// Apply uniform logical padding inside this element.
+    pub fn with_padding(mut self, padding: f32) -> Self {
+        self.padding = padding;
+        self
+    }
+
+    /// Constrain either dimension to an exact logical size.
+    pub fn with_size(mut self, width: Option<f32>, height: Option<f32>) -> Self {
+        self.size = Size { width, height };
+        self
+    }
+
+    /// Set optional minimum logical dimensions.
+    pub fn with_min_size(mut self, width: Option<f32>, height: Option<f32>) -> Self {
+        self.min_size = Size { width, height };
+        self
+    }
+
+    /// Set optional maximum logical dimensions.
+    pub fn with_max_size(mut self, width: Option<f32>, height: Option<f32>) -> Self {
+        self.max_size = Size { width, height };
         self
     }
 
@@ -1037,6 +1095,31 @@ fn resolve(
             },
         };
         style.flex_grow = element.flex_grow;
+        let dimension = |value: Option<f32>| value.map_or_else(auto, length);
+        style.padding = Rect {
+            left: length(element.padding),
+            right: length(element.padding),
+            top: length(element.padding),
+            bottom: length(element.padding),
+        };
+        if element.size.width.is_some() {
+            style.size.width = dimension(element.size.width);
+        }
+        if element.size.height.is_some() {
+            style.size.height = dimension(element.size.height);
+        }
+        if element.min_size.width.is_some() {
+            style.min_size.width = dimension(element.min_size.width);
+        }
+        if element.min_size.height.is_some() {
+            style.min_size.height = dimension(element.min_size.height);
+        }
+        if element.max_size.width.is_some() {
+            style.max_size.width = dimension(element.max_size.width);
+        }
+        if element.max_size.height.is_some() {
+            style.max_size.height = dimension(element.max_size.height);
+        }
         if let Some(position) = element.absolute_position {
             style.position = Position::Absolute;
             style.inset = Rect {

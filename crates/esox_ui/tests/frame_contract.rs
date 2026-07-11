@@ -1,8 +1,8 @@
 use std::cell::Cell;
 
 use esox_ui::frame_core::{
-    AvailableLength, Axis, CommittedScene, DeterministicMeasurer, Element, FrameCore, GridTrack,
-    ImageMeasureRequest, IntrinsicMeasurer, LogicalPoint, LogicalRect, LogicalSize,
+    AvailableLength, Axis, Color, CommittedScene, DeterministicMeasurer, Element, FrameCore,
+    GridTrack, ImageMeasureRequest, IntrinsicMeasurer, LogicalPoint, LogicalRect, LogicalSize,
     NullSceneConsumer, PaintPrimitive, PointerEventKind, SemanticProperties, SemanticRole,
     SemanticSnapshot, TextDirection, TextMeasureRequest, TextProperties, WidgetId,
 };
@@ -594,4 +594,122 @@ fn two_window_contexts_are_isolated() {
     assert_eq!(right.keyboard_focus(), Some(CONTENT));
     assert_eq!(left_consumer.scenes().len(), 2);
     assert_eq!(right_consumer.scenes().len(), 1);
+}
+
+#[test]
+fn production_layout_properties_resolve_in_one_pass() {
+    let measurer = DeterministicMeasurer::new(8.0, 18.0);
+    let mut consumer = NullSceneConsumer::default();
+    let mut core = FrameCore::new(LogicalSize::new(200.0, 80.0));
+
+    core.run_frame(&measurer, &mut consumer, |_| {
+        Element::flex(ROOT, Axis::Row, 5.0)
+            .without_paint()
+            .with_padding(10.0)
+            .with_children(vec![
+                Element::fixed(SIDEBAR, 10.0, 10.0)
+                    .with_size(Some(20.0), Some(15.0))
+                    .with_min_size(Some(30.0), Some(20.0)),
+                Element::fixed(CONTENT, 100.0, 100.0).with_max_size(Some(40.0), Some(25.0)),
+                Element::fixed(INSERTED, 0.0, 10.0).with_flex_grow(1.0),
+            ])
+    })
+    .unwrap();
+
+    let scene = core.committed_scene().unwrap();
+    assert_eq!(
+        scene.node(ROOT).unwrap().bounds,
+        LogicalRect {
+            x: 0.0,
+            y: 0.0,
+            width: 200.0,
+            height: 80.0,
+        }
+    );
+    assert_eq!(
+        scene.node(SIDEBAR).unwrap().bounds,
+        LogicalRect {
+            x: 10.0,
+            y: 10.0,
+            width: 30.0,
+            height: 20.0,
+        }
+    );
+    assert_eq!(
+        scene.node(CONTENT).unwrap().bounds,
+        LogicalRect {
+            x: 45.0,
+            y: 10.0,
+            width: 40.0,
+            height: 25.0,
+        }
+    );
+    assert_eq!(
+        scene.node(INSERTED).unwrap().bounds,
+        LogicalRect {
+            x: 90.0,
+            y: 10.0,
+            width: 100.0,
+            height: 10.0,
+        }
+    );
+}
+
+#[test]
+fn production_paint_primitives_are_backend_neutral_and_styled() {
+    let measurer = DeterministicMeasurer::new(8.0, 18.0);
+    let mut consumer = NullSceneConsumer::default();
+    let mut core = FrameCore::new(LogicalSize::new(120.0, 60.0));
+    let fill = Color::rgba(0.1, 0.2, 0.3, 1.0);
+    let stroke = Color::rgba(0.7, 0.6, 0.5, 1.0);
+    let text_color = Color::rgba(0.9, 0.8, 0.1, 1.0);
+    let properties = representative_text_properties();
+
+    core.run_frame(&measurer, &mut consumer, |_| {
+        Element::flex(ROOT, Axis::Column, 0.0)
+            .without_paint()
+            .with_children(vec![
+                Element::fixed(SIDEBAR, 120.0, 20.0)
+                    .with_paint(PaintPrimitive::SolidRect { color: fill }),
+                Element::fixed(CONTENT, 120.0, 20.0).with_paint(PaintPrimitive::Border {
+                    color: stroke,
+                    width: 2.0,
+                }),
+                Element::text_with_properties(TEXT, "styled", properties.clone()).with_paint(
+                    PaintPrimitive::Text {
+                        content: "styled".into(),
+                        properties: properties.clone(),
+                        color: text_color,
+                    },
+                ),
+            ])
+    })
+    .unwrap();
+
+    let scene = core.committed_scene().unwrap();
+    assert_eq!(
+        scene.display_list[0].primitive,
+        PaintPrimitive::SolidRect { color: fill }
+    );
+    assert_eq!(
+        scene.display_list[1].primitive,
+        PaintPrimitive::Border {
+            color: stroke,
+            width: 2.0,
+        }
+    );
+    assert_eq!(
+        scene.display_list[2].primitive,
+        PaintPrimitive::Text {
+            content: "styled".into(),
+            properties,
+            color: text_color,
+        }
+    );
+    for record in &scene.display_list {
+        let node = scene.node(record.id).unwrap();
+        assert_eq!(record.bounds, node.bounds);
+        assert_eq!(node.paint_bounds, Some(node.bounds));
+        assert_eq!(node.current_damage_bounds, Some(node.bounds));
+    }
 }

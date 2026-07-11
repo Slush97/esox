@@ -39,6 +39,7 @@
 //! - [`lerp_color`] — interpolate between colors
 
 pub mod a11y;
+pub mod declaration;
 pub mod frame_core;
 pub mod icon;
 pub mod id;
