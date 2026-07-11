@@ -5,6 +5,7 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 
+use serde::{Deserialize, Serialize};
 use taffy::prelude::{
     AvailableSpace, Display, FlexDirection, NodeId, Position, Rect, Size, Style, TaffyMaxContent,
     TaffyTree,
@@ -12,11 +13,11 @@ use taffy::prelude::{
 use taffy::style_helpers::{auto, fr, length};
 
 /// Stable widget identity within one [`FrameCore`].
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct WidgetId(pub u64);
 
 /// An unrounded rectangle in logical coordinates.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct LogicalRect {
     pub x: f32,
     pub y: f32,
@@ -47,7 +48,7 @@ impl LogicalRect {
 }
 
 /// An unrounded point in logical coordinates.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct LogicalPoint {
     pub x: f32,
     pub y: f32,
@@ -60,7 +61,7 @@ impl LogicalPoint {
 }
 
 /// An unrounded size in logical coordinates.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct LogicalSize {
     pub width: f32,
     pub height: f32,
@@ -96,6 +97,51 @@ enum ElementKind {
     Image(u64),
 }
 
+/// Backend-neutral paint data attached to one declared element.
+#[derive(Clone, Debug, PartialEq)]
+pub enum PaintPrimitive {
+    Box,
+    Text { content: String },
+    Image { resource: u64 },
+}
+
+/// Esox-owned semantic role, independent of any accessibility backend.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SemanticRole {
+    Generic,
+    Text,
+    Image,
+    Button,
+}
+
+/// Serializable semantic properties declared without resolved geometry.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SemanticProperties {
+    pub role: SemanticRole,
+    pub label: Option<String>,
+    pub disabled: bool,
+}
+
+impl SemanticProperties {
+    pub fn new(role: SemanticRole) -> Self {
+        Self {
+            role,
+            label: None,
+            disabled: false,
+        }
+    }
+
+    pub fn with_label(mut self, label: impl Into<String>) -> Self {
+        self.label = Some(label.into());
+        self
+    }
+
+    pub fn disabled(mut self) -> Self {
+        self.disabled = true;
+        self
+    }
+}
+
 /// One node in the lightweight tree owned only for the current frame.
 #[derive(Clone, Debug)]
 pub struct Element {
@@ -103,9 +149,9 @@ pub struct Element {
     kind: ElementKind,
     children: Vec<Self>,
     flex_grow: f32,
-    painted: bool,
+    paint: Option<PaintPrimitive>,
     interactive: bool,
-    semantic: bool,
+    semantics: Option<SemanticProperties>,
     clips_children: bool,
     scroll_offset: LogicalPoint,
     absolute_position: Option<LogicalPoint>,
@@ -114,14 +160,25 @@ pub struct Element {
 
 impl Element {
     fn new(id: WidgetId, kind: ElementKind) -> Self {
+        let paint = match &kind {
+            ElementKind::Text(content) => PaintPrimitive::Text {
+                content: content.clone(),
+            },
+            ElementKind::Image(resource) => PaintPrimitive::Image {
+                resource: *resource,
+            },
+            ElementKind::Flex { .. } | ElementKind::Grid { .. } | ElementKind::Fixed(_) => {
+                PaintPrimitive::Box
+            }
+        };
         Self {
             id,
             kind,
             children: Vec::new(),
             flex_grow: 0.0,
-            painted: true,
+            paint: Some(paint),
             interactive: false,
-            semantic: false,
+            semantics: None,
             clips_children: false,
             scroll_offset: LogicalPoint::default(),
             absolute_position: None,
@@ -146,8 +203,9 @@ impl Element {
 
     /// Create a deterministically measured text leaf.
     pub fn text(id: WidgetId, text: impl Into<String>) -> Self {
-        let mut element = Self::new(id, ElementKind::Text(text.into()));
-        element.semantic = true;
+        let text = text.into();
+        let mut element = Self::new(id, ElementKind::Text(text.clone()));
+        element.semantics = Some(SemanticProperties::new(SemanticRole::Text).with_label(text));
         element
     }
 
@@ -170,14 +228,28 @@ impl Element {
 
     /// Exclude this container from paint while retaining its descendants.
     pub fn without_paint(mut self) -> Self {
-        self.painted = false;
+        self.paint = None;
+        self
+    }
+
+    /// Replace the renderer-neutral paint primitive for this node.
+    pub fn with_paint(mut self, paint: PaintPrimitive) -> Self {
+        self.paint = Some(paint);
         self
     }
 
     /// Include this node in hit testing and semantics.
     pub fn interactive(mut self) -> Self {
         self.interactive = true;
-        self.semantic = true;
+        if self.semantics.is_none() {
+            self.semantics = Some(SemanticProperties::new(SemanticRole::Generic));
+        }
+        self
+    }
+
+    /// Attach an Esox-owned semantic declaration to this node.
+    pub fn with_semantics(mut self, semantics: SemanticProperties) -> Self {
+        self.semantics = Some(semantics);
         self
     }
 
@@ -203,7 +275,9 @@ impl Element {
     pub fn blocking_overlay(mut self) -> Self {
         self.blocking_overlay = true;
         self.interactive = true;
-        self.semantic = true;
+        if self.semantics.is_none() {
+            self.semantics = Some(SemanticProperties::new(SemanticRole::Generic));
+        }
         self
     }
 }
@@ -347,6 +421,59 @@ pub struct ResolvedNode {
     pub blocks_input: bool,
 }
 
+/// One backend-neutral paint operation in final paint order.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PaintRecord {
+    pub id: WidgetId,
+    pub primitive: PaintPrimitive,
+    pub bounds: LogicalRect,
+    pub effective_clip: Option<LogicalRect>,
+}
+
+/// One current-generation hit-test entry in final paint order.
+#[derive(Clone, Debug, PartialEq)]
+pub struct HitRecord {
+    pub id: WidgetId,
+    pub bounds: LogicalRect,
+    pub effective_clip: Option<LogicalRect>,
+    pub focus_scope: Option<WidgetId>,
+    pub blocks_input: bool,
+}
+
+/// One node in the serializable Esox-owned semantic tree.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct SemanticNode {
+    pub id: WidgetId,
+    pub parent: Option<WidgetId>,
+    pub children: Vec<WidgetId>,
+    pub properties: SemanticProperties,
+    pub bounds: LogicalRect,
+    pub effective_clip: Option<LogicalRect>,
+    pub focus_scope: Option<WidgetId>,
+}
+
+/// Backend-neutral semantic products committed atomically with paint and hits.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct SemanticSnapshot {
+    pub roots: Vec<WidgetId>,
+    pub nodes: Vec<SemanticNode>,
+}
+
+impl SemanticSnapshot {
+    /// Find one semantic node by its window-scoped stable identity.
+    pub fn node(&self, id: WidgetId) -> Option<&SemanticNode> {
+        self.nodes.iter().find(|node| node.id == id)
+    }
+}
+
+/// Current bounds contributing damage for one painted node.
+#[derive(Clone, Debug, PartialEq)]
+pub struct DamageRecord {
+    pub id: WidgetId,
+    pub current_bounds: LogicalRect,
+    pub effective_clip: Option<LogicalRect>,
+}
+
 /// Focusable members owned by one blocking overlay.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FocusScope {
@@ -360,6 +487,10 @@ pub struct CommittedScene {
     pub generation: u64,
     pub viewport: LogicalSize,
     pub nodes: Vec<ResolvedNode>,
+    pub display_list: Vec<PaintRecord>,
+    pub hit_index: Vec<HitRecord>,
+    pub semantics: SemanticSnapshot,
+    pub damage: Vec<DamageRecord>,
     pub focus_order: Vec<WidgetId>,
     pub focus_scopes: Vec<FocusScope>,
 }
@@ -372,10 +503,10 @@ impl CommittedScene {
 
     /// Hit test in reverse final paint order using current effective clips.
     pub fn hit_test(&self, point: LogicalPoint) -> Option<&ResolvedNode> {
-        self.nodes.iter().rev().find(|node| {
-            node.hit_bounds.is_some_and(|bounds| bounds.contains(point))
-                && node.effective_clip.is_some_and(|clip| clip.contains(point))
-        })
+        let hit = self.hit_index.iter().rev().find(|hit| {
+            hit.bounds.contains(point) && hit.effective_clip.is_none_or(|clip| clip.contains(point))
+        })?;
+        self.node(hit.id)
     }
 }
 
@@ -520,14 +651,10 @@ impl FrameCore {
     {
         self.dispatch_pending_input();
         let root = declare(&mut self.widget_state);
-        let nodes = resolve(&root, self.viewport, measurer)?;
-        let all_focus_order: Vec<_> = nodes
-            .iter()
-            .filter(|node| node.hit_bounds.is_some())
-            .map(|node| node.id)
-            .collect();
+        let resolved = resolve(&root, self.viewport, measurer)?;
+        let all_focus_order: Vec<_> = resolved.hit_index.iter().map(|hit| hit.id).collect();
         let mut focus_scopes: Vec<FocusScope> = Vec::new();
-        for node in &nodes {
+        for node in &resolved.nodes {
             if node.blocks_input {
                 focus_scopes.push(FocusScope {
                     owner: node.id,
@@ -550,7 +677,11 @@ impl FrameCore {
         let scene = CommittedScene {
             generation: self.generation + 1,
             viewport: self.viewport,
-            nodes,
+            nodes: resolved.nodes,
+            display_list: resolved.display_list,
+            hit_index: resolved.hit_index,
+            semantics: resolved.semantics,
+            damage: resolved.damage,
             focus_order,
             focus_scopes,
         };
@@ -690,11 +821,28 @@ impl FrameCore {
     }
 }
 
+#[derive(Debug, Default)]
+struct ResolvedProducts {
+    nodes: Vec<ResolvedNode>,
+    display_list: Vec<PaintRecord>,
+    hit_index: Vec<HitRecord>,
+    semantics: SemanticSnapshot,
+    damage: Vec<DamageRecord>,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct TraversalContext {
+    origin: (f32, f32),
+    clip: Option<LogicalRect>,
+    focus_scope: Option<WidgetId>,
+    semantic_parent: Option<WidgetId>,
+}
+
 fn resolve(
     root: &Element,
     viewport: LogicalSize,
     measurer: &impl IntrinsicMeasurer,
-) -> Result<Vec<ResolvedNode>, FrameError> {
+) -> Result<ResolvedProducts, FrameError> {
     fn build(
         element: &Element,
         root: bool,
@@ -840,38 +988,90 @@ fn resolve(
         element: &Element,
         tree: &TaffyTree<MeasureContext>,
         ids: &HashMap<WidgetId, NodeId>,
-        origin: (f32, f32),
-        inherited_clip: Option<LogicalRect>,
-        inherited_focus_scope: Option<WidgetId>,
-        output: &mut Vec<ResolvedNode>,
+        context: TraversalContext,
+        output: &mut ResolvedProducts,
     ) {
         let layout = tree.unrounded_layout(ids[&element.id]);
         let bounds = LogicalRect {
-            x: origin.0 + layout.location.x,
-            y: origin.1 + layout.location.y,
+            x: context.origin.0 + layout.location.x,
+            y: context.origin.1 + layout.location.y,
             width: layout.size.width,
             height: layout.size.height,
         };
         let focus_scope = element
             .blocking_overlay
             .then_some(element.id)
-            .or(inherited_focus_scope);
-        output.push(ResolvedNode {
+            .or(context.focus_scope);
+        let paint_bounds = element.paint.as_ref().map(|_| bounds);
+        let hit_bounds = element.interactive.then_some(bounds);
+        let semantic_bounds = element.semantics.as_ref().map(|_| bounds);
+        let current_damage_bounds = element.paint.as_ref().map(|_| bounds);
+        output.nodes.push(ResolvedNode {
             id: element.id,
             bounds,
-            paint_bounds: element.painted.then_some(bounds),
-            hit_bounds: element.interactive.then_some(bounds),
-            semantic_bounds: element.semantic.then_some(bounds),
-            effective_clip: inherited_clip,
-            current_damage_bounds: element.painted.then_some(bounds),
+            paint_bounds,
+            hit_bounds,
+            semantic_bounds,
+            effective_clip: context.clip,
+            current_damage_bounds,
             focus_scope,
             blocks_input: element.blocking_overlay,
         });
 
-        let child_clip = if element.clips_children {
-            inherited_clip.and_then(|clip| clip.intersection(bounds))
+        if let Some(primitive) = &element.paint {
+            output.display_list.push(PaintRecord {
+                id: element.id,
+                primitive: primitive.clone(),
+                bounds,
+                effective_clip: context.clip,
+            });
+            output.damage.push(DamageRecord {
+                id: element.id,
+                current_bounds: bounds,
+                effective_clip: context.clip,
+            });
+        }
+        if element.interactive {
+            output.hit_index.push(HitRecord {
+                id: element.id,
+                bounds,
+                effective_clip: context.clip,
+                focus_scope,
+                blocks_input: element.blocking_overlay,
+            });
+        }
+
+        let semantic_parent = if let Some(properties) = &element.semantics {
+            if let Some(parent) = context.semantic_parent {
+                output
+                    .semantics
+                    .nodes
+                    .iter_mut()
+                    .find(|node| node.id == parent)
+                    .expect("semantic parent was resolved before its child")
+                    .children
+                    .push(element.id);
+            } else {
+                output.semantics.roots.push(element.id);
+            }
+            output.semantics.nodes.push(SemanticNode {
+                id: element.id,
+                parent: context.semantic_parent,
+                children: Vec::new(),
+                properties: properties.clone(),
+                bounds,
+                effective_clip: context.clip,
+                focus_scope,
+            });
+            Some(element.id)
         } else {
-            inherited_clip
+            context.semantic_parent
+        };
+
+        let child_clip = if element.clips_children {
+            context.clip.and_then(|clip| clip.intersection(bounds))
+        } else {
+            context.clip
         };
         let child_origin = (
             bounds.x - element.scroll_offset.x,
@@ -882,9 +1082,12 @@ fn resolve(
                 child,
                 tree,
                 ids,
-                child_origin,
-                child_clip,
-                focus_scope,
+                TraversalContext {
+                    origin: child_origin,
+                    clip: child_clip,
+                    focus_scope,
+                    semantic_parent,
+                },
                 output,
             );
         }
@@ -896,14 +1099,17 @@ fn resolve(
         width: viewport.width,
         height: viewport.height,
     };
-    let mut output = Vec::new();
+    let mut output = ResolvedProducts::default();
     collect(
         root,
         &tree,
         &ids,
-        (0.0, 0.0),
-        Some(viewport_rect),
-        None,
+        TraversalContext {
+            origin: (0.0, 0.0),
+            clip: Some(viewport_rect),
+            focus_scope: None,
+            semantic_parent: None,
+        },
         &mut output,
     );
     Ok(output)

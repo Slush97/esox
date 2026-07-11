@@ -2,7 +2,8 @@ use std::cell::Cell;
 
 use esox_ui::frame_core::{
     Axis, CommittedScene, DeterministicMeasurer, Element, FrameCore, GridTrack, LogicalPoint,
-    LogicalRect, LogicalSize, NullSceneConsumer, PointerEventKind, WidgetId,
+    LogicalRect, LogicalSize, NullSceneConsumer, PaintPrimitive, PointerEventKind,
+    SemanticProperties, SemanticRole, SemanticSnapshot, WidgetId,
 };
 
 const ROOT: WidgetId = WidgetId(1);
@@ -251,6 +252,31 @@ fn one_node_supplies_all_resolved_bounds() {
     assert_eq!(node.semantic_bounds, Some(node.bounds));
     assert_eq!(node.effective_clip, Some(node.bounds));
     assert_eq!(node.current_damage_bounds, Some(node.bounds));
+
+    let paint = &scene.display_list[0];
+    assert_eq!(paint.id, ROOT);
+    assert_eq!(paint.primitive, PaintPrimitive::Box);
+    assert_eq!(paint.bounds, node.bounds);
+    assert_eq!(paint.effective_clip, node.effective_clip);
+
+    let hit = &scene.hit_index[0];
+    assert_eq!(hit.id, ROOT);
+    assert_eq!(hit.bounds, node.bounds);
+    assert_eq!(hit.effective_clip, node.effective_clip);
+
+    let semantic = scene.semantics.node(ROOT).unwrap();
+    assert_eq!(scene.semantics.roots, vec![ROOT]);
+    assert_eq!(semantic.properties.role, SemanticRole::Generic);
+    assert_eq!(semantic.bounds, node.bounds);
+    assert_eq!(semantic.effective_clip, node.effective_clip);
+
+    let damage = &scene.damage[0];
+    assert_eq!(damage.id, ROOT);
+    assert_eq!(damage.current_bounds, node.bounds);
+    assert_eq!(damage.effective_clip, node.effective_clip);
+
+    fn assert_serializable<T: serde::Serialize + for<'de> serde::Deserialize<'de>>() {}
+    assert_serializable::<SemanticSnapshot>();
 }
 
 #[test]
@@ -321,9 +347,11 @@ fn blocking_overlay_owns_topmost_hit() {
                     .with_absolute_position(20.0, 20.0)
                     .blocking_overlay()
                     .clip_children()
-                    .with_children(vec![
-                        Element::fixed(OVERLAY_ACTION, 40.0, 20.0).interactive()
-                    ]),
+                    .with_children(vec![Element::fixed(OVERLAY_ACTION, 40.0, 20.0)
+                        .interactive()
+                        .with_semantics(
+                            SemanticProperties::new(SemanticRole::Button).with_label("Action"),
+                        )]),
             ])
     })
     .unwrap();
@@ -346,6 +374,17 @@ fn blocking_overlay_owns_topmost_hit() {
     assert_eq!(scene.focus_scopes.len(), 1);
     assert_eq!(scene.focus_scopes[0].owner, OVERLAY);
     assert_eq!(scene.focus_scopes[0].members, scene.focus_order);
+
+    let overlay_semantics = scene.semantics.node(OVERLAY).unwrap();
+    let action_semantics = scene.semantics.node(OVERLAY_ACTION).unwrap();
+    assert_eq!(overlay_semantics.children, vec![OVERLAY_ACTION]);
+    assert_eq!(action_semantics.parent, Some(OVERLAY));
+    assert_eq!(action_semantics.properties.role, SemanticRole::Button);
+    assert_eq!(action_semantics.properties.label.as_deref(), Some("Action"));
+    assert_eq!(
+        action_semantics.bounds,
+        scene.node(OVERLAY_ACTION).unwrap().bounds
+    );
 }
 
 #[test]

@@ -631,6 +631,7 @@ dependencies = [
  "esox_input",
  "esox_markup",
  "image",
+ "serde",
  "taffy",
  "tracing",
  "wgpu",

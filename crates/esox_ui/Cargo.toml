@@ -21,3 +21,4 @@ wgpu = { workspace = true }
 esox_input = { workspace = true }
 tracing = { workspace = true }
 taffy = { workspace = true }
+serde = { workspace = true }
