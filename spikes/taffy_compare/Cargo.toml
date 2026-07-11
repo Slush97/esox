@@ -1,0 +1,11 @@
+[package]
+name = "esox-taffy-compare"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+esox_ui = { path = "../../crates/esox_ui" }
+taffy = "=0.12.1"
