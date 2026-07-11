@@ -1,9 +1,10 @@
 use std::cell::Cell;
 
 use esox_ui::frame_core::{
-    Axis, CommittedScene, DeterministicMeasurer, Element, FrameCore, GridTrack, LogicalPoint,
-    LogicalRect, LogicalSize, NullSceneConsumer, PaintPrimitive, PointerEventKind,
-    SemanticProperties, SemanticRole, SemanticSnapshot, WidgetId,
+    AvailableLength, Axis, CommittedScene, DeterministicMeasurer, Element, FrameCore, GridTrack,
+    ImageMeasureRequest, IntrinsicMeasurer, LogicalPoint, LogicalRect, LogicalSize,
+    NullSceneConsumer, PaintPrimitive, PointerEventKind, SemanticProperties, SemanticRole,
+    SemanticSnapshot, TextDirection, TextMeasureRequest, TextProperties, WidgetId,
 };
 
 const ROOT: WidgetId = WidgetId(1);
@@ -19,6 +20,16 @@ const ROW_A: WidgetId = WidgetId(10);
 const ROW_B: WidgetId = WidgetId(11);
 const OVERLAY: WidgetId = WidgetId(12);
 const OVERLAY_ACTION: WidgetId = WidgetId(13);
+
+fn representative_text_properties() -> TextProperties {
+    TextProperties {
+        font_family: Some("Esox Sans".into()),
+        font_size: 16.0,
+        font_weight: 500,
+        locale: Some("en-US".into()),
+        direction: TextDirection::LeftToRight,
+    }
+}
 
 fn representative_scene() -> Element {
     Element::flex(ROOT, Axis::Row, 0.0)
@@ -36,7 +47,12 @@ fn representative_scene() -> Element {
                 .without_paint()
                 .with_children(vec![
                     Element::image(IMAGE, 7),
-                    Element::text(TEXT, "current frame contract text").interactive(),
+                    Element::text_with_properties(
+                        TEXT,
+                        "current frame contract text",
+                        representative_text_properties(),
+                    )
+                    .interactive(),
                 ])]),
         ])
 }
@@ -495,8 +511,38 @@ fn removed_capture_is_cancelled() {
 
 #[test]
 fn headless_pipeline_has_no_platform_or_gpu() {
-    let measurer =
-        DeterministicMeasurer::new(8.0, 18.0).with_image(7, LogicalSize::new(40.0, 24.0));
+    struct HintCheckingMeasurer {
+        inner: DeterministicMeasurer,
+        saw_text: Cell<bool>,
+        saw_width_constraint: Cell<bool>,
+    }
+
+    impl IntrinsicMeasurer for HintCheckingMeasurer {
+        fn measure_text(&self, request: TextMeasureRequest<'_>) -> LogicalSize {
+            assert_eq!(request.properties.font_family.as_deref(), Some("Esox Sans"));
+            assert_eq!(request.properties.font_size, 16.0);
+            assert_eq!(request.properties.font_weight, 500);
+            assert_eq!(request.properties.locale.as_deref(), Some("en-US"));
+            assert_eq!(request.properties.direction, TextDirection::LeftToRight);
+            self.saw_text.set(true);
+            if request.known_dimensions.width.is_some()
+                || matches!(request.available_space.width, AvailableLength::Definite(_))
+            {
+                self.saw_width_constraint.set(true);
+            }
+            self.inner.measure_text(request)
+        }
+
+        fn measure_image(&self, request: ImageMeasureRequest) -> LogicalSize {
+            self.inner.measure_image(request)
+        }
+    }
+
+    let measurer = HintCheckingMeasurer {
+        inner: DeterministicMeasurer::new(8.0, 18.0).with_image(7, LogicalSize::new(40.0, 24.0)),
+        saw_text: Cell::new(false),
+        saw_width_constraint: Cell::new(false),
+    };
     let mut consumer = NullSceneConsumer::default();
     let mut core = FrameCore::new(LogicalSize::new(320.0, 120.0));
 
@@ -506,6 +552,8 @@ fn headless_pipeline_has_no_platform_or_gpu() {
     assert_eq!(consumer.scenes().len(), 1);
     assert_eq!(consumer.scenes()[0].generation, 1);
     assert_eq!(consumer.scenes()[0].viewport.width, 320.0);
+    assert!(measurer.saw_text.get());
+    assert!(measurer.saw_width_constraint.get());
 }
 
 #[test]

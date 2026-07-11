@@ -90,19 +90,64 @@ pub enum GridTrack {
 
 #[derive(Clone, Debug)]
 enum ElementKind {
-    Flex { axis: Axis, gap: f32 },
-    Grid { columns: Vec<GridTrack>, gap: f32 },
+    Flex {
+        axis: Axis,
+        gap: f32,
+    },
+    Grid {
+        columns: Vec<GridTrack>,
+        gap: f32,
+    },
     Fixed(LogicalSize),
-    Text(String),
+    Text {
+        content: String,
+        properties: TextProperties,
+    },
     Image(u64),
+}
+
+/// Base direction hint carried to the selected text backend.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum TextDirection {
+    #[default]
+    Auto,
+    LeftToRight,
+    RightToLeft,
+}
+
+/// Esox-owned shaping and measurement properties for one text leaf.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TextProperties {
+    pub font_family: Option<String>,
+    pub font_size: f32,
+    pub font_weight: u16,
+    pub locale: Option<String>,
+    pub direction: TextDirection,
+}
+
+impl Default for TextProperties {
+    fn default() -> Self {
+        Self {
+            font_family: None,
+            font_size: 16.0,
+            font_weight: 400,
+            locale: None,
+            direction: TextDirection::Auto,
+        }
+    }
 }
 
 /// Backend-neutral paint data attached to one declared element.
 #[derive(Clone, Debug, PartialEq)]
 pub enum PaintPrimitive {
     Box,
-    Text { content: String },
-    Image { resource: u64 },
+    Text {
+        content: String,
+        properties: TextProperties,
+    },
+    Image {
+        resource: u64,
+    },
 }
 
 /// Esox-owned semantic role, independent of any accessibility backend.
@@ -161,8 +206,12 @@ pub struct Element {
 impl Element {
     fn new(id: WidgetId, kind: ElementKind) -> Self {
         let paint = match &kind {
-            ElementKind::Text(content) => PaintPrimitive::Text {
+            ElementKind::Text {
+                content,
+                properties,
+            } => PaintPrimitive::Text {
                 content: content.clone(),
+                properties: properties.clone(),
             },
             ElementKind::Image(resource) => PaintPrimitive::Image {
                 resource: *resource,
@@ -203,8 +252,23 @@ impl Element {
 
     /// Create a deterministically measured text leaf.
     pub fn text(id: WidgetId, text: impl Into<String>) -> Self {
+        Self::text_with_properties(id, text, TextProperties::default())
+    }
+
+    /// Create a text leaf with backend-neutral shaping and locale hints.
+    pub fn text_with_properties(
+        id: WidgetId,
+        text: impl Into<String>,
+        properties: TextProperties,
+    ) -> Self {
         let text = text.into();
-        let mut element = Self::new(id, ElementKind::Text(text.clone()));
+        let mut element = Self::new(
+            id,
+            ElementKind::Text {
+                content: text.clone(),
+                properties,
+            },
+        );
         element.semantics = Some(SemanticProperties::new(SemanticRole::Text).with_label(text));
         element
     }
@@ -351,10 +415,49 @@ impl WidgetStateStore {
     }
 }
 
+/// One dimension of constraint space supplied to an intrinsic measurer.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum AvailableLength {
+    Definite(f32),
+    MinContent,
+    MaxContent,
+}
+
+/// Known dimensions supplied by Taffy for a leaf measurement query.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct KnownDimensions {
+    pub width: Option<f32>,
+    pub height: Option<f32>,
+}
+
+/// Available width and height supplied by Taffy for a leaf measurement query.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct AvailableSize {
+    pub width: AvailableLength,
+    pub height: AvailableLength,
+}
+
+/// Complete GPU-independent text measurement request.
+#[derive(Clone, Copy, Debug)]
+pub struct TextMeasureRequest<'a> {
+    pub content: &'a str,
+    pub properties: &'a TextProperties,
+    pub known_dimensions: KnownDimensions,
+    pub available_space: AvailableSize,
+}
+
+/// Complete GPU-independent image measurement request.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ImageMeasureRequest {
+    pub resource: u64,
+    pub known_dimensions: KnownDimensions,
+    pub available_space: AvailableSize,
+}
+
 /// GPU-independent intrinsic measurement used during Taffy layout.
 pub trait IntrinsicMeasurer {
-    fn measure_text(&self, text: &str, available_width: Option<f32>) -> LogicalSize;
-    fn measure_image(&self, image: u64) -> LogicalSize;
+    fn measure_text(&self, request: TextMeasureRequest<'_>) -> LogicalSize;
+    fn measure_image(&self, request: ImageMeasureRequest) -> LogicalSize;
 }
 
 /// Fixed-metric measurement fixture for headless contract tests.
@@ -383,27 +486,50 @@ impl DeterministicMeasurer {
 }
 
 impl IntrinsicMeasurer for DeterministicMeasurer {
-    fn measure_text(&self, text: &str, available_width: Option<f32>) -> LogicalSize {
-        let natural_width = text.chars().count() as f32 * self.glyph_width;
-        let width = available_width
-            .map(|available| natural_width.min(available.max(0.0)))
-            .unwrap_or(natural_width);
+    fn measure_text(&self, request: TextMeasureRequest<'_>) -> LogicalSize {
+        let natural_width = request.content.chars().count() as f32 * self.glyph_width;
+        let available_width = match request.available_space.width {
+            AvailableLength::Definite(width) => Some(width),
+            AvailableLength::MinContent | AvailableLength::MaxContent => None,
+        };
+        let width = request.known_dimensions.width.unwrap_or_else(|| {
+            available_width
+                .map(|available| natural_width.min(available.max(0.0)))
+                .unwrap_or(natural_width)
+        });
         let lines = if natural_width == 0.0 {
             1.0
         } else {
             (natural_width / width.max(1.0)).ceil()
         };
-        LogicalSize::new(width, lines * self.line_height)
+        LogicalSize::new(
+            width,
+            request
+                .known_dimensions
+                .height
+                .unwrap_or(lines * self.line_height),
+        )
     }
 
-    fn measure_image(&self, image: u64) -> LogicalSize {
-        self.images.get(&image).copied().unwrap_or_default()
+    fn measure_image(&self, request: ImageMeasureRequest) -> LogicalSize {
+        let intrinsic = self
+            .images
+            .get(&request.resource)
+            .copied()
+            .unwrap_or_default();
+        LogicalSize::new(
+            request.known_dimensions.width.unwrap_or(intrinsic.width),
+            request.known_dimensions.height.unwrap_or(intrinsic.height),
+        )
     }
 }
 
 #[derive(Clone, Debug)]
 enum MeasureContext {
-    Text(String),
+    Text {
+        content: String,
+        properties: TextProperties,
+    },
     Image(u64),
 }
 
@@ -902,7 +1028,7 @@ fn resolve(
                 flex_shrink: 0.0,
                 ..Default::default()
             },
-            ElementKind::Text(_) | ElementKind::Image(_) => Style {
+            ElementKind::Text { .. } | ElementKind::Image(_) => Style {
                 min_size: Size {
                     width: length(0.0),
                     height: auto(),
@@ -933,8 +1059,17 @@ fn resolve(
 
         let node = if children.is_empty() {
             match &element.kind {
-                ElementKind::Text(text) => tree
-                    .new_leaf_with_context(style, MeasureContext::Text(text.clone()))
+                ElementKind::Text {
+                    content,
+                    properties,
+                } => tree
+                    .new_leaf_with_context(
+                        style,
+                        MeasureContext::Text {
+                            content: content.clone(),
+                            properties: properties.clone(),
+                        },
+                    )
                     .map_err(|error| FrameError(error.to_string()))?,
                 ElementKind::Image(image) => tree
                     .new_leaf_with_context(style, MeasureContext::Image(*image))
@@ -965,15 +1100,36 @@ fn resolve(
         root_node,
         Size::MAX_CONTENT,
         |known, available, _, context, _| {
+            let known_dimensions = KnownDimensions {
+                width: known.width,
+                height: known.height,
+            };
+            let map_available = |length| match length {
+                AvailableSpace::Definite(value) => AvailableLength::Definite(value),
+                AvailableSpace::MinContent => AvailableLength::MinContent,
+                AvailableSpace::MaxContent => AvailableLength::MaxContent,
+            };
+            let available_space = AvailableSize {
+                width: map_available(available.width),
+                height: map_available(available.height),
+            };
             let measured = match context {
-                Some(MeasureContext::Text(text)) => {
-                    let available_width = known.width.or(match available.width {
-                        AvailableSpace::Definite(width) => Some(width),
-                        _ => None,
-                    });
-                    measurer.measure_text(text, available_width)
+                Some(MeasureContext::Text {
+                    content,
+                    properties,
+                }) => measurer.measure_text(TextMeasureRequest {
+                    content,
+                    properties,
+                    known_dimensions,
+                    available_space,
+                }),
+                Some(MeasureContext::Image(resource)) => {
+                    measurer.measure_image(ImageMeasureRequest {
+                        resource: *resource,
+                        known_dimensions,
+                        available_space,
+                    })
                 }
-                Some(MeasureContext::Image(image)) => measurer.measure_image(*image),
                 None => LogicalSize::default(),
             };
             Size {
