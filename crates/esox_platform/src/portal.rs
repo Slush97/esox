@@ -332,8 +332,7 @@ async fn handle_notify(summary: &str, body: &str) -> Result<(), PortalError> {
             .as_millis()
     );
 
-    let notification = ashpd::desktop::notification::Notification::default()
-        .title(summary)
+    let notification = ashpd::desktop::notification::Notification::new(summary)
         .body(body)
         .priority(Priority::Normal);
 

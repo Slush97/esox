@@ -324,10 +324,10 @@ pub(crate) fn convert_cursor_icon(icon: esox_input::CursorIcon) -> winit::window
 /// The binary crate implements this to wire terminal logic without
 /// `esox_platform` knowing about `esox_font`, `esox_grid`, or `esox_term`.
 pub trait AppDelegate {
-    /// Called once after GPU and pipeline initialization, before [`on_init`].
+    /// Called once after GPU and pipeline initialization, before [`AppDelegate::on_init`].
     ///
     /// Use this to register custom shader pipelines via
-    /// [`PipelineRegistry::register_shader_pipeline`].
+    /// [`PipelineRegistry::register_shader_pipeline`](esox_gfx::PipelineRegistry::register_shader_pipeline).
     fn register_pipelines(
         &mut self,
         _gpu: &esox_gfx::GpuContext,
@@ -1992,13 +1992,13 @@ pub fn run(
 
     // Auto-save window state on exit.
     #[cfg(feature = "settings")]
-    if let Some(ref app_name) = app.config.app_name {
-        if let Some(ref window) = app.window {
-            let dirs = crate::xdg::AppDirs::new(app_name);
-            let ws = crate::settings::WindowState::from_window(window);
-            if let Err(e) = ws.save(&dirs) {
-                tracing::warn!("failed to save window state: {e}");
-            }
+    if let Some(ref app_name) = app.config.app_name
+        && let Some(ref window) = app.window
+    {
+        let dirs = crate::xdg::AppDirs::new(app_name);
+        let ws = crate::settings::WindowState::from_window(window);
+        if let Err(e) = ws.save(&dirs) {
+            tracing::warn!("failed to save window state: {e}");
         }
     }
 

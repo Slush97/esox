@@ -651,6 +651,7 @@ fn create_r8_texture(
 }
 
 /// Create the SSAO bind group.
+#[allow(clippy::too_many_arguments)] // One argument per GPU binding slot.
 fn create_ssao_bind_group(
     device: &wgpu::Device,
     layout: &wgpu::BindGroupLayout,

@@ -1326,55 +1326,6 @@ impl ThemeTransition {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn dark_and_light_have_distinct_bg_base() {
-        let dark = Theme::dark();
-        let light = Theme::light();
-        assert_ne!(dark.bg_base, light.bg_base);
-    }
-
-    #[test]
-    fn scaled_doubles_dimensional_fields() {
-        let base = Theme::dark();
-        let scaled = base.scaled(2.0);
-        assert!((scaled.corner_radius - base.corner_radius * 2.0).abs() < 1e-6);
-        assert!((scaled.padding - base.padding * 2.0).abs() < 1e-6);
-        assert!((scaled.font_size - base.font_size * 2.0).abs() < 1e-6);
-        assert!((scaled.button_height - base.button_height * 2.0).abs() < 1e-6);
-        assert!((scaled.toast_w - base.toast_w * 2.0).abs() < 1e-6);
-        assert!((scaled.scrollbar_width - base.scrollbar_width * 2.0).abs() < 1e-6);
-    }
-
-    #[test]
-    fn scaled_preserves_colors() {
-        let base = Theme::dark();
-        let scaled = base.scaled(2.0);
-        assert_eq!(scaled.bg_base, base.bg_base);
-        assert_eq!(scaled.fg, base.fg);
-        assert_eq!(scaled.accent, base.accent);
-        assert_eq!(scaled.red, base.red);
-        assert_eq!(scaled.border, base.border);
-    }
-
-    #[test]
-    fn high_contrast_has_pure_black_bg_base() {
-        let hc = Theme::high_contrast();
-        assert_eq!(hc.bg_base, Color::new(0.0, 0.0, 0.0, 1.0));
-    }
-
-    #[test]
-    fn high_contrast_exists_and_differs_from_dark() {
-        let hc = Theme::high_contrast();
-        let dark = Theme::dark();
-        assert_ne!(hc.fg, dark.fg);
-        assert_ne!(hc.accent, dark.accent);
-    }
-}
-
 /// Lighten a color by a fraction (0.0–1.0).
 fn lighten(c: Color, amount: f32) -> Color {
     Color::new(
@@ -1426,4 +1377,53 @@ fn hsl_to_rgb(h: f32, s: f32, l: f32) -> (f32, f32, f32) {
     };
     let m = l - c / 2.0;
     (r1 + m, g1 + m, b1 + m)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dark_and_light_have_distinct_bg_base() {
+        let dark = Theme::dark();
+        let light = Theme::light();
+        assert_ne!(dark.bg_base, light.bg_base);
+    }
+
+    #[test]
+    fn scaled_doubles_dimensional_fields() {
+        let base = Theme::dark();
+        let scaled = base.scaled(2.0);
+        assert!((scaled.corner_radius - base.corner_radius * 2.0).abs() < 1e-6);
+        assert!((scaled.padding - base.padding * 2.0).abs() < 1e-6);
+        assert!((scaled.font_size - base.font_size * 2.0).abs() < 1e-6);
+        assert!((scaled.button_height - base.button_height * 2.0).abs() < 1e-6);
+        assert!((scaled.toast_w - base.toast_w * 2.0).abs() < 1e-6);
+        assert!((scaled.scrollbar_width - base.scrollbar_width * 2.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn scaled_preserves_colors() {
+        let base = Theme::dark();
+        let scaled = base.scaled(2.0);
+        assert_eq!(scaled.bg_base, base.bg_base);
+        assert_eq!(scaled.fg, base.fg);
+        assert_eq!(scaled.accent, base.accent);
+        assert_eq!(scaled.red, base.red);
+        assert_eq!(scaled.border, base.border);
+    }
+
+    #[test]
+    fn high_contrast_has_pure_black_bg_base() {
+        let hc = Theme::high_contrast();
+        assert_eq!(hc.bg_base, Color::new(0.0, 0.0, 0.0, 1.0));
+    }
+
+    #[test]
+    fn high_contrast_exists_and_differs_from_dark() {
+        let hc = Theme::high_contrast();
+        let dark = Theme::dark();
+        assert_ne!(hc.fg, dark.fg);
+        assert_ne!(hc.accent, dark.accent);
+    }
 }

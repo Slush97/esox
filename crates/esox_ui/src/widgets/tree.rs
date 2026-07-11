@@ -121,27 +121,21 @@ impl<'f> Ui<'f> {
                     continue;
                 }
                 match &event.key {
-                    Key::Named(NamedKey::Enter) | Key::Named(NamedKey::Space) => {
-                        if has_children {
-                            if is_expanded {
-                                state.expanded.remove(&id);
-                            } else {
-                                state.expanded.insert(id);
-                            }
-                            response.changed = true;
-                        }
-                    }
-                    Key::Named(NamedKey::ArrowLeft) => {
-                        if is_expanded && has_children {
+                    Key::Named(NamedKey::Enter) | Key::Named(NamedKey::Space) if has_children => {
+                        if is_expanded {
                             state.expanded.remove(&id);
-                            response.changed = true;
-                        }
-                    }
-                    Key::Named(NamedKey::ArrowRight) => {
-                        if !is_expanded && has_children {
+                        } else {
                             state.expanded.insert(id);
-                            response.changed = true;
                         }
+                        response.changed = true;
+                    }
+                    Key::Named(NamedKey::ArrowLeft) if is_expanded && has_children => {
+                        state.expanded.remove(&id);
+                        response.changed = true;
+                    }
+                    Key::Named(NamedKey::ArrowRight) if !is_expanded && has_children => {
+                        state.expanded.insert(id);
+                        response.changed = true;
                     }
                     _ => {}
                 }

@@ -97,7 +97,7 @@ impl TextShaper {
 
     /// Shape text with OpenType ligature features enabled (liga, calt).
     ///
-    /// Same as [`shape`] but passes `liga` and `calt` feature tags to rustybuzz,
+    /// Same as [`Self::shape`] but passes `liga` and `calt` feature tags to rustybuzz,
     /// enabling programming ligatures in fonts like JetBrains Mono, Fira Code, etc.
     pub fn shape_with_ligatures(&mut self, face: &FontFace, text: &str, size_px: f32) -> ShapedRun {
         let buzz_face = match face.as_rustybuzz_face() {

@@ -151,7 +151,7 @@ impl GpuContext {
 
     /// Acquire the current surface texture for rendering.
     ///
-    /// Returns a [`SurfaceFrame`] that can be passed to both 3D and 2D
+    /// Returns a [`SurfaceFrame`](crate::frame::SurfaceFrame) that can be passed to both 3D and 2D
     /// render passes before presenting.
     pub fn acquire_surface(&self) -> Result<crate::frame::SurfaceFrame, wgpu::SurfaceError> {
         let texture = self.surface.get_current_texture()?;

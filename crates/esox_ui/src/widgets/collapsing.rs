@@ -80,17 +80,13 @@ impl<'f> Ui<'f> {
                     continue;
                 }
                 match &event.key {
-                    Key::Named(NamedKey::ArrowLeft) => {
-                        if is_open {
-                            self.state.collapsing_open.remove(&id);
-                            response.changed = true;
-                        }
+                    Key::Named(NamedKey::ArrowLeft) if is_open => {
+                        self.state.collapsing_open.remove(&id);
+                        response.changed = true;
                     }
-                    Key::Named(NamedKey::ArrowRight) => {
-                        if !is_open {
-                            self.state.collapsing_open.insert(id);
-                            response.changed = true;
-                        }
+                    Key::Named(NamedKey::ArrowRight) if !is_open => {
+                        self.state.collapsing_open.insert(id);
+                        response.changed = true;
                     }
                     _ => {}
                 }

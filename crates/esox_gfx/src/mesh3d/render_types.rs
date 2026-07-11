@@ -111,7 +111,7 @@ mod tests {
 
     #[test]
     fn draw_cmd_sort_order() {
-        let keys = vec![
+        let keys = [
             PipelineKey {
                 material_type: MaterialType::Lit,
                 blend_mode: BlendMode3D::Opaque,
@@ -126,7 +126,7 @@ mod tests {
             },
         ];
 
-        let mut cmds = vec![
+        let mut cmds = [
             DrawCmd {
                 mesh: MeshHandle(1),
                 material: MaterialHandle(1),
@@ -157,7 +157,7 @@ mod tests {
 
     #[test]
     fn draw_cmd_merge_adjacent() {
-        let cmds = vec![
+        let cmds = [
             DrawCmd {
                 mesh: MeshHandle(0),
                 material: MaterialHandle(0),

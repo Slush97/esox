@@ -75,7 +75,7 @@ fn f32_to_f16_bytes(value: f32) -> [u8; 2] {
         } else {
             0
         };
-        let result = sign | exp16 | man16 + rounded;
+        let result = sign | exp16 | (man16 + rounded);
         // Handle carry into exponent
         result.min(sign | 0x7BFF) // Cap at max normal (not inf)
     } else if exponent > 101 {
@@ -777,7 +777,7 @@ fn hammersley(i: u32, n: u32) -> (f32, f32) {
 
 /// Van der Corput radical inverse (base 2) via bit manipulation.
 fn radical_inverse_vdc(mut bits: u32) -> f32 {
-    bits = (bits << 16) | (bits >> 16);
+    bits = bits.rotate_right(16);
     bits = ((bits & 0x5555_5555) << 1) | ((bits & 0xAAAA_AAAA) >> 1);
     bits = ((bits & 0x3333_3333) << 2) | ((bits & 0xCCCC_CCCC) >> 2);
     bits = ((bits & 0x0F0F_0F0F) << 4) | ((bits & 0xF0F0_F0F0) >> 4);
@@ -1107,7 +1107,7 @@ mod tests {
     #[test]
     fn equirect_to_cubemap_face_count() {
         // 2x1 equirect (minimal)
-        let hdr = vec![1.0f32; 2 * 1 * 3];
+        let hdr = vec![1.0f32; 2 * 3];
         let face_size = 2u32;
         let faces = equirect_to_cubemap_faces(&hdr, 2, 1, face_size);
         assert_eq!(faces.len(), 6 * (face_size * face_size) as usize);

@@ -42,7 +42,7 @@ impl<'f> Ui<'f> {
         self.cursor.y += total_h + self.spacing;
     }
 
-    /// Single-callback variant of [`split_pane_h`] for cases where both panels
+    /// Single-callback variant of [`Self::split_pane_h`] for cases where both panels
     /// need mutable access to the same outer state (avoiding the two-closure
     /// borrow conflict). The callback receives `(ui, panel_index)` where
     /// `panel_index` is 0 for left and 1 for right.

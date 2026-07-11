@@ -136,8 +136,8 @@ pub struct Frustum {
 impl Frustum {
     /// Extract frustum planes from a combined view-projection matrix.
     ///
-    /// Uses the Gribb-Hartmann method. wgpu uses depth [0,1], so the near plane
-    /// is row3 (not row3+row2 as in OpenGL's [-1,1] depth).
+    /// Uses the Gribb-Hartmann method. wgpu uses depth `[0,1]`, so the near plane
+    /// is row3 (not row3+row2 as in OpenGL's `[-1,1]` depth).
     pub fn from_view_projection(vp: &Mat4) -> Self {
         let rows = vp.transpose().to_cols_array_2d();
         let row0 = Vec4::from(rows[0]);

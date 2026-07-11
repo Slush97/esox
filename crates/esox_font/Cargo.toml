@@ -5,6 +5,9 @@ edition.workspace = true
 license.workspace = true
 description = "Font shaping, rasterization, and atlas management"
 
+[lints]
+workspace = true
+
 [dependencies]
 esox_gfx = { workspace = true }
 rustybuzz = { workspace = true }

@@ -251,7 +251,7 @@ impl Scene {
 
     /// Collect all primitives in the scene, resolved to absolute coordinates.
     ///
-    /// Allocates a fresh buffer. Prefer [`collect_primitives_into`] in hot
+    /// Allocates a fresh buffer. Prefer [`Self::collect_primitives_into`] in hot
     /// paths to reuse an existing buffer across frames.
     pub fn collect_primitives(&self) -> Vec<ResolvedPrimitive> {
         let mut out = Vec::new();

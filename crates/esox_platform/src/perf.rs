@@ -673,7 +673,7 @@ fn read_top_mappings(n: usize) -> Vec<(u64, u64, String)> {
         .into_iter()
         .map(|(name, (rss, pss))| (rss, pss, name))
         .collect();
-    sorted.sort_by(|a, b| b.0.cmp(&a.0));
+    sorted.sort_by_key(|entry| std::cmp::Reverse(entry.0));
     sorted.truncate(n);
     sorted
 }

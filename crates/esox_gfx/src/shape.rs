@@ -462,7 +462,7 @@ impl ShapeBuilder {
     /// When set, the shader computes base color from surface normals using HSV
     /// instead of using the instance color.
     ///
-    /// No-op on `ShapeType::Shader` (flags[3] carries the pipeline ID).
+    /// No-op on `ShapeType::Shader` (`flags[3]` carries the pipeline ID).
     pub fn rainbow(mut self) -> Self {
         if self.shader_id.is_some() {
             tracing::warn!("rainbow() ignored on ShapeType::Shader (flags[3] is pipeline ID)");

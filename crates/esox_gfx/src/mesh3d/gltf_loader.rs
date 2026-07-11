@@ -324,9 +324,7 @@ fn convert_image_to_rgba8(img: &gltf::image::Data) -> (Vec<u8>, u32, u32) {
                     // Take high byte of u16le
                     rgba.push(pixel[c * 2 + 1]);
                 }
-                for _ in channels..3 {
-                    rgba.push(0);
-                }
+                rgba.extend(std::iter::repeat_n(0, 3usize.saturating_sub(channels)));
                 if channels < 4 {
                     rgba.push(255);
                 }
@@ -361,15 +359,15 @@ fn convert_material(mat: &gltf::Material<'_>, image_srgb: &mut [bool]) -> Materi
     let normal_scale = mat.normal_texture().map(|t| t.scale()).unwrap_or(1.0);
 
     // Mark data textures as linear (not sRGB).
-    if let Some(idx) = normal_tex_idx {
-        if idx < image_srgb.len() {
-            image_srgb[idx] = false;
-        }
+    if let Some(idx) = normal_tex_idx
+        && idx < image_srgb.len()
+    {
+        image_srgb[idx] = false;
     }
-    if let Some(idx) = mr_tex_idx {
-        if idx < image_srgb.len() {
-            image_srgb[idx] = false;
-        }
+    if let Some(idx) = mr_tex_idx
+        && idx < image_srgb.len()
+    {
+        image_srgb[idx] = false;
     }
 
     let emissive = mat.emissive_factor();
@@ -664,9 +662,7 @@ fn convert_animation(
             Some(gltf::animation::util::ReadOutputs::Translations(iter)) => {
                 iter.map(|t| [t[0], t[1], t[2], 0.0]).collect()
             }
-            Some(gltf::animation::util::ReadOutputs::Rotations(iter)) => {
-                iter.into_f32().map(|r| r).collect()
-            }
+            Some(gltf::animation::util::ReadOutputs::Rotations(iter)) => iter.into_f32().collect(),
             Some(gltf::animation::util::ReadOutputs::Scales(iter)) => {
                 iter.map(|s| [s[0], s[1], s[2], 0.0]).collect()
             }

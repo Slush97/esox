@@ -36,7 +36,6 @@ pub enum BlendMode3D {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum CullMode3D {
     Back,
-    Front,
     None,
 }
 
@@ -226,7 +225,6 @@ pub(crate) fn blend_state(mode: BlendMode3D) -> Option<wgpu::BlendState> {
 pub(crate) fn cull_face(mode: CullMode3D) -> Option<wgpu::Face> {
     match mode {
         CullMode3D::Back => Some(wgpu::Face::Back),
-        CullMode3D::Front => Some(wgpu::Face::Front),
         CullMode3D::None => None,
     }
 }

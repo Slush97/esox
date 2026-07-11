@@ -5,6 +5,9 @@ edition.workspace = true
 license.workspace = true
 description = "GPU rendering engine with arena scene graph and instanced quad pipeline"
 
+[lints]
+workspace = true
+
 [features]
 default = []
 mesh3d = ["dep:glam", "dep:gltf"]

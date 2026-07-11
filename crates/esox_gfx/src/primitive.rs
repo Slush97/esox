@@ -182,7 +182,7 @@ pub enum ShapeType {
     Torus3D = 10,
     /// Raymarched 3D rounded box (sdf_params: [half_x, half_y, half_z, corner_radius]).
     RoundedBox3D = 11,
-    /// Regular N-gon (sdf_params: [sides, 0, 0, 0]; border_radius[0] = corner rounding).
+    /// Regular N-gon (sdf_params: [sides, 0, 0, 0]; `border_radius[0]` = corner rounding).
     Polygon = 12,
     /// N-pointed star (sdf_params: [points, inner_r, outer_r, 0]).
     Star = 13,
@@ -200,7 +200,7 @@ pub enum ShapeType {
     Trapezoid = 19,
     /// Raymarched 3D sliced torus — a torus fragment clipped by two cut planes.
     ///
-    /// `sdf_params`: `[major_r, minor_r, 0, 0]` (same as [`Torus3D`]).
+    /// `sdf_params`: `[major_r, minor_r, 0, 0]` (same as [`ShapeType::Torus3D`]).
     /// `border_radius`: `[a_min, a_max, b_min, b_max]` — dot-product acceptance
     /// ranges against two fixed cut-plane normals (shader constants).
     /// `extra[0..2]`: piece translation in object space.

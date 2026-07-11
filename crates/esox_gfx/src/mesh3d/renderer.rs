@@ -28,6 +28,8 @@ use super::texture::{Texture3D, TextureHandle};
 use super::postprocess::{
     PostProcess3D, PostProcess3DConfig, create_depth_texture, create_hdr_texture,
 };
+#[cfg(feature = "hot-reload")]
+use super::render_types::HDR_FORMAT;
 use super::render_types::{
     BatchStats3D, DrawCmd, INDIRECT_ARGS_SIZE, INITIAL_INDIRECT_CAPACITY,
     INITIAL_INSTANCE_CAPACITY, MAX_INSTANCES, SKINNED_MESH_BIT, Uniforms, instance_translation,
@@ -1102,100 +1104,87 @@ impl Renderer3D {
             tracing::info!("Rebuilt material shader pipelines");
         }
 
-        if rebuild_composite {
-            if let Some(pp) = &mut self.postprocess {
-                let src = self.shader_library.get(ShaderSlot::Composite);
-                let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-                    label: Some("esox_3d_composite_shader"),
-                    source: wgpu::ShaderSource::Wgsl(src.into()),
+        if rebuild_composite && let Some(pp) = &mut self.postprocess {
+            let src = self.shader_library.get(ShaderSlot::Composite);
+            let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("esox_3d_composite_shader"),
+                source: wgpu::ShaderSource::Wgsl(src.into()),
+            });
+            let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("esox_3d_composite_pipeline_layout"),
+                bind_group_layouts: &[&pp.composite_bind_group_layout],
+                immediate_size: 0,
+            });
+            pp.composite_pipeline =
+                device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                    label: Some("esox_3d_composite_pipeline"),
+                    layout: Some(&layout),
+                    vertex: wgpu::VertexState {
+                        module: &shader,
+                        entry_point: Some("vs_main"),
+                        buffers: &[],
+                        compilation_options: wgpu::PipelineCompilationOptions::default(),
+                    },
+                    fragment: Some(wgpu::FragmentState {
+                        module: &shader,
+                        entry_point: Some("fs_main"),
+                        targets: &[Some(wgpu::ColorTargetState {
+                            format: gpu.config.format,
+                            blend: None,
+                            write_mask: wgpu::ColorWrites::ALL,
+                        })],
+                        compilation_options: wgpu::PipelineCompilationOptions::default(),
+                    }),
+                    primitive: wgpu::PrimitiveState {
+                        topology: wgpu::PrimitiveTopology::TriangleList,
+                        cull_mode: None,
+                        ..Default::default()
+                    },
+                    depth_stencil: None,
+                    multisample: wgpu::MultisampleState::default(),
+                    multiview_mask: None,
+                    cache: None,
                 });
-                let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                    label: Some("esox_3d_composite_pipeline_layout"),
-                    bind_group_layouts: &[&pp.composite_bind_group_layout],
+            tracing::info!("Rebuilt composite pipeline");
+        }
+
+        if rebuild_shadow && let Some(sp) = &mut self.shadow_state.shadow_pass {
+            let src = self.shader_library.get(ShaderSlot::ShadowVertex);
+            sp.rebuild_pipeline(device, src);
+            tracing::info!("Rebuilt shadow pipeline");
+        }
+
+        if rebuild_ssao && let Some(ssao) = &mut self.ssao_pass {
+            let ssao_src = self.shader_library.get(ShaderSlot::Ssao);
+            let blur_src = self.shader_library.get(ShaderSlot::SsaoBlur);
+            ssao.rebuild_pipelines(device, ssao_src, blur_src);
+            tracing::info!("Rebuilt SSAO pipelines");
+        }
+
+        if rebuild_skinning && let Some(sp) = &mut self.skinning_pipeline {
+            let src = self.shader_library.get(ShaderSlot::Skinning);
+            sp.rebuild_pipeline(device, src);
+            tracing::info!("Rebuilt skinning pipeline");
+        }
+
+        if rebuild_depth_resolve && let Some(resolve) = &mut self.depth_resolve_pass {
+            let src = self.shader_library.get(ShaderSlot::DepthResolve);
+            resolve.rebuild_pipeline(device, src, self.sample_count);
+            tracing::info!("Rebuilt depth resolve pipeline");
+        }
+
+        if rebuild_bloom && let Some(pp) = &mut self.postprocess {
+            let down_src = self.shader_library.get(ShaderSlot::BloomDownsample);
+            let up_src = self.shader_library.get(ShaderSlot::BloomUpsample);
+            let bloom_bgl = pp.bloom_pass.bind_group_layout();
+            let bloom_pipeline_layout =
+                device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                    label: Some("esox_3d_bloom_pipeline_layout"),
+                    bind_group_layouts: &[bloom_bgl],
                     immediate_size: 0,
                 });
-                pp.composite_pipeline =
-                    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                        label: Some("esox_3d_composite_pipeline"),
-                        layout: Some(&layout),
-                        vertex: wgpu::VertexState {
-                            module: &shader,
-                            entry_point: Some("vs_main"),
-                            buffers: &[],
-                            compilation_options: wgpu::PipelineCompilationOptions::default(),
-                        },
-                        fragment: Some(wgpu::FragmentState {
-                            module: &shader,
-                            entry_point: Some("fs_main"),
-                            targets: &[Some(wgpu::ColorTargetState {
-                                format: gpu.config.format,
-                                blend: None,
-                                write_mask: wgpu::ColorWrites::ALL,
-                            })],
-                            compilation_options: wgpu::PipelineCompilationOptions::default(),
-                        }),
-                        primitive: wgpu::PrimitiveState {
-                            topology: wgpu::PrimitiveTopology::TriangleList,
-                            cull_mode: None,
-                            ..Default::default()
-                        },
-                        depth_stencil: None,
-                        multisample: wgpu::MultisampleState::default(),
-                        multiview_mask: None,
-                        cache: None,
-                    });
-                tracing::info!("Rebuilt composite pipeline");
-            }
-        }
-
-        if rebuild_shadow {
-            if let Some(sp) = &mut self.shadow_state.shadow_pass {
-                let src = self.shader_library.get(ShaderSlot::ShadowVertex);
-                sp.rebuild_pipeline(device, src);
-                tracing::info!("Rebuilt shadow pipeline");
-            }
-        }
-
-        if rebuild_ssao {
-            if let Some(ssao) = &mut self.ssao_pass {
-                let ssao_src = self.shader_library.get(ShaderSlot::Ssao);
-                let blur_src = self.shader_library.get(ShaderSlot::SsaoBlur);
-                ssao.rebuild_pipelines(device, ssao_src, blur_src);
-                tracing::info!("Rebuilt SSAO pipelines");
-            }
-        }
-
-        if rebuild_skinning {
-            if let Some(sp) = &mut self.skinning_pipeline {
-                let src = self.shader_library.get(ShaderSlot::Skinning);
-                sp.rebuild_pipeline(device, src);
-                tracing::info!("Rebuilt skinning pipeline");
-            }
-        }
-
-        if rebuild_depth_resolve {
-            if let Some(resolve) = &mut self.depth_resolve_pass {
-                let src = self.shader_library.get(ShaderSlot::DepthResolve);
-                resolve.rebuild_pipeline(device, src, self.sample_count);
-                tracing::info!("Rebuilt depth resolve pipeline");
-            }
-        }
-
-        if rebuild_bloom {
-            if let Some(pp) = &mut self.postprocess {
-                let down_src = self.shader_library.get(ShaderSlot::BloomDownsample);
-                let up_src = self.shader_library.get(ShaderSlot::BloomUpsample);
-                let bloom_bgl = pp.bloom_pass.bind_group_layout();
-                let bloom_pipeline_layout =
-                    device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                        label: Some("esox_3d_bloom_pipeline_layout"),
-                        bind_group_layouts: &[bloom_bgl],
-                        immediate_size: 0,
-                    });
-                let create_bloom = |src: &str,
-                                    label: &str,
-                                    blend: Option<wgpu::BlendState>|
-                 -> wgpu::RenderPipeline {
+            let create_bloom =
+                |src: &str, label: &str, blend: Option<wgpu::BlendState>| -> wgpu::RenderPipeline {
                     let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
                         label: Some(label),
                         source: wgpu::ShaderSource::Wgsl(src.into()),
@@ -1230,21 +1219,20 @@ impl Renderer3D {
                         cache: None,
                     })
                 };
-                pp.bloom_down_pipeline = create_bloom(down_src, "esox_3d_bloom_down", None);
-                pp.bloom_up_pipeline = create_bloom(
-                    up_src,
-                    "esox_3d_bloom_up",
-                    Some(wgpu::BlendState {
-                        color: wgpu::BlendComponent {
-                            src_factor: wgpu::BlendFactor::One,
-                            dst_factor: wgpu::BlendFactor::One,
-                            operation: wgpu::BlendOperation::Add,
-                        },
-                        alpha: wgpu::BlendComponent::OVER,
-                    }),
-                );
-                tracing::info!("Rebuilt bloom pipelines");
-            }
+            pp.bloom_down_pipeline = create_bloom(down_src, "esox_3d_bloom_down", None);
+            pp.bloom_up_pipeline = create_bloom(
+                up_src,
+                "esox_3d_bloom_up",
+                Some(wgpu::BlendState {
+                    color: wgpu::BlendComponent {
+                        src_factor: wgpu::BlendFactor::One,
+                        dst_factor: wgpu::BlendFactor::One,
+                        operation: wgpu::BlendOperation::Add,
+                    },
+                    alpha: wgpu::BlendComponent::OVER,
+                }),
+            );
+            tracing::info!("Rebuilt bloom pipelines");
         }
     }
 
@@ -1631,28 +1619,28 @@ impl Renderer3D {
         }
 
         // Resize offscreen HDR target if needed.
-        if let Some(pp) = &mut self.postprocess {
-            if viewport_width != pp.width || viewport_height != pp.height {
-                let (tex, cv, sv, msaa_tex, msaa_v) = create_hdr_texture(
-                    &gpu.device,
-                    viewport_width,
-                    viewport_height,
-                    self.sample_count,
-                );
-                pp.color_texture = tex;
-                pp.color_view = cv;
-                pp.sample_view = sv;
-                pp.msaa_color_texture = msaa_tex;
-                pp.msaa_color_view = msaa_v;
-                pp.bloom_pass.resize(
-                    &gpu.device,
-                    viewport_width,
-                    viewport_height,
-                    &pp.sample_view,
-                );
-                pp.width = viewport_width;
-                pp.height = viewport_height;
-            }
+        if let Some(pp) = &mut self.postprocess
+            && (viewport_width != pp.width || viewport_height != pp.height)
+        {
+            let (tex, cv, sv, msaa_tex, msaa_v) = create_hdr_texture(
+                &gpu.device,
+                viewport_width,
+                viewport_height,
+                self.sample_count,
+            );
+            pp.color_texture = tex;
+            pp.color_view = cv;
+            pp.sample_view = sv;
+            pp.msaa_color_texture = msaa_tex;
+            pp.msaa_color_view = msaa_v;
+            pp.bloom_pass.resize(
+                &gpu.device,
+                viewport_width,
+                viewport_height,
+                &pp.sample_view,
+            );
+            pp.width = viewport_width;
+            pp.height = viewport_height;
         }
     }
 
@@ -2028,11 +2016,13 @@ impl Renderer3D {
                     // Extend current group or start new one.
                     // Skinned meshes break groups because they need different vertex/index buffers.
                     let mat_key = cmd.material.0;
-                    if let Some(last) = groups.last_mut() {
-                        if last.0 == key && last.1 == mat_key && last.4 == skinned_idx {
-                            last.3 += 1;
-                            continue;
-                        }
+                    if let Some(last) = groups.last_mut()
+                        && last.0 == key
+                        && last.1 == mat_key
+                        && last.4 == skinned_idx
+                    {
+                        last.3 += 1;
+                        continue;
                     }
                     groups.push((key, mat_key, arg_idx, 1, skinned_idx));
                 }

@@ -2061,7 +2061,7 @@ impl<'f> Ui<'f> {
         });
     }
 
-    /// Label-widget pair in a row: "Label    [widget]"
+    /// Label-widget pair in a row: `Label    [widget]`
     pub fn labeled(&mut self, label: &str, f: impl FnOnce(&mut Self)) {
         self.row(|ui| {
             let label_w = ui.text.measure_text(label, ui.theme.font_size);

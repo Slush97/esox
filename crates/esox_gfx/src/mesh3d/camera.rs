@@ -3,20 +3,15 @@
 use glam::{Mat4, Vec3};
 
 /// Projection mode for a 3D camera.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum CameraMode {
     /// Standard perspective projection.
+    #[default]
     Perspective,
     /// Orthographic projection. `ortho_size` is the half-height of the view
     /// volume; width is derived as `ortho_size * aspect`.
     Orthographic { ortho_size: f32 },
-}
-
-impl Default for CameraMode {
-    fn default() -> Self {
-        Self::Perspective
-    }
 }
 
 /// A 3D camera defined by position, look-at target, and projection parameters.

@@ -2589,7 +2589,7 @@ mod tests {
         for i in 0..=100 {
             let t = i as f32 / 100.0;
             let v = Easing::EaseOutBounce.apply(t);
-            assert!(v >= 0.0 && v <= 1.001, "bounce({t}) = {v}");
+            assert!((0.0..=1.001).contains(&v), "bounce({t}) = {v}");
         }
     }
 

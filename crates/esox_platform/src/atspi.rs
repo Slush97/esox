@@ -160,5 +160,6 @@ pub fn map_role(role: esox_ui::A11yRole) -> u32 {
         A11yRole::Link => 48,         // ROLE_LINK
         A11yRole::SpinButton => 81,   // ROLE_SPIN_BUTTON
         A11yRole::Combobox => 24,     // ROLE_COMBO_BOX
+        A11yRole::Image => 27,        // ROLE_IMAGE
     }
 }

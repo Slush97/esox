@@ -50,8 +50,7 @@ impl WindowState {
     pub fn save(&self, dirs: &AppDirs) -> std::io::Result<()> {
         let dir = dirs.config_dir();
         std::fs::create_dir_all(&dir)?;
-        let content = toml::to_string_pretty(self)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+        let content = toml::to_string_pretty(self).map_err(std::io::Error::other)?;
         std::fs::write(dir.join("window.toml"), content)
     }
 }
@@ -71,8 +70,7 @@ pub fn save_settings<T: Serialize>(
 ) -> std::io::Result<()> {
     let dir = dirs.config_dir();
     std::fs::create_dir_all(&dir)?;
-    let content = toml::to_string_pretty(value)
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+    let content = toml::to_string_pretty(value).map_err(std::io::Error::other)?;
     std::fs::write(dir.join(filename), content)
 }
 

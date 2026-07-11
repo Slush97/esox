@@ -45,7 +45,7 @@ struct BloomMip {
 /// The bloom post-processing pass.
 ///
 /// Owns a mip chain, bind group layout, per-level bind groups, and a params
-/// buffer. Call [`encode`] between the scene pass and the post-process composite.
+/// buffer. Call [`BloomPass::encode`] between the scene pass and the post-process composite.
 pub struct BloomPass {
     /// Mip chain (level 0 = half scene resolution, each subsequent = half again).
     mips: Vec<BloomMip>,

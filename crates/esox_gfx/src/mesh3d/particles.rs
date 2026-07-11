@@ -374,7 +374,7 @@ impl super::renderer::Renderer3D {
                     continue;
                 }
                 pass.set_bind_group(0, Some(&pool.bind_group), &[]);
-                let workgroups = (pool.capacity + 63) / 64;
+                let workgroups = pool.capacity.div_ceil(64);
                 pass.dispatch_workgroups(workgroups, 1, 1);
             }
         }

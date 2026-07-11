@@ -712,9 +712,8 @@ impl ShadowPass {
 
         // Pack split far-planes into splits_count (skip the near plane at index 0).
         let mut splits_count = [0.0f32; 4];
-        for i in 0..count.min(MAX_SHADOW_CASCADES) {
-            splits_count[i] = splits[i + 1];
-        }
+        let n = count.min(MAX_SHADOW_CASCADES);
+        splits_count[..n].copy_from_slice(&splits[1..=n]);
 
         ShadowUniforms {
             light_vp,

@@ -3,6 +3,9 @@ name = "demo"
 version.workspace = true
 edition.workspace = true
 
+[lints]
+workspace = true
+
 [[bin]]
 name = "demo"
 path = "src/main.rs"

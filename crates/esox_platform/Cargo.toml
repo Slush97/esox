@@ -5,6 +5,9 @@ edition.workspace = true
 license.workspace = true
 description = "Platform integration: windowing, GPU surface, clipboard, and sandboxing"
 
+[lints]
+workspace = true
+
 [dependencies]
 arboard = { workspace = true }
 esox_gfx = { workspace = true }

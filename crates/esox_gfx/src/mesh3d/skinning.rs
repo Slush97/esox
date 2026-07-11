@@ -331,7 +331,7 @@ impl super::renderer::Renderer3D {
 
             for skinned in &self.skinned_meshes {
                 pass.set_bind_group(0, Some(&skinned.bind_group), &[]);
-                let workgroups = (skinned.vertex_count + 63) / 64;
+                let workgroups = skinned.vertex_count.div_ceil(64);
                 pass.dispatch_workgroups(workgroups, 1, 1);
             }
         }

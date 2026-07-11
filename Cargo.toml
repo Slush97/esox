@@ -15,6 +15,10 @@ version = "0.1.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 
+[workspace.lints.clippy]
+todo = "warn"
+dbg_macro = "warn"
+
 [workspace.dependencies]
 # Internal crates
 esox_gfx = { path = "crates/esox_gfx" }

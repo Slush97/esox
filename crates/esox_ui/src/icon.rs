@@ -18,7 +18,7 @@ pub(crate) const ICON_FONT_ID: esox_font::FontId = esox_font::FontId(200);
 // Generated from Phosphor Icons v2.1 selection.json
 // 1512 icons, codepoints in Unicode Private Use Area (0xe000..0xee82)
 
-/// A Phosphor icon. Use with [`Ui::icon`] or [`Ui::icon_colored`].
+/// A Phosphor icon. Use with [`Ui::icon`](crate::Ui::icon) or [`Ui::icon_colored`](crate::Ui::icon_colored).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(u32)]
 #[allow(missing_docs)]
