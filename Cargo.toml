@@ -7,6 +7,7 @@ members = [
     "crates/esox_ui",
     "crates/esox_platform",
     "examples/demo",
+    "examples/frame_core_demo",
     "crates/esox_markup",
 ]
 
@@ -62,6 +63,7 @@ serde = { version = "1", features = ["derive"] }
 thiserror = "2"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+taffy = "=0.12.1"
 
 # Compile dependencies with optimizations in debug builds
 [profile.dev.package."*"]
