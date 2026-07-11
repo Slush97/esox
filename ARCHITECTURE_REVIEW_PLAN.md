@@ -196,6 +196,22 @@ These spikes were previously listed as a parallel research series, but their out
 - Spikes 1–4 have recorded outcomes, referenced by the ADRs they gate.
 - Review questions 1 (immediate-mode requirement) and 7 (AccessKit as source of truth) from §18 have maintainer answers recorded — every downstream decision bends around these two.
 
+### Recorded Gate 0.5 outcome
+
+Gate 0.5 is complete. The four blocking spike records are:
+
+- `docs/GATE_0_5_TAFFY_SPIKE.md`;
+- `docs/GATE_0_5_CURRENT_FRAME_SPIKE.md`;
+- `docs/GATE_0_5_ACCESSKIT_SPIKE.md`; and
+- `docs/GATE_0_5_TEXT_STACK_SPIKE.md`.
+
+Question 1 is answered by the current-frame and lifecycle decisions:
+immediate-mode syntax is the application-facing API, while the internal frame
+uses one owned current-frame tree built by one application declaration.
+Question 7 is answered by the accessibility spike: AccessKit is an adapter over
+an Esox-owned serializable semantic tree. The consolidated evidence and
+remaining non-blocking question are in `docs/GATE_0_5_STATUS.md`.
+
 ## 9. Phase 1: Define the Frame Contract
 
 **Goal:** Eliminate previous-frame layout as the source of current-frame painting.

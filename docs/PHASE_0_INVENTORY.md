@@ -82,3 +82,8 @@ The optional `a11y` feature now compiles, but the AT-SPI bridge still discards
 semantic snapshots and is not functional. Its numeric role mapping should be
 treated as unverified; several constants appear suspect and must be checked
 against the selected accessibility stack during the Gate 0.5 AccessKit spike.
+
+Gate 0.5 subsequently selected an Esox-owned serializable semantic tree with
+AccessKit as its platform adapter. Phase 4 should replace the incomplete direct
+bridge and numeric role mapping with AccessKit Unix rather than extending them.
+See `GATE_0_5_ACCESSKIT_SPIKE.md`.
