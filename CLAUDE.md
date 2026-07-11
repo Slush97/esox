@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-Esox is a GPU-accelerated, immediate-mode UI toolkit for native Linux applications, written in Rust. It targets small binaries (~8MB), zero runtime dependencies, and first-class accessibility.
+Esox is a prototype GPU-accelerated, immediate-mode UI toolkit for native Linux applications, written in Rust. It targets small native binaries and first-class accessibility. The current AT-SPI2 bridge is not functional, and the runtime depends on the Linux desktop/Vulkan stack plus fontconfig for system font discovery.
 
 ## Workspace Structure
 
@@ -11,7 +11,7 @@ Esox is a GPU-accelerated, immediate-mode UI toolkit for native Linux applicatio
 - `crates/esox_font` — Font loading (ttf-parser), shaping (rustybuzz), rasterization (swash)
 - `crates/esox_platform` — Windowing (winit), input, clipboard, AT-SPI2 a11y bridge
 - `crates/esox_input` — Platform-independent input types
-- `examples/` — demo, layout_showcase, material_showcase
+- `examples/demo` — widget and layout showcase
 
 ## Development Commands
 
@@ -24,8 +24,6 @@ cargo build --workspace --release
 
 # Run examples
 cargo run -p demo --release
-cargo run -p layout_showcase --release
-cargo run -p material_showcase --release
 
 # Check formatting (must pass before commit)
 cargo fmt --all -- --check

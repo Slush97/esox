@@ -1,5 +1,12 @@
 # Roadmap
 
+This document describes the long-term product direction. Work is currently in
+Phase 0 of the [architecture review and stabilization plan](ARCHITECTURE_REVIEW_PLAN.md);
+that gated plan controls implementation order. In particular, accessibility is
+a goal rather than a supported capability today: the semantic metadata and
+optional AT-SPI2 bridge are preliminary, and the bridge does not expose the UI
+tree to screen readers yet.
+
 ## Strategic Vision
 
 Two differentiators: (1) the best a11y story on Linux, and (2) the first UI toolkit with a first-class AI generation story — a declarative layer where AI describes *what* it wants and the runtime handles *how*.
@@ -101,7 +108,7 @@ CSS gaps that the declarative format will expose. Build as needed.
 - [ ] Hot-reload for description format + themes
 - [ ] `cargo generate` app template
 - [ ] Publish to crates.io
-- [ ] CI/CD (GitHub Actions: build, test, clippy)
+- [x] CI/CD (GitHub Actions: build, test, clippy)
 - [ ] Benchmark suite (frame times, memory, startup, binary size)
 - [ ] Example apps: settings panel, file manager, text editor
 

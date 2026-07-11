@@ -1,12 +1,12 @@
 # esox
 
-A GPU-accelerated UI toolkit for native Linux applications, written in Rust.
+A prototype GPU-accelerated UI toolkit for native Linux applications, written in Rust.
 
-~8MB binaries. No runtime dependencies beyond your system's Vulkan driver. No webview. No garbage collector. No framework tax.
+Esox renders without a webview or garbage-collected runtime. It currently depends on a Linux desktop stack, a Vulkan driver, and system fonts resolved through fontconfig.
 
 ## Why
 
-Every Linux UI toolkit either ships a browser engine (Electron), depends on a sprawling C runtime (GTK/Qt), or asks you to give up on accessibility. esox is an attempt at something better: a small, fast, accessible toolkit that produces standalone native binaries.
+Esox explores a small, Rust-native alternative to browser-based and traditional desktop UI stacks. Accessibility is a design goal, but screen-reader integration is not functional yet.
 
 ## Features
 
@@ -14,9 +14,9 @@ Every Linux UI toolkit either ships a browser engine (Electron), depends on a sp
 - **wgpu/Vulkan rendering** — GPU-accelerated with damage tracking, MSAA, instanced draw calls
 - **35+ widgets** — buttons, text inputs, tables, trees, virtual scroll (10k+ items), drag-and-drop, modals, tabs, split panes, and more
 - **Text pipeline** — rustybuzz shaping, swash rasterization, system font fallback via fontconfig, rich text support
-- **Accessibility** — AT-SPI2 integration for screen reader support (in progress)
+- **Accessibility metadata** — widgets emit a preliminary semantic tree; the optional AT-SPI2 bridge compiles but does not yet expose it to screen readers
 - **Theming** — dark/light themes with smooth transitions, per-widget style overrides
-- **Tiny binaries** — release builds around 8MB with everything included
+- **Native binaries** — no bundled browser engine or garbage-collected runtime
 
 ## Quick look
 
@@ -46,15 +46,11 @@ impl AppDelegate for MyApp {
 
 ## Building
 
-Requires Rust 2024 edition and a Vulkan-capable GPU.
+Requires the pinned Rust toolchain, a Vulkan-capable GPU and driver, a Wayland or X11 desktop, and fontconfig (`fc-match`) for system font discovery.
 
 ```sh
 # run the demo
 cargo run -p demo --release
-
-# run other examples
-cargo run -p layout_showcase --release
-cargo run -p material_showcase --release
 ```
 
 System dependencies (Arch):
@@ -72,14 +68,14 @@ crates/
   esox_platform/  # windowing, input, clipboard, a11y bridge
   esox_input/     # platform-independent input types
 examples/
-  demo/             # full widget showcase
-  layout_showcase/  # layout system examples
-  material_showcase/ # themed component gallery
+  demo/           # widget and layout showcase
 ```
 
 ## Roadmap
 
-See [ROADMAP.md](ROADMAP.md) for the full plan. The short version:
+See the [architecture review and stabilization plan](ARCHITECTURE_REVIEW_PLAN.md)
+for the current implementation sequence and [ROADMAP.md](ROADMAP.md) for the
+long-term product direction. The short version:
 
 1. **Accessibility & i18n** — finish AT-SPI2 integration, keyboard nav for all widgets, RTL/BiDi text
 2. **Modern UX** — spring animations, design tokens, subpixel text, more widgets
