@@ -26,4 +26,5 @@ Gate 0.5 completion does not mark Gate 1 complete. The headless FrameCore
 contract evidence exists, but production `Ui` still consumes `prev_layout`.
 Production integration must preserve the decisions above: no previous-frame
 geometry in FrameCore, no replay of application closures, and no broad `Ui`
-restructure hidden inside the spikes.
+restructure hidden inside the spikes. The staged production cutover is defined
+in [the Gate 1 production integration plan](GATE_1_PRODUCTION_INTEGRATION_PLAN.md).

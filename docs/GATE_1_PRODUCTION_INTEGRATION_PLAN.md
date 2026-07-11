@@ -1,0 +1,242 @@
+# Gate 1 production FrameCore integration plan
+
+**Status:** Planned; Gate 1 remains open until the production `Ui` no longer
+reads previous-frame layout.
+
+## Required outcome
+
+Production frames must execute the ADR-001 lifecycle:
+
+1. dispatch input against the last committed scene;
+2. invoke the application declaration exactly once into an Esox-owned
+   current-frame element tree;
+3. measure GPU-independent leaves and solve that tree with Taffy;
+4. traverse the resolved tree once to derive paint, effective clips, hit
+   records, semantic records, focus order, and current damage;
+5. reconcile interaction and atomically commit the generation; and
+6. submit the committed display list to `Frame`.
+
+The public immediate-mode syntax may remain. Its widget calls become
+declarations; they may not depend on solved geometry while the application
+closure is running.
+
+Gate 1 is complete only when all of the following are true:
+
+- `Ui` has no `prev_layout` field or previous-frame geometry lookup;
+- `UiState` has no `layout_cache` used as a current-frame geometry source;
+- first-frame, resize, structural, metric, scroll, and overlay output comes
+  from the generation being committed;
+- the production path runs the application closure once;
+- production text and image measurement can run without WGPU, a surface, or a
+  glyph atlas; and
+- the twelve headless FrameCore contracts still pass through the shared
+  lifecycle and geometry model.
+
+## Why the integration cannot be a finish-time translation
+
+The current `Ui` does more than paint at the rectangle returned by
+`allocate_rect`. During declaration it also uses that rectangle to choose text
+wrapping and truncation, establish GPU and hit clips, register hit/focus data,
+emit accessibility bounds, size nested regions, and sometimes position later
+siblings. Solving at `finish()` and translating already-emitted instances
+would correct only a subset of those products.
+
+Likewise, running the application closure once to measure and again to paint
+would violate ADR-001. `Ui::measure` currently embodies that pattern for a
+subtree, although it has no in-tree callers; it must not be part of the new
+pipeline.
+
+The narrow safe integration is therefore a staged internal migration with an
+atomic whole-frame cutover. A legacy and a current-frame implementation may
+coexist while the latter is tested, but a committed scene may never combine
+geometry or derived records from both.
+
+## Ownership boundary
+
+The production implementation should keep four kinds of data separate:
+
+| Owner | Lifetime | Contents |
+| --- | --- | --- |
+| Per-window state | Across frames | Input ledger, focus/capture, scroll offsets, animation values, widget state, resources, last committed scene |
+| Element tree | One generation | Stable IDs, hierarchy, Taffy style inputs, intrinsic measurement requests, paint properties, interaction properties, semantic properties |
+| Resolved scene | One committed generation | Unrounded logical bounds, effective clips, paint list, hit index, Esox semantic snapshot, focus order/scopes, damage |
+| Renderer | Submission/resource lifetime | Logical-to-physical conversion, snapping, WGPU instances, glyph rasterization and atlases |
+
+`FrameCore` should own the first three data domains. The present
+headless `Element` and `CommittedScene` are deliberately small contract
+fixtures; production work should generalize their data model rather than put a
+second lifecycle beside them.
+
+The semantic record remains an Esox type. A later AccessKit adapter consumes a
+committed semantic snapshot and does not own widget hierarchy or bounds.
+
+## Production-neutral leaf boundaries
+
+Layout leaves carry measurement input, not renderer state:
+
+```text
+TextMeasureRequest {
+    content,
+    font properties,
+    locale hint,
+    direction hint,
+    known dimensions,
+    available space,
+}
+
+ImageMeasureRequest {
+    resource key,
+    decoded intrinsic dimensions or placeholder dimensions,
+    known dimensions,
+    available space,
+}
+```
+
+The Phase 1 adapter may initially wrap existing deterministic or CPU font
+metrics. Its interface must accommodate the selected cosmic-text 0.19 backend
+without exposing cosmic-text types. Shaping and measurement cannot upload
+glyphs or consult an atlas. Rasterization happens only when the resolved paint
+list is submitted.
+
+IME composition remains in Esox per-window/widget state. The element tree
+contains the composition presentation declared for that generation, not the
+mutable composition owner.
+
+## Implementation slices
+
+### 1. Share the lifecycle and scene vocabulary
+
+- Split the contract-only conveniences from reusable FrameCore types: logical
+  geometry, stable IDs, input ledger, element hierarchy, resolved nodes,
+  semantic nodes, and atomic commit.
+- Add production paint and semantic properties as Esox-owned data attached to
+  element nodes. Do not store application callbacks in nodes.
+- Make scene consumption a renderer-neutral trait. Keep
+  `NullSceneConsumer`; add the WGPU/`Frame` consumer only at the renderer
+  boundary.
+- Preserve one `FrameCore` per `UiState`/window. Do not put committed geometry
+  in global caches.
+
+This slice stays headless and should extend the existing contract tests rather
+than create a second test harness.
+
+### 2. Add the production declaration vertical slice
+
+Implement declarations for the smallest representative set:
+
+- row and column containers;
+- padding, gap, fixed/min/max constraints, and flex grow;
+- label/paragraph text leaves;
+- button interaction and semantics; and
+- solid rectangle, border, and text paint primitives.
+
+Run this slice through Taffy and the resolved traversal in a headless
+production-API test. The test must declare once and verify first-frame and
+first-post-resize paint, hit, clip, semantic, and damage bounds.
+
+The application-facing calls should retain their current shape where possible.
+Responses come from the event ledger populated from the last committed scene,
+not from hit testing the tree under construction.
+
+### 3. Migrate geometry-sensitive containers
+
+Move containers in dependency order:
+
+1. constrained/max-width/centered regions and flex/grid;
+2. hidden and disabled state;
+3. clipping and scroll containers using current scroll offsets during resolve;
+4. transforms and damage expansion;
+5. overlays, blocking regions, focus scopes, and portal ownership; and
+6. tables, split panes, virtual scrolling, and other compound widgets.
+
+Container declarations record relationships and style. They do not save and
+restore solved cursor rectangles. Overlay anchoring is resolved from the
+anchor node in the same generation.
+
+### 4. Migrate remaining leaves and renderer submission
+
+- Represent every existing shape/image/text operation as an owned paint
+  primitive or a renderer-neutral resource reference.
+- Resolve text wrapping, truncation, alignment, and cursor geometry after
+  Taffy supplies constraints.
+- Build hit, focus, accessibility, clip, and damage records in the same
+  resolved traversal that creates paint records.
+- Convert the resolved paint list into `Frame` instances afterward. Pixel
+  snapping and atlas access remain in this consumer.
+
+### 5. Cut production `Ui` over atomically
+
+- Route `Ui::begin` through per-window FrameCore dispatch and declaration
+  setup.
+- Make `Ui::finish` perform measure/layout, resolve, reconcile, commit, and
+  renderer submission in order.
+- Remove `prev_layout`, `lookup_solved`, `cursor_fallback`, and the production
+  `layout_cache` dependency.
+- Remove or replace `Ui::measure`; intrinsic measurement must use leaf
+  requests, never execute widget/application closures.
+- Retire the in-house solver from the production path. Keep it temporarily
+  only if isolated tests or an explicitly non-production compatibility path
+  still require it, then remove it separately.
+
+Do not retain a fallback that selects legacy geometry when a new declaration
+kind is missing. An unsupported migrated widget must fail a test/build-time
+inventory check rather than silently create a mixed-generation scene.
+
+## Atomic change sequence
+
+The expected commit sequence is:
+
+1. add reusable owned scene/semantic/paint records and tests;
+2. add the GPU-independent production measurement interfaces;
+3. add the basic production declaration vertical slice and headless tests;
+4. add the renderer consumer for resolved paint records;
+5. migrate container groups in independently tested commits;
+6. migrate leaf/compound widget groups in independently tested commits;
+7. switch `Ui` to FrameCore and delete previous-frame geometry; and
+8. remove obsolete layout/cache code and update Gate 1 status.
+
+Each commit should compile and test independently. Existing unrelated and
+untracked files are outside these commits.
+
+## Validation
+
+Every slice runs:
+
+```sh
+cargo fmt --all -- --check
+cargo test -p esox_ui --all-features
+cargo clippy -p esox_ui --all-features --all-targets -- -D warnings
+git diff --check
+```
+
+Before the cutover commit, also run:
+
+```sh
+cargo test --workspace --all-features
+cargo clippy --workspace --all-features --all-targets -- -D warnings
+cargo test --manifest-path spikes/accesskit_compare/Cargo.toml
+cargo clippy --manifest-path spikes/accesskit_compare/Cargo.toml --all-targets -- -D warnings
+cargo test --manifest-path spikes/text_stack_compare/Cargo.toml
+cargo clippy --manifest-path spikes/text_stack_compare/Cargo.toml --all-targets -- -D warnings
+```
+
+Add a production-API regression for each Gate 1 contract as the relevant
+widget group migrates. The final cutover requires a source check showing no
+production `prev_layout`, cursor fallback, or application-closure measurement
+path remains.
+
+## First implementation task
+
+The next atomic code change should generalize the owned scene records without
+changing production `Ui` behavior:
+
+- define backend-neutral paint primitives and semantic properties on current
+  elements;
+- have the resolved traversal derive paint, hit, clip, semantic, and damage
+  records from one resolved node;
+- keep `NullSceneConsumer` snapshots deterministic; and
+- prove the new types remain GPU/platform independent.
+
+That creates the seam needed by the production declaration vertical slice
+without broadening the current uncommitted FrameCore contract work into a
+premature `Ui` rewrite.
