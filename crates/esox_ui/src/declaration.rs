@@ -11,6 +11,8 @@ use crate::frame_core::{
 };
 use crate::response::Response;
 
+pub use crate::frame_core::{CrossAxisAlignment, GridTrack, MainAxisAlignment};
+
 /// Layout properties shared by the declarations in this production slice.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct DeclarationStyle {
@@ -23,6 +25,8 @@ pub struct DeclarationStyle {
     max_width: Option<f32>,
     max_height: Option<f32>,
     flex_grow: f32,
+    main_axis_alignment: MainAxisAlignment,
+    cross_axis_alignment: CrossAxisAlignment,
     clip_children: bool,
 }
 
@@ -39,6 +43,8 @@ impl DeclarationStyle {
             max_width: None,
             max_height: None,
             flex_grow: 0.0,
+            main_axis_alignment: MainAxisAlignment::Start,
+            cross_axis_alignment: CrossAxisAlignment::Stretch,
             clip_children: false,
         }
     }
@@ -94,6 +100,18 @@ impl DeclarationStyle {
         self
     }
 
+    /// Align children along this row, column, or grid's main axis.
+    pub const fn main_axis_alignment(mut self, alignment: MainAxisAlignment) -> Self {
+        self.main_axis_alignment = alignment;
+        self
+    }
+
+    /// Align children along this row, column, or grid's cross axis.
+    pub const fn cross_axis_alignment(mut self, alignment: CrossAxisAlignment) -> Self {
+        self.cross_axis_alignment = alignment;
+        self
+    }
+
     /// Clip descendants to this declaration's current resolved bounds.
     pub const fn clip_children(mut self) -> Self {
         self.clip_children = true;
@@ -106,11 +124,62 @@ impl DeclarationStyle {
             .with_size(self.width, self.height)
             .with_min_size(self.min_width, self.min_height)
             .with_max_size(self.max_width, self.max_height)
-            .with_flex_grow(self.flex_grow);
+            .with_flex_grow(self.flex_grow)
+            .with_main_axis_alignment(self.main_axis_alignment)
+            .with_cross_axis_alignment(self.cross_axis_alignment);
         if self.clip_children {
             element = element.clip_children();
         }
         element
+    }
+}
+
+/// Grid-specific properties paired with the shared declaration layout style.
+#[derive(Clone, Debug, PartialEq)]
+pub struct GridStyle {
+    pub layout: DeclarationStyle,
+    pub columns: Vec<GridTrack>,
+    pub column_gap: f32,
+    pub row_gap: f32,
+}
+
+impl GridStyle {
+    /// Create a grid with explicit fixed, fractional, or auto columns.
+    ///
+    /// Tracks are preserved exactly so invalid declarations produce FrameCore's
+    /// typed frame error instead of being silently normalized by the facade.
+    pub fn new(columns: impl Into<Vec<GridTrack>>) -> Self {
+        Self {
+            layout: DeclarationStyle::new(),
+            columns: columns.into(),
+            column_gap: 0.0,
+            row_gap: 0.0,
+        }
+    }
+
+    /// Replace the shared container layout properties.
+    pub const fn layout(mut self, layout: DeclarationStyle) -> Self {
+        self.layout = layout;
+        self
+    }
+
+    /// Set the independent horizontal gap between grid columns.
+    pub const fn column_gap(mut self, gap: f32) -> Self {
+        self.column_gap = gap;
+        self
+    }
+
+    /// Set the independent vertical gap between implicit grid rows.
+    pub const fn row_gap(mut self, gap: f32) -> Self {
+        self.row_gap = gap;
+        self
+    }
+
+    /// Set horizontal and vertical gaps together.
+    pub const fn gaps(mut self, column_gap: f32, row_gap: f32) -> Self {
+        self.column_gap = column_gap;
+        self.row_gap = row_gap;
+        self
     }
 }
 
@@ -275,6 +344,23 @@ impl<'a> DeclarationUi<'a> {
     /// Declare a horizontal container and execute its body exactly once.
     pub fn row(&mut self, id: WidgetId, style: DeclarationStyle, body: impl FnOnce(&mut Self)) {
         self.container(id, Axis::Row, style, body);
+    }
+
+    /// Declare a grid container and execute its body exactly once.
+    ///
+    /// Children are placed in deterministic row-major order. Additional rows
+    /// are created by FrameCore through its shared Taffy layout path.
+    pub fn grid(&mut self, id: WidgetId, style: GridStyle, body: impl FnOnce(&mut Self)) {
+        self.child_stacks.push(Vec::new());
+        body(self);
+        let children = self
+            .child_stacks
+            .pop()
+            .expect("the grid container stack was just pushed");
+        let element = Element::grid_with_gaps(id, style.columns, style.column_gap, style.row_gap)
+            .without_paint()
+            .with_children(children);
+        self.push(style.layout.apply(element));
     }
 
     fn container(

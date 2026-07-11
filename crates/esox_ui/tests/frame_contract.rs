@@ -1,8 +1,9 @@
 use std::cell::Cell;
 
 use esox_ui::frame_core::{
-    AvailableLength, Axis, Color, CommittedScene, DeterministicMeasurer, Element, FrameCore,
-    GridTrack, ImageMeasureRequest, IntrinsicMeasurer, LogicalPoint, LogicalRect, LogicalSize,
+    AvailableLength, Axis, Color, CommittedScene, CrossAxisAlignment, DeterministicMeasurer,
+    Element, FrameCore, FrameError, GridDeclarationError, GridTrack, ImageMeasureRequest,
+    IntrinsicMeasurer, LogicalPoint, LogicalRect, LogicalSize, MainAxisAlignment,
     NullSceneConsumer, PaintPrimitive, PointerEventKind, SemanticProperties, SemanticRole,
     SemanticSnapshot, TextDirection, TextMeasureRequest, TextProperties, WidgetId,
 };
@@ -41,7 +42,7 @@ fn representative_scene() -> Element {
                 .with_flex_grow(1.0)
                 .with_children(vec![Element::grid(
                     GRID,
-                    vec![GridTrack::Points(72.0), GridTrack::Fraction(1.0)],
+                    vec![GridTrack::Fixed(72.0), GridTrack::Fraction(1.0)],
                     0.0,
                 )
                 .without_paint()
@@ -712,4 +713,121 @@ fn production_paint_primitives_are_backend_neutral_and_styled() {
         assert_eq!(node.paint_bounds, Some(node.bounds));
         assert_eq!(node.current_damage_bounds, Some(node.bounds));
     }
+}
+
+#[test]
+fn grid_tracks_gaps_and_implicit_rows_resolve_on_first_frame_and_resize() {
+    const A: WidgetId = WidgetId(20);
+    const B: WidgetId = WidgetId(21);
+    const C: WidgetId = WidgetId(22);
+    const D: WidgetId = WidgetId(23);
+    const E: WidgetId = WidgetId(24);
+
+    fn grid_scene() -> Element {
+        Element::grid_with_gaps(
+            ROOT,
+            vec![
+                GridTrack::Fixed(40.0),
+                GridTrack::Auto,
+                GridTrack::Fraction(1.0),
+                GridTrack::Fraction(2.0),
+            ],
+            6.0,
+            8.0,
+        )
+        .without_paint()
+        .with_padding(10.0)
+        .with_children(vec![
+            Element::flex(A, Axis::Column, 0.0).with_size(None, Some(20.0)),
+            Element::fixed(B, 30.0, 20.0),
+            Element::flex(C, Axis::Column, 0.0).with_size(None, Some(20.0)),
+            Element::flex(D, Axis::Column, 0.0).with_size(None, Some(20.0)),
+            Element::flex(E, Axis::Column, 0.0).with_size(None, Some(20.0)),
+        ])
+    }
+
+    let measurer = DeterministicMeasurer::new(8.0, 18.0);
+    let mut consumer = NullSceneConsumer::default();
+    let mut core = FrameCore::new(LogicalSize::new(300.0, 140.0));
+    core.run_frame(&measurer, &mut consumer, |_| grid_scene())
+        .unwrap();
+
+    let first = core.committed_scene().unwrap();
+    assert_eq!(first.node(A).unwrap().bounds.x, 10.0);
+    assert_eq!(first.node(B).unwrap().bounds.x, 56.0);
+    assert_eq!(first.node(C).unwrap().bounds.x, 92.0);
+    assert_eq!(first.node(C).unwrap().bounds.width, 64.0);
+    assert_eq!(first.node(D).unwrap().bounds.x, 162.0);
+    assert_eq!(first.node(D).unwrap().bounds.width, 128.0);
+    assert_eq!(first.node(E).unwrap().bounds.y, 74.0);
+
+    core.resize(LogicalSize::new(360.0, 140.0));
+    core.run_frame(&measurer, &mut consumer, |_| grid_scene())
+        .unwrap();
+    let resized = core.committed_scene().unwrap();
+    assert_eq!(resized.generation, 2);
+    assert_eq!(resized.node(C).unwrap().bounds.width, 84.0);
+    assert_eq!(resized.node(D).unwrap().bounds.x, 182.0);
+    assert_eq!(resized.node(D).unwrap().bounds.width, 168.0);
+    assert_eq!(resized.node(E).unwrap().bounds.y, 74.0);
+}
+
+#[test]
+fn flex_main_and_cross_axis_alignment_compose_with_max_width() {
+    let measurer = DeterministicMeasurer::new(8.0, 18.0);
+    let mut consumer = NullSceneConsumer::default();
+    let mut core = FrameCore::new(LogicalSize::new(200.0, 80.0));
+
+    core.run_frame(&measurer, &mut consumer, |_| {
+        Element::flex(ROOT, Axis::Row, 10.0)
+            .without_paint()
+            .with_padding(10.0)
+            .with_main_axis_alignment(MainAxisAlignment::Center)
+            .with_cross_axis_alignment(CrossAxisAlignment::Center)
+            .with_children(vec![
+                Element::fixed(SIDEBAR, 20.0, 10.0),
+                Element::flex(CONTENT, Axis::Column, 0.0)
+                    .with_size(Some(100.0), Some(20.0))
+                    .with_max_size(Some(40.0), None)
+                    .with_children(vec![Element::fixed(TEXT, 10.0, 5.0)]),
+            ])
+    })
+    .unwrap();
+
+    let scene = core.committed_scene().unwrap();
+    assert_eq!(scene.node(SIDEBAR).unwrap().bounds.x, 65.0);
+    assert_eq!(scene.node(SIDEBAR).unwrap().bounds.y, 35.0);
+    assert_eq!(scene.node(CONTENT).unwrap().bounds.x, 95.0);
+    assert_eq!(scene.node(CONTENT).unwrap().bounds.y, 30.0);
+    assert_eq!(scene.node(CONTENT).unwrap().bounds.width, 40.0);
+}
+
+#[test]
+fn invalid_grid_declaration_returns_typed_error_without_committing() {
+    let measurer = DeterministicMeasurer::new(8.0, 18.0);
+    let mut consumer = NullSceneConsumer::default();
+    let mut core = FrameCore::new(LogicalSize::new(100.0, 40.0));
+    core.run_frame(&measurer, &mut consumer, |_| {
+        Element::fixed(ROOT, 100.0, 40.0)
+    })
+    .unwrap();
+    let committed = core.committed_scene().unwrap().clone();
+
+    let error = core
+        .run_frame(&measurer, &mut consumer, |_| {
+            Element::grid_with_gaps(ROOT, vec![GridTrack::Fraction(0.0)], 4.0, 2.0)
+        })
+        .unwrap_err();
+    assert_eq!(
+        error,
+        FrameError::InvalidGrid {
+            id: ROOT,
+            error: GridDeclarationError::InvalidFractionTrack {
+                index: 0,
+                value: 0.0,
+            },
+        }
+    );
+    assert_eq!(core.committed_scene(), Some(&committed));
+    assert_eq!(consumer.scenes().len(), 1);
 }

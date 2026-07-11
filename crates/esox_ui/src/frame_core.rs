@@ -7,8 +7,8 @@ use std::collections::{HashMap, HashSet, VecDeque};
 
 use serde::{Deserialize, Serialize};
 use taffy::prelude::{
-    AvailableSpace, Display, FlexDirection, NodeId, Position, Rect, Size, Style, TaffyMaxContent,
-    TaffyTree,
+    AlignContent, AlignItems, AvailableSpace, Display, FlexDirection, JustifyContent, NodeId,
+    Position, Rect, Size, Style, TaffyMaxContent, TaffyTree,
 };
 use taffy::style_helpers::{auto, fr, length};
 
@@ -100,9 +100,31 @@ pub enum Axis {
 /// A grid track understood by the minimal Taffy adapter.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum GridTrack {
-    Points(f32),
+    Fixed(f32),
     Fraction(f32),
     Auto,
+}
+
+/// Alignment of children along a container's main axis.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum MainAxisAlignment {
+    #[default]
+    Start,
+    Center,
+    End,
+    SpaceBetween,
+    SpaceAround,
+    SpaceEvenly,
+}
+
+/// Alignment of children along a container's cross axis.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum CrossAxisAlignment {
+    #[default]
+    Stretch,
+    Start,
+    Center,
+    End,
 }
 
 #[derive(Clone, Debug)]
@@ -113,7 +135,8 @@ enum ElementKind {
     },
     Grid {
         columns: Vec<GridTrack>,
-        gap: f32,
+        column_gap: f32,
+        row_gap: f32,
     },
     Fixed(LogicalSize),
     Text {
@@ -223,6 +246,8 @@ pub struct Element {
     size: Size<Option<f32>>,
     min_size: Size<Option<f32>>,
     max_size: Size<Option<f32>>,
+    main_axis_alignment: MainAxisAlignment,
+    cross_axis_alignment: CrossAxisAlignment,
     paint: Option<PaintPrimitive>,
     interactive: bool,
     semantics: Option<SemanticProperties>,
@@ -259,6 +284,8 @@ impl Element {
             size: Size::NONE,
             min_size: Size::NONE,
             max_size: Size::NONE,
+            main_axis_alignment: MainAxisAlignment::Start,
+            cross_axis_alignment: CrossAxisAlignment::Stretch,
             paint: Some(paint),
             interactive: false,
             semantics: None,
@@ -274,9 +301,26 @@ impl Element {
         Self::new(id, ElementKind::Flex { axis, gap })
     }
 
-    /// Create a grid container with one explicit row and the given columns.
+    /// Create a grid container with explicit columns and a uniform gap.
     pub fn grid(id: WidgetId, columns: Vec<GridTrack>, gap: f32) -> Self {
-        Self::new(id, ElementKind::Grid { columns, gap })
+        Self::grid_with_gaps(id, columns, gap, gap)
+    }
+
+    /// Create a grid with independent column and row gaps and deterministic implicit rows.
+    pub fn grid_with_gaps(
+        id: WidgetId,
+        columns: Vec<GridTrack>,
+        column_gap: f32,
+        row_gap: f32,
+    ) -> Self {
+        Self::new(
+            id,
+            ElementKind::Grid {
+                columns,
+                column_gap,
+                row_gap,
+            },
+        )
     }
 
     /// Create a fixed-size leaf.
@@ -345,6 +389,18 @@ impl Element {
     /// Set optional maximum logical dimensions.
     pub fn with_max_size(mut self, width: Option<f32>, height: Option<f32>) -> Self {
         self.max_size = Size { width, height };
+        self
+    }
+
+    /// Align children or grid tracks along this container's main axis.
+    pub fn with_main_axis_alignment(mut self, alignment: MainAxisAlignment) -> Self {
+        self.main_axis_alignment = alignment;
+        self
+    }
+
+    /// Align children or grid tracks along this container's cross axis.
+    pub fn with_cross_axis_alignment(mut self, alignment: CrossAxisAlignment) -> Self {
+        self.cross_axis_alignment = alignment;
         self
     }
 
@@ -718,13 +774,30 @@ impl SceneConsumer for NullSceneConsumer {
     }
 }
 
+/// A rejected grid declaration, reported before layout or commit.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum GridDeclarationError {
+    EmptyColumns,
+    InvalidFixedTrack { index: usize, value: f32 },
+    InvalidFractionTrack { index: usize, value: f32 },
+    InvalidColumnGap(f32),
+    InvalidRowGap(f32),
+}
+
 /// Failure before a scene reaches the atomic commit point.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct FrameError(String);
+#[derive(Clone, Debug, PartialEq)]
+pub enum FrameError {
+    InvalidGrid {
+        id: WidgetId,
+        error: GridDeclarationError,
+    },
+    DuplicateWidgetId(WidgetId),
+    Layout(String),
+}
 
 impl std::fmt::Display for FrameError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(&self.0)
+        write!(formatter, "{self:?}")
     }
 }
 
@@ -1036,10 +1109,7 @@ fn resolve(
         live_ids: &mut HashSet<WidgetId>,
     ) -> Result<NodeId, FrameError> {
         if !live_ids.insert(element.id) {
-            return Err(FrameError(format!(
-                "duplicate live widget ID {:?}",
-                element.id
-            )));
+            return Err(FrameError::DuplicateWidgetId(element.id));
         }
 
         let children = element
@@ -1061,23 +1131,70 @@ fn resolve(
                 },
                 ..Default::default()
             },
-            ElementKind::Grid { columns, gap } => Style {
-                display: Display::Grid,
-                grid_template_columns: columns
-                    .iter()
-                    .map(|track| match track {
-                        GridTrack::Points(value) => length(*value),
-                        GridTrack::Fraction(value) => fr(*value),
-                        GridTrack::Auto => auto(),
-                    })
-                    .collect(),
-                grid_template_rows: vec![auto()],
-                gap: taffy::geometry::Size {
-                    width: length(*gap),
-                    height: length(*gap),
-                },
-                ..Default::default()
-            },
+            ElementKind::Grid {
+                columns,
+                column_gap,
+                row_gap,
+            } => {
+                if columns.is_empty() {
+                    return Err(FrameError::InvalidGrid {
+                        id: element.id,
+                        error: GridDeclarationError::EmptyColumns,
+                    });
+                }
+                for (index, track) in columns.iter().enumerate() {
+                    let error = match track {
+                        GridTrack::Fixed(value) if !value.is_finite() || *value < 0.0 => {
+                            Some(GridDeclarationError::InvalidFixedTrack {
+                                index,
+                                value: *value,
+                            })
+                        }
+                        GridTrack::Fraction(value) if !value.is_finite() || *value <= 0.0 => {
+                            Some(GridDeclarationError::InvalidFractionTrack {
+                                index,
+                                value: *value,
+                            })
+                        }
+                        _ => None,
+                    };
+                    if let Some(error) = error {
+                        return Err(FrameError::InvalidGrid {
+                            id: element.id,
+                            error,
+                        });
+                    }
+                }
+                if !column_gap.is_finite() || *column_gap < 0.0 {
+                    return Err(FrameError::InvalidGrid {
+                        id: element.id,
+                        error: GridDeclarationError::InvalidColumnGap(*column_gap),
+                    });
+                }
+                if !row_gap.is_finite() || *row_gap < 0.0 {
+                    return Err(FrameError::InvalidGrid {
+                        id: element.id,
+                        error: GridDeclarationError::InvalidRowGap(*row_gap),
+                    });
+                }
+                Style {
+                    display: Display::Grid,
+                    grid_template_columns: columns
+                        .iter()
+                        .map(|track| match track {
+                            GridTrack::Fixed(value) => length(*value),
+                            GridTrack::Fraction(value) => fr(*value),
+                            GridTrack::Auto => auto(),
+                        })
+                        .collect(),
+                    grid_template_rows: vec![auto()],
+                    gap: taffy::geometry::Size {
+                        width: length(*column_gap),
+                        height: length(*row_gap),
+                    },
+                    ..Default::default()
+                }
+            }
             ElementKind::Fixed(size) => Style {
                 size: Size {
                     width: length(size.width),
@@ -1095,6 +1212,32 @@ fn resolve(
             },
         };
         style.flex_grow = element.flex_grow;
+        style.justify_content = Some(match element.main_axis_alignment {
+            MainAxisAlignment::Start => JustifyContent::START,
+            MainAxisAlignment::Center => JustifyContent::CENTER,
+            MainAxisAlignment::End => JustifyContent::END,
+            MainAxisAlignment::SpaceBetween => JustifyContent::SPACE_BETWEEN,
+            MainAxisAlignment::SpaceAround => JustifyContent::SPACE_AROUND,
+            MainAxisAlignment::SpaceEvenly => JustifyContent::SPACE_EVENLY,
+        });
+        match &element.kind {
+            ElementKind::Grid { .. } => {
+                style.align_content = Some(match element.cross_axis_alignment {
+                    CrossAxisAlignment::Stretch => AlignContent::STRETCH,
+                    CrossAxisAlignment::Start => AlignContent::START,
+                    CrossAxisAlignment::Center => AlignContent::CENTER,
+                    CrossAxisAlignment::End => AlignContent::END,
+                });
+            }
+            _ => {
+                style.align_items = Some(match element.cross_axis_alignment {
+                    CrossAxisAlignment::Stretch => AlignItems::STRETCH,
+                    CrossAxisAlignment::Start => AlignItems::START,
+                    CrossAxisAlignment::Center => AlignItems::CENTER,
+                    CrossAxisAlignment::End => AlignItems::END,
+                });
+            }
+        }
         let dimension = |value: Option<f32>| value.map_or_else(auto, length);
         style.padding = Rect {
             left: length(element.padding),
@@ -1153,17 +1296,17 @@ fn resolve(
                             properties: properties.clone(),
                         },
                     )
-                    .map_err(|error| FrameError(error.to_string()))?,
+                    .map_err(|error| FrameError::Layout(error.to_string()))?,
                 ElementKind::Image(image) => tree
                     .new_leaf_with_context(style, MeasureContext::Image(*image))
-                    .map_err(|error| FrameError(error.to_string()))?,
+                    .map_err(|error| FrameError::Layout(error.to_string()))?,
                 _ => tree
                     .new_leaf(style)
-                    .map_err(|error| FrameError(error.to_string()))?,
+                    .map_err(|error| FrameError::Layout(error.to_string()))?,
             }
         } else {
             tree.new_with_children(style, &children)
-                .map_err(|error| FrameError(error.to_string()))?
+                .map_err(|error| FrameError::Layout(error.to_string()))?
         };
         ids.insert(element.id, node);
         Ok(node)
@@ -1221,7 +1364,7 @@ fn resolve(
             }
         },
     )
-    .map_err(|error| FrameError(error.to_string()))?;
+    .map_err(|error| FrameError::Layout(error.to_string()))?;
 
     fn collect(
         element: &Element,
