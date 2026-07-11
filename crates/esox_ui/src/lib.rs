@@ -41,6 +41,7 @@
 pub mod a11y;
 pub mod declaration;
 pub mod frame_core;
+pub mod frame_scene_consumer;
 pub mod icon;
 pub mod id;
 #[cfg(feature = "markup")]
@@ -50,6 +51,7 @@ pub mod layout_tree;
 pub mod paint;
 pub mod response;
 pub mod rich_text;
+pub mod scene_submission;
 pub mod state;
 pub mod text;
 pub mod theme;
