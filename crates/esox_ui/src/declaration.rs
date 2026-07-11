@@ -30,6 +30,7 @@ pub struct DeclarationStyle {
     clip_children: bool,
     hidden: bool,
     disabled: bool,
+    background: Option<Color>,
 }
 
 impl DeclarationStyle {
@@ -50,6 +51,7 @@ impl DeclarationStyle {
             clip_children: false,
             hidden: false,
             disabled: false,
+            background: None,
         }
     }
 
@@ -119,6 +121,15 @@ impl DeclarationStyle {
     /// Clip descendants to this declaration's current resolved bounds.
     pub const fn clip_children(mut self) -> Self {
         self.clip_children = true;
+        self
+    }
+
+    /// Paint a solid background behind this container's children.
+    ///
+    /// Containers without a background stay excluded from paint, so they never
+    /// reach the renderer boundary as unsupported `Box` primitives.
+    pub const fn background(mut self, color: Color) -> Self {
+        self.background = Some(color);
         self
     }
 
@@ -394,9 +405,12 @@ impl<'a> DeclarationUi<'a> {
             .pop()
             .expect("the grid container stack was just pushed");
         let element = Element::grid_with_gaps(id, style.columns, style.column_gap, style.row_gap)
-            .without_paint()
             .with_children(children);
-        self.push(style.layout.apply(element));
+        self.push(
+            style
+                .layout
+                .apply(Self::paint_container(element, style.layout.background)),
+        );
     }
 
     fn container(
@@ -414,10 +428,15 @@ impl<'a> DeclarationUi<'a> {
             .child_stacks
             .pop()
             .expect("the container stack was just pushed");
-        let element = Element::flex(id, axis, style.gap)
-            .without_paint()
-            .with_children(children);
-        self.push(style.apply(element));
+        let element = Element::flex(id, axis, style.gap).with_children(children);
+        self.push(style.apply(Self::paint_container(element, style.background)));
+    }
+
+    fn paint_container(element: Element, background: Option<Color>) -> Element {
+        match background {
+            Some(color) => element.with_paint(PaintPrimitive::SolidRect { color }),
+            None => element.without_paint(),
+        }
     }
 
     fn enter_container_participation(&mut self, style: DeclarationStyle) -> (bool, bool) {

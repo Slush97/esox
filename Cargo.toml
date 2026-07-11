@@ -8,6 +8,7 @@ members = [
     "crates/esox_platform",
     "examples/demo",
     "examples/frame_core_demo",
+    "examples/frame_core_tonight",
     "crates/esox_markup",
 ]
 
