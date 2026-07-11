@@ -28,6 +28,8 @@ pub struct DeclarationStyle {
     main_axis_alignment: MainAxisAlignment,
     cross_axis_alignment: CrossAxisAlignment,
     clip_children: bool,
+    hidden: bool,
+    disabled: bool,
 }
 
 impl DeclarationStyle {
@@ -46,6 +48,8 @@ impl DeclarationStyle {
             main_axis_alignment: MainAxisAlignment::Start,
             cross_axis_alignment: CrossAxisAlignment::Stretch,
             clip_children: false,
+            hidden: false,
+            disabled: false,
         }
     }
 
@@ -118,6 +122,30 @@ impl DeclarationStyle {
         self
     }
 
+    /// Collapse this declaration and its descendants out of layout and scene products.
+    pub const fn hidden(mut self) -> Self {
+        self.hidden = true;
+        self
+    }
+
+    /// Set whether this declaration is collapsed out of layout and scene products.
+    pub const fn with_hidden(mut self, hidden: bool) -> Self {
+        self.hidden = hidden;
+        self
+    }
+
+    /// Keep this declaration painted and laid out while disabling descendant interaction.
+    pub const fn disabled(mut self) -> Self {
+        self.disabled = true;
+        self
+    }
+
+    /// Set whether this declaration stays painted and laid out but is non-interactive.
+    pub const fn with_disabled(mut self, disabled: bool) -> Self {
+        self.disabled = disabled;
+        self
+    }
+
     fn apply(self, mut element: Element) -> Element {
         element = element
             .with_padding(self.padding)
@@ -126,7 +154,9 @@ impl DeclarationStyle {
             .with_max_size(self.max_width, self.max_height)
             .with_flex_grow(self.flex_grow)
             .with_main_axis_alignment(self.main_axis_alignment)
-            .with_cross_axis_alignment(self.cross_axis_alignment);
+            .with_cross_axis_alignment(self.cross_axis_alignment)
+            .with_hidden(self.hidden)
+            .with_disabled(self.disabled);
         if self.clip_children {
             element = element.clip_children();
         }
@@ -305,6 +335,8 @@ fn interaction_state_id(id: WidgetId) -> WidgetId {
 pub struct DeclarationUi<'a> {
     state: &'a mut WidgetStateStore,
     child_stacks: Vec<Vec<Element>>,
+    effective_hidden: bool,
+    effective_disabled: bool,
 }
 
 impl<'a> DeclarationUi<'a> {
@@ -312,6 +344,8 @@ impl<'a> DeclarationUi<'a> {
         Self {
             state,
             child_stacks: vec![Vec::new()],
+            effective_hidden: false,
+            effective_disabled: false,
         }
     }
 
@@ -352,7 +386,9 @@ impl<'a> DeclarationUi<'a> {
     /// are created by FrameCore through its shared Taffy layout path.
     pub fn grid(&mut self, id: WidgetId, style: GridStyle, body: impl FnOnce(&mut Self)) {
         self.child_stacks.push(Vec::new());
+        let previous_participation = self.enter_container_participation(style.layout);
         body(self);
+        self.restore_container_participation(previous_participation);
         let children = self
             .child_stacks
             .pop()
@@ -371,7 +407,9 @@ impl<'a> DeclarationUi<'a> {
         body: impl FnOnce(&mut Self),
     ) {
         self.child_stacks.push(Vec::new());
+        let previous_participation = self.enter_container_participation(style);
         body(self);
+        self.restore_container_participation(previous_participation);
         let children = self
             .child_stacks
             .pop()
@@ -380,6 +418,17 @@ impl<'a> DeclarationUi<'a> {
             .without_paint()
             .with_children(children);
         self.push(style.apply(element));
+    }
+
+    fn enter_container_participation(&mut self, style: DeclarationStyle) -> (bool, bool) {
+        let previous = (self.effective_hidden, self.effective_disabled);
+        self.effective_hidden |= style.hidden;
+        self.effective_disabled |= style.disabled;
+        previous
+    }
+
+    fn restore_container_participation(&mut self, participation: (bool, bool)) {
+        (self.effective_hidden, self.effective_disabled) = participation;
     }
 
     /// Declare styled text measured by the backend-independent text boundary.
@@ -421,7 +470,13 @@ impl<'a> DeclarationUi<'a> {
         let mut pressed = self.state.get(state_id).is_some_and(|value| value != 0);
         let mut clicked = false;
         let mut hovered = false;
+        let effective_hidden = self.effective_hidden || style.layout.hidden;
+        let effective_disabled = self.effective_disabled || style.layout.disabled || style.disabled;
+        let suppress_responses = effective_hidden || effective_disabled;
         while let Some(response) = self.state.take_response(id) {
+            if suppress_responses {
+                continue;
+            }
             match response.kind {
                 PointerEventKind::Press => {
                     pressed = true;
@@ -436,9 +491,10 @@ impl<'a> DeclarationUi<'a> {
                 PointerEventKind::Cancel => pressed = false,
             }
         }
-        if style.disabled {
+        if suppress_responses {
             clicked = false;
             pressed = false;
+            hovered = false;
         }
         self.state.insert(state_id, u64::from(pressed));
 
@@ -473,13 +529,18 @@ impl<'a> DeclarationUi<'a> {
         if !style.disabled {
             button = button.interactive();
         }
-        self.push(style.layout.apply(button));
+        self.push(
+            style
+                .layout
+                .apply(button)
+                .with_disabled(style.layout.disabled || style.disabled),
+        );
 
         Response {
             clicked,
             hovered,
             pressed,
-            disabled: style.disabled,
+            disabled: effective_disabled,
             ..Response::default()
         }
     }

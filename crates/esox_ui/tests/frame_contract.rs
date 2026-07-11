@@ -21,6 +21,10 @@ const ROW_A: WidgetId = WidgetId(10);
 const ROW_B: WidgetId = WidgetId(11);
 const OVERLAY: WidgetId = WidgetId(12);
 const OVERLAY_ACTION: WidgetId = WidgetId(13);
+const VISIBILITY_CONTAINER: WidgetId = WidgetId(14);
+const VISIBILITY_GRID: WidgetId = WidgetId(15);
+const VISIBILITY_ACTION: WidgetId = WidgetId(16);
+const VISIBILITY_SIBLING: WidgetId = WidgetId(17);
 
 fn representative_text_properties() -> TextProperties {
     TextProperties {
@@ -63,6 +67,33 @@ fn without_generation(mut scene: CommittedScene) -> CommittedScene {
     scene
 }
 
+fn participation_scene(hidden: bool, disabled: bool) -> Element {
+    Element::flex(ROOT, Axis::Row, 0.0)
+        .without_paint()
+        .with_children(vec![
+            Element::flex(VISIBILITY_CONTAINER, Axis::Column, 0.0)
+                .without_paint()
+                .with_size(Some(60.0), Some(40.0))
+                .with_hidden(hidden)
+                .with_disabled(disabled)
+                .with_children(vec![Element::grid(
+                    VISIBILITY_GRID,
+                    vec![GridTrack::Fraction(1.0)],
+                    0.0,
+                )
+                .without_paint()
+                .with_children(vec![Element::fixed(VISIBILITY_ACTION, 60.0, 40.0)
+                    .with_paint(PaintPrimitive::SolidRect {
+                        color: Color::rgba(0.2, 0.4, 0.6, 1.0),
+                    })
+                    .with_semantics(
+                        SemanticProperties::new(SemanticRole::Button).with_label("Action"),
+                    )
+                    .interactive()])]),
+            Element::fixed(VISIBILITY_SIBLING, 40.0, 40.0),
+        ])
+}
+
 #[test]
 fn unchanged_first_and_second_frames_match() {
     let declarations = Cell::new(0);
@@ -85,6 +116,179 @@ fn unchanged_first_and_second_frames_match() {
         without_generation(consumer.scenes()[0].clone()),
         without_generation(consumer.scenes()[1].clone())
     );
+}
+
+#[test]
+fn hidden_collapses_nested_layout_and_restores_on_the_first_frame() {
+    let measurer = DeterministicMeasurer::new(8.0, 18.0);
+    let mut consumer = NullSceneConsumer::default();
+    let mut core = FrameCore::new(LogicalSize::new(100.0, 40.0));
+
+    let visible = core
+        .run_frame(&measurer, &mut consumer, |_| {
+            participation_scene(false, false)
+        })
+        .unwrap()
+        .clone();
+    assert_eq!(
+        visible.node(VISIBILITY_ACTION).unwrap().bounds,
+        LogicalRect {
+            x: 0.0,
+            y: 0.0,
+            width: 60.0,
+            height: 40.0,
+        }
+    );
+    assert_eq!(visible.node(VISIBILITY_SIBLING).unwrap().bounds.x, 60.0);
+    assert!(visible
+        .node(VISIBILITY_ACTION)
+        .unwrap()
+        .hit_bounds
+        .is_some());
+
+    let hidden = core
+        .run_frame(&measurer, &mut consumer, |_| {
+            participation_scene(true, false)
+        })
+        .unwrap()
+        .clone();
+    for id in [VISIBILITY_CONTAINER, VISIBILITY_GRID, VISIBILITY_ACTION] {
+        let node = hidden.node(id).unwrap();
+        assert!(node.effective_hidden);
+        assert!(!node.effective_disabled);
+        assert_eq!(node.bounds, LogicalRect::default());
+        assert_eq!(node.paint_bounds, None);
+        assert_eq!(node.hit_bounds, None);
+        assert_eq!(node.semantic_bounds, None);
+        assert_eq!(node.current_damage_bounds, None);
+        assert_eq!(node.effective_clip, None);
+        assert!(!hidden.display_list.iter().any(|record| record.id == id));
+        assert!(!hidden.hit_index.iter().any(|record| record.id == id));
+        assert!(hidden.semantics.node(id).is_none());
+        assert!(!hidden.damage.iter().any(|record| record.id == id));
+        assert!(!hidden.focus_order.contains(&id));
+    }
+    assert_eq!(hidden.node(VISIBILITY_SIBLING).unwrap().bounds.x, 0.0);
+
+    let restored = core
+        .run_frame(&measurer, &mut consumer, |_| {
+            participation_scene(false, false)
+        })
+        .unwrap();
+    assert_eq!(
+        restored.node(VISIBILITY_ACTION).unwrap().bounds,
+        visible.node(VISIBILITY_ACTION).unwrap().bounds
+    );
+    assert_eq!(restored.node(VISIBILITY_SIBLING).unwrap().bounds.x, 60.0);
+    assert!(!restored.node(VISIBILITY_ACTION).unwrap().effective_hidden);
+    assert!(restored
+        .node(VISIBILITY_ACTION)
+        .unwrap()
+        .hit_bounds
+        .is_some());
+    assert!(restored.semantics.node(VISIBILITY_ACTION).is_some());
+}
+
+#[test]
+fn disabled_inherits_without_changing_layout_or_paint_and_restores_immediately() {
+    let measurer = DeterministicMeasurer::new(8.0, 18.0);
+    let mut consumer = NullSceneConsumer::default();
+    let mut core = FrameCore::new(LogicalSize::new(100.0, 40.0));
+
+    let enabled = core
+        .run_frame(&measurer, &mut consumer, |state| {
+            state.request_keyboard_focus(VISIBILITY_ACTION);
+            state.request_pointer_capture(9, VISIBILITY_ACTION);
+            participation_scene(false, false)
+        })
+        .unwrap()
+        .clone();
+    assert_eq!(core.keyboard_focus(), Some(VISIBILITY_ACTION));
+    assert_eq!(core.pointer_capture(9), Some(VISIBILITY_ACTION));
+
+    let disabled = core
+        .run_frame(&measurer, &mut consumer, |_| {
+            participation_scene(false, true)
+        })
+        .unwrap()
+        .clone();
+    let enabled_action = enabled.node(VISIBILITY_ACTION).unwrap();
+    let disabled_action = disabled.node(VISIBILITY_ACTION).unwrap();
+    assert_eq!(disabled_action.bounds, enabled_action.bounds);
+    assert_eq!(disabled_action.paint_bounds, enabled_action.paint_bounds);
+    assert_eq!(disabled.display_list, enabled.display_list);
+    assert!(
+        disabled
+            .node(VISIBILITY_CONTAINER)
+            .unwrap()
+            .effective_disabled
+    );
+    assert!(disabled.node(VISIBILITY_GRID).unwrap().effective_disabled);
+    assert!(disabled_action.effective_disabled);
+    assert!(!disabled_action.effective_hidden);
+    assert_eq!(disabled_action.hit_bounds, None);
+    assert!(!disabled.focus_order.contains(&VISIBILITY_ACTION));
+    assert!(
+        disabled
+            .semantics
+            .node(VISIBILITY_ACTION)
+            .unwrap()
+            .properties
+            .disabled
+    );
+    assert_eq!(core.keyboard_focus(), None);
+    assert_eq!(core.pointer_capture(9), None);
+    let cancellation = core.take_cancellation().unwrap();
+    assert_eq!(cancellation.kind, PointerEventKind::Cancel);
+    assert_eq!(cancellation.target, VISIBILITY_ACTION);
+
+    let restored = core
+        .run_frame(&measurer, &mut consumer, |_| {
+            participation_scene(false, false)
+        })
+        .unwrap();
+    assert_eq!(
+        restored.node(VISIBILITY_ACTION).unwrap().bounds,
+        enabled_action.bounds
+    );
+    assert!(restored
+        .node(VISIBILITY_ACTION)
+        .unwrap()
+        .hit_bounds
+        .is_some());
+    assert!(
+        !restored
+            .semantics
+            .node(VISIBILITY_ACTION)
+            .unwrap()
+            .properties
+            .disabled
+    );
+    assert_eq!(core.keyboard_focus(), Some(VISIBILITY_ACTION));
+}
+
+#[test]
+fn current_hidden_or_disabled_state_discards_prior_scene_input() {
+    let measurer = DeterministicMeasurer::new(8.0, 18.0);
+    let mut consumer = NullSceneConsumer::default();
+
+    for (hidden, disabled) in [(true, false), (false, true)] {
+        let mut core = FrameCore::new(LogicalSize::new(100.0, 40.0));
+        core.run_frame(&measurer, &mut consumer, |_| {
+            participation_scene(false, false)
+        })
+        .unwrap();
+        core.queue_pointer_event(PointerEventKind::Press, 3, LogicalPoint::new(20.0, 20.0));
+        core.run_frame(&measurer, &mut consumer, |_| {
+            participation_scene(hidden, disabled)
+        })
+        .unwrap();
+        core.run_frame(&measurer, &mut consumer, |state| {
+            assert_eq!(state.take_response(VISIBILITY_ACTION), None);
+            participation_scene(hidden, disabled)
+        })
+        .unwrap();
+    }
 }
 
 #[test]

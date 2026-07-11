@@ -255,6 +255,8 @@ pub struct Element {
     scroll_offset: LogicalPoint,
     absolute_position: Option<LogicalPoint>,
     blocking_overlay: bool,
+    hidden: bool,
+    disabled: bool,
 }
 
 impl Element {
@@ -293,6 +295,8 @@ impl Element {
             scroll_offset: LogicalPoint::default(),
             absolute_position: None,
             blocking_overlay: false,
+            hidden: false,
+            disabled: false,
         }
     }
 
@@ -456,6 +460,34 @@ impl Element {
         if self.semantics.is_none() {
             self.semantics = Some(SemanticProperties::new(SemanticRole::Generic));
         }
+        self
+    }
+
+    /// Collapse this element and its descendants out of layout and every scene product.
+    ///
+    /// Hidden is intentionally structural: it is distinct from disabled state and from
+    /// paint suppression through [`Self::without_paint`]. The declaration remains in the
+    /// current tree, but Taffy resolves it with `display: none`.
+    pub fn hidden(mut self) -> Self {
+        self.hidden = true;
+        self
+    }
+
+    /// Set whether this element and its descendants are structurally hidden.
+    pub fn with_hidden(mut self, hidden: bool) -> Self {
+        self.hidden = hidden;
+        self
+    }
+
+    /// Disable interaction for this element and all descendants without changing layout or paint.
+    pub fn disabled(mut self) -> Self {
+        self.disabled = true;
+        self
+    }
+
+    /// Set whether this element and its descendants are disabled.
+    pub fn with_disabled(mut self, disabled: bool) -> Self {
+        self.disabled = disabled;
         self
     }
 }
@@ -659,6 +691,10 @@ pub struct ResolvedNode {
     pub current_damage_bounds: Option<LogicalRect>,
     pub focus_scope: Option<WidgetId>,
     pub blocks_input: bool,
+    /// True when this node is under a current-generation hidden declaration.
+    pub effective_hidden: bool,
+    /// True when this node is under a current-generation disabled declaration.
+    pub effective_disabled: bool,
 }
 
 /// One backend-neutral paint operation in final paint order.
@@ -1072,9 +1108,11 @@ impl FrameCore {
             self.keyboard_focus = scene.focus_order.first().copied();
         }
         self.active_focus_scopes = current_scopes;
-        self.widget_state
-            .responses
-            .retain(|id, _| scene.node(*id).is_some());
+        self.widget_state.responses.retain(|id, _| {
+            scene.node(*id).is_some_and(|node| {
+                !node.effective_hidden && !node.effective_disabled && node.hit_bounds.is_some()
+            })
+        });
     }
 }
 
@@ -1093,6 +1131,8 @@ struct TraversalContext {
     clip: Option<LogicalRect>,
     focus_scope: Option<WidgetId>,
     semantic_parent: Option<WidgetId>,
+    hidden: bool,
+    disabled: bool,
 }
 
 fn resolve(
@@ -1282,6 +1322,9 @@ fn resolve(
                 height: length(viewport.height),
             };
         }
+        if element.hidden {
+            style.display = Display::None;
+        }
 
         let node = if children.is_empty() {
             match &element.kind {
@@ -1374,46 +1417,57 @@ fn resolve(
         output: &mut ResolvedProducts,
     ) {
         let layout = tree.unrounded_layout(ids[&element.id]);
+        let effective_hidden = context.hidden || element.hidden;
+        let effective_disabled = context.disabled || element.disabled;
         let bounds = LogicalRect {
             x: context.origin.0 + layout.location.x,
             y: context.origin.1 + layout.location.y,
             width: layout.size.width,
             height: layout.size.height,
         };
-        let focus_scope = element
-            .blocking_overlay
+        let participates_in_interaction = !effective_hidden && !effective_disabled;
+        let effective_clip = (!effective_hidden).then_some(context.clip).flatten();
+        let focus_scope = (element.blocking_overlay && participates_in_interaction)
             .then_some(element.id)
             .or(context.focus_scope);
-        let paint_bounds = element.paint.as_ref().map(|_| bounds);
-        let hit_bounds = element.interactive.then_some(bounds);
-        let semantic_bounds = element.semantics.as_ref().map(|_| bounds);
-        let current_damage_bounds = element.paint.as_ref().map(|_| bounds);
+        let paint_bounds = (!effective_hidden && element.paint.is_some()).then_some(bounds);
+        let hit_bounds = (element.interactive && participates_in_interaction).then_some(bounds);
+        let semantic_bounds = (!effective_hidden)
+            .then_some(())
+            .and(element.semantics.as_ref())
+            .map(|_| bounds);
+        let current_damage_bounds =
+            (!effective_hidden && element.paint.is_some()).then_some(bounds);
         output.nodes.push(ResolvedNode {
             id: element.id,
             bounds,
             paint_bounds,
             hit_bounds,
             semantic_bounds,
-            effective_clip: context.clip,
+            effective_clip,
             current_damage_bounds,
             focus_scope,
-            blocks_input: element.blocking_overlay,
+            blocks_input: element.blocking_overlay && participates_in_interaction,
+            effective_hidden,
+            effective_disabled,
         });
 
-        if let Some(primitive) = &element.paint {
-            output.display_list.push(PaintRecord {
-                id: element.id,
-                primitive: primitive.clone(),
-                bounds,
-                effective_clip: context.clip,
-            });
-            output.damage.push(DamageRecord {
-                id: element.id,
-                current_bounds: bounds,
-                effective_clip: context.clip,
-            });
+        if !effective_hidden {
+            if let Some(primitive) = &element.paint {
+                output.display_list.push(PaintRecord {
+                    id: element.id,
+                    primitive: primitive.clone(),
+                    bounds,
+                    effective_clip: context.clip,
+                });
+                output.damage.push(DamageRecord {
+                    id: element.id,
+                    current_bounds: bounds,
+                    effective_clip: context.clip,
+                });
+            }
         }
-        if element.interactive {
+        if element.interactive && participates_in_interaction {
             output.hit_index.push(HitRecord {
                 id: element.id,
                 bounds,
@@ -1423,29 +1477,35 @@ fn resolve(
             });
         }
 
-        let semantic_parent = if let Some(properties) = &element.semantics {
-            if let Some(parent) = context.semantic_parent {
-                output
-                    .semantics
-                    .nodes
-                    .iter_mut()
-                    .find(|node| node.id == parent)
-                    .expect("semantic parent was resolved before its child")
-                    .children
-                    .push(element.id);
+        let semantic_parent = if !effective_hidden {
+            if let Some(properties) = &element.semantics {
+                if let Some(parent) = context.semantic_parent {
+                    output
+                        .semantics
+                        .nodes
+                        .iter_mut()
+                        .find(|node| node.id == parent)
+                        .expect("semantic parent was resolved before its child")
+                        .children
+                        .push(element.id);
+                } else {
+                    output.semantics.roots.push(element.id);
+                }
+                let mut properties = properties.clone();
+                properties.disabled |= effective_disabled;
+                output.semantics.nodes.push(SemanticNode {
+                    id: element.id,
+                    parent: context.semantic_parent,
+                    children: Vec::new(),
+                    properties,
+                    bounds,
+                    effective_clip: context.clip,
+                    focus_scope,
+                });
+                Some(element.id)
             } else {
-                output.semantics.roots.push(element.id);
+                context.semantic_parent
             }
-            output.semantics.nodes.push(SemanticNode {
-                id: element.id,
-                parent: context.semantic_parent,
-                children: Vec::new(),
-                properties: properties.clone(),
-                bounds,
-                effective_clip: context.clip,
-                focus_scope,
-            });
-            Some(element.id)
         } else {
             context.semantic_parent
         };
@@ -1469,6 +1529,8 @@ fn resolve(
                     clip: child_clip,
                     focus_scope,
                     semantic_parent,
+                    hidden: effective_hidden,
+                    disabled: effective_disabled,
                 },
                 output,
             );
@@ -1491,6 +1553,8 @@ fn resolve(
             clip: Some(viewport_rect),
             focus_scope: None,
             semantic_parent: None,
+            hidden: false,
+            disabled: false,
         },
         &mut output,
     );

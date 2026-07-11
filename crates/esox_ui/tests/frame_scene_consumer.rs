@@ -113,6 +113,8 @@ fn representative_scene() -> CommittedScene {
             current_damage_bounds: Some(rect(331.0, 332.0, 333.0, 334.0)),
             focus_scope: Some(BORDER),
             blocks_input: true,
+            effective_hidden: false,
+            effective_disabled: false,
         }],
         display_list,
         hit_index: vec![HitRecord {
