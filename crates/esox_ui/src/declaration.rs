@@ -7,14 +7,61 @@
 use crate::frame_core::{
     Axis, Color, CommittedScene, Element, FrameCore, FrameError, GenerationAttempt,
     IntrinsicMeasurer, PaintPrimitive, PointerEventKind, SceneConsumer, SemanticProperties,
-    SemanticRole, TableDeclarationError, TextProperties, VirtualListSpec, VirtualWindow, WidgetId,
-    WidgetStateStore,
+    SemanticRole, SeparatorDeclarationError, TableDeclarationError, TextProperties,
+    VirtualListSpec, VirtualWindow, WidgetId, WidgetStateStore,
 };
 use crate::response::Response;
 use esox_input::CursorIcon;
 use std::collections::HashSet;
 
 pub use crate::frame_core::{CrossAxisAlignment, GridTrack, LogicalTransform, MainAxisAlignment};
+
+/// Direction in which a separator extends through its parent.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SeparatorOrientation {
+    #[default]
+    Horizontal,
+    Vertical,
+}
+
+/// Renderer-neutral visual and layout properties for a separator leaf.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SeparatorStyle {
+    pub layout: DeclarationStyle,
+    pub orientation: SeparatorOrientation,
+    pub thickness: f32,
+    pub color: Color,
+}
+
+impl SeparatorStyle {
+    /// Create a one-logical-unit horizontal separator in the given color.
+    pub const fn new(color: Color) -> Self {
+        Self {
+            layout: DeclarationStyle::new(),
+            orientation: SeparatorOrientation::Horizontal,
+            thickness: 1.0,
+            color,
+        }
+    }
+
+    /// Replace layout properties for this leaf.
+    pub const fn layout(mut self, layout: DeclarationStyle) -> Self {
+        self.layout = layout;
+        self
+    }
+
+    /// Extend vertically through a row instead of horizontally through a column.
+    pub const fn vertical(mut self) -> Self {
+        self.orientation = SeparatorOrientation::Vertical;
+        self
+    }
+
+    /// Set the separator's authoritative cross-axis thickness.
+    pub const fn thickness(mut self, thickness: f32) -> Self {
+        self.thickness = thickness;
+        self
+    }
+}
 
 /// Layout properties shared by the declarations in this production slice.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -1523,6 +1570,41 @@ impl<'a> DeclarationUi<'a> {
         let element = Element::flex(id, Axis::Column, 0.0)
             .with_paint(PaintPrimitive::Border { color, width });
         self.push(style.apply(element));
+    }
+
+    /// Declare a semantic separator with exact renderer-neutral solid paint.
+    ///
+    /// Horizontal separators stretch through a column and own their height;
+    /// vertical separators stretch through a row and own their width. The
+    /// application-supplied stable ID is used unchanged in layout, paint,
+    /// damage, and semantic products.
+    pub fn separator(&mut self, id: WidgetId, mut style: SeparatorStyle) -> Result<(), FrameError> {
+        if !style.thickness.is_finite() || style.thickness <= 0.0 {
+            let error = FrameError::InvalidSeparator {
+                id,
+                error: SeparatorDeclarationError::InvalidThickness(style.thickness),
+            };
+            self.error = Some(error.clone());
+            return Err(error);
+        }
+
+        match style.orientation {
+            SeparatorOrientation::Horizontal => {
+                style.layout.height = Some(style.thickness);
+                style.layout.min_height = Some(style.thickness);
+                style.layout.max_height = Some(style.thickness);
+            }
+            SeparatorOrientation::Vertical => {
+                style.layout.width = Some(style.thickness);
+                style.layout.min_width = Some(style.thickness);
+                style.layout.max_width = Some(style.thickness);
+            }
+        }
+        let element = Element::flex(id, Axis::Column, 0.0)
+            .with_paint(PaintPrimitive::SolidRect { color: style.color })
+            .with_semantics(SemanticProperties::new(SemanticRole::Separator));
+        self.push(style.layout.apply(element));
+        Ok(())
     }
 
     /// Declare a left/right split pane with a retained, draggable divider ratio.

@@ -328,6 +328,7 @@ pub enum SemanticRole {
     Text,
     Image,
     Button,
+    Separator,
     ScrollView,
 }
 
@@ -1267,6 +1268,12 @@ pub enum TableDeclarationError {
     },
 }
 
+/// Invalid renderer-neutral separator declaration.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum SeparatorDeclarationError {
+    InvalidThickness(f32),
+}
+
 /// Failure before a scene reaches the atomic commit point.
 #[derive(Clone, Debug, PartialEq)]
 pub enum FrameError {
@@ -1281,6 +1288,10 @@ pub enum FrameError {
     InvalidTable {
         id: WidgetId,
         error: TableDeclarationError,
+    },
+    InvalidSeparator {
+        id: WidgetId,
+        error: SeparatorDeclarationError,
     },
     DuplicateWidgetId(WidgetId),
     InvalidTransform(WidgetId),

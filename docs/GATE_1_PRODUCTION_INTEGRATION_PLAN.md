@@ -13,6 +13,9 @@ Completed and covered by production-API or renderer-boundary tests:
   text, buttons, solid rectangles, and borders;
 - renderer-neutral production image declarations with GPU-independent intrinsic
   measurement, semantic labels, and transactional pointer responses;
+- renderer-neutral horizontal and vertical separator declarations with
+  authoritative cross-axis thickness, exact solid paint, semantic output, and
+  typed invalid-thickness rejection;
 - current-frame constraints, alignment, hidden/disabled participation, clipping,
   retained scrolling, transforms, damage expansion, and blocking overlays;
 - transactional pointer and wheel dispatch, focus/capture reconciliation, and
