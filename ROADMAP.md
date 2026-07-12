@@ -7,6 +7,12 @@ a goal rather than a supported capability today: the semantic metadata and
 optional AT-SPI2 bridge are preliminary, and the bridge does not expose the UI
 tree to screen readers yet.
 
+An [Oxicord-powered Discord frontend](docs/OXICORD_FRONTEND_PLAN.md) is the
+current product-direction forcing function. It does not replace the gated plan;
+near-term architecture work should trend toward the reusable primitives that
+client requires, especially atomic production UI ownership, variable-height
+anchored virtualization, production text/media, and async window-local events.
+
 ## Strategic Vision
 
 Two differentiators: (1) the best a11y story on Linux, and (2) the first UI toolkit with a first-class AI generation story — a declarative layer where AI describes *what* it wants and the runtime handles *how*.
