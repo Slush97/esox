@@ -17,7 +17,10 @@ Completed and covered by production-API or renderer-boundary tests:
   logical-to-physical conversion at platform and renderer boundaries;
 - detached split-phase generation attempts that preserve `Ui::begin`/`finish`
   ownership ergonomics while retaining atomic commit, retry, and per-window
-  isolation; and
+  isolation;
+- production split panes with current-frame ratio layout, transactional drag
+  capture, committed cursor metadata, and same-batch ordered pointer routing;
+  and
 - headless first-frame, resize, structural, metric, scroll, transform, overlay,
   damage, and multi-owner contract coverage.
 

@@ -112,6 +112,8 @@ fn representative_scene() -> CommittedScene {
             transformed_bounds: rect(306.0, 307.0, 308.0, 309.0),
             paint_bounds: Some(solid_bounds),
             hit_bounds: Some(rect(311.0, 312.0, 313.0, 314.0)),
+            cursor_icon: None,
+            ordered_pointer_target: false,
             semantic_bounds: Some(rect(321.0, 322.0, 323.0, 324.0)),
             effective_clip: Some(solid_clip),
             current_damage_bounds: Some(rect(331.0, 332.0, 333.0, 334.0)),
@@ -128,6 +130,8 @@ fn representative_scene() -> CommittedScene {
             effective_clip: Some(rect(411.0, 412.0, 413.0, 414.0)),
             focus_scope: Some(BOLD_TEXT),
             blocks_input: true,
+            cursor_icon: None,
+            ordered_pointer_target: false,
         }],
         semantics: SemanticSnapshot {
             roots: vec![REGULAR_TEXT],

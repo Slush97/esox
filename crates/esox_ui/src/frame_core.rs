@@ -6,6 +6,7 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use esox_input::CursorIcon;
 use serde::{Deserialize, Serialize};
 use taffy::prelude::{
     AlignContent, AlignItems, AvailableSpace, Display, FlexDirection, JustifyContent, NodeId,
@@ -363,6 +364,7 @@ pub struct Element {
     kind: ElementKind,
     children: Vec<Self>,
     flex_grow: f32,
+    flex_basis: Option<f32>,
     padding: f32,
     size: Size<Option<f32>>,
     min_size: Size<Option<f32>>,
@@ -371,6 +373,8 @@ pub struct Element {
     cross_axis_alignment: CrossAxisAlignment,
     paint: Option<PaintPrimitive>,
     interactive: bool,
+    ordered_pointer_target: bool,
+    cursor_icon: Option<CursorIcon>,
     semantics: Option<SemanticProperties>,
     clips_children: bool,
     scrollable: bool,
@@ -405,6 +409,7 @@ impl Element {
             kind,
             children: Vec::new(),
             flex_grow: 0.0,
+            flex_basis: None,
             padding: 0.0,
             size: Size::NONE,
             min_size: Size::NONE,
@@ -413,6 +418,8 @@ impl Element {
             cross_axis_alignment: CrossAxisAlignment::Stretch,
             paint: Some(paint),
             interactive: false,
+            ordered_pointer_target: false,
+            cursor_icon: None,
             semantics: None,
             clips_children: false,
             scrollable: false,
@@ -497,6 +504,12 @@ impl Element {
         self
     }
 
+    /// Set a logical flex basis independently from intrinsic child content.
+    pub fn with_flex_basis(mut self, basis: f32) -> Self {
+        self.flex_basis = Some(basis);
+        self
+    }
+
     /// Apply uniform logical padding inside this element.
     pub fn with_padding(mut self, padding: f32) -> Self {
         self.padding = padding;
@@ -551,6 +564,18 @@ impl Element {
         if self.semantics.is_none() {
             self.semantics = Some(SemanticProperties::new(SemanticRole::Generic));
         }
+        self
+    }
+
+    /// Set the renderer-neutral cursor shown while this interactive node is hit.
+    pub fn with_cursor_icon(mut self, cursor_icon: CursorIcon) -> Self {
+        self.cursor_icon = Some(cursor_icon);
+        self
+    }
+
+    /// Route later events in the same queued batch to this pressed node.
+    pub fn ordered_pointer_target(mut self) -> Self {
+        self.ordered_pointer_target = true;
         self
     }
 
@@ -657,6 +682,8 @@ pub struct InputResponse {
     pub committed_generation: u64,
     pub position: LogicalPoint,
     pub target_bounds: LogicalRect,
+    /// Committed transformed bounds of the target's structural parent.
+    pub target_parent_bounds: Option<LogicalRect>,
 }
 
 /// Pointer event kinds retained in committed-generation response order.
@@ -673,6 +700,7 @@ pub enum PointerEventKind {
 pub struct WidgetStateStore {
     values: HashMap<WidgetId, u64>,
     responses: HashMap<WidgetId, VecDeque<InputResponse>>,
+    active_pointer_captures: HashMap<u64, WidgetId>,
     requested_keyboard_focus: Option<WidgetId>,
     requested_pointer_captures: HashMap<u64, WidgetId>,
     requested_pointer_releases: HashSet<u64>,
@@ -697,6 +725,11 @@ impl WidgetStateStore {
             self.responses.remove(&id);
         }
         response
+    }
+
+    /// Read the capture owner visible at the start of this generation.
+    pub fn pointer_capture_owner(&self, pointer: u64) -> Option<WidgetId> {
+        self.active_pointer_captures.get(&pointer).copied()
     }
 
     /// Request keyboard focus if this widget is focusable in the scene being built.
@@ -870,6 +903,8 @@ pub struct ResolvedNode {
     pub transformed_bounds: LogicalRect,
     pub paint_bounds: Option<LogicalRect>,
     pub hit_bounds: Option<LogicalRect>,
+    pub cursor_icon: Option<CursorIcon>,
+    pub ordered_pointer_target: bool,
     pub semantic_bounds: Option<LogicalRect>,
     pub effective_clip: Option<LogicalRect>,
     pub current_damage_bounds: Option<LogicalRect>,
@@ -900,6 +935,8 @@ pub struct HitRecord {
     pub effective_clip: Option<LogicalRect>,
     pub focus_scope: Option<WidgetId>,
     pub blocks_input: bool,
+    pub cursor_icon: Option<CursorIcon>,
+    pub ordered_pointer_target: bool,
 }
 
 /// One node in the serializable Esox-owned semantic tree.
@@ -970,6 +1007,19 @@ impl CommittedScene {
         })?;
         self.node(hit.id)
     }
+
+    /// Resolve the topmost clipped hit cursor, defaulting when no hint applies.
+    pub fn cursor_icon_at(&self, point: LogicalPoint) -> CursorIcon {
+        self.hit_index
+            .iter()
+            .rev()
+            .find(|hit| {
+                hit.bounds.contains(point)
+                    && hit.effective_clip.is_none_or(|clip| clip.contains(point))
+            })
+            .and_then(|hit| hit.cursor_icon)
+            .unwrap_or(CursorIcon::Default)
+    }
 }
 
 /// Destination for an already committed, renderer-independent scene.
@@ -1015,6 +1065,10 @@ pub enum FrameError {
     },
     DuplicateWidgetId(WidgetId),
     InvalidTransform(WidgetId),
+    InvalidFlexBasis {
+        id: WidgetId,
+        value: f32,
+    },
     GenerationOwnerMismatch {
         attempt_owner: u64,
         current_owner: u64,
@@ -1272,6 +1326,22 @@ impl FrameCore {
             .map(|capture| capture.owner)
     }
 
+    /// Cursor for a pointer, honoring explicit capture before position lookup.
+    pub fn cursor_icon_at(&self, pointer: u64, position: LogicalPoint) -> CursorIcon {
+        let captured = self
+            .pointer_captures
+            .get(&pointer)
+            .map(|capture| capture.owner);
+        captured
+            .and_then(|owner| self.committed.as_ref()?.node(owner)?.cursor_icon)
+            .or_else(|| {
+                self.committed
+                    .as_ref()
+                    .map(|scene| scene.cursor_icon_at(position))
+            })
+            .unwrap_or(CursorIcon::Default)
+    }
+
     /// The current keyboard focus in this window context.
     pub fn keyboard_focus(&self) -> Option<WidgetId> {
         self.keyboard_focus
@@ -1298,6 +1368,11 @@ impl FrameCore {
     /// viewport-changed finish, and resolution failure install nothing.
     pub fn begin_generation(&self) -> GenerationAttempt {
         let mut candidate = self.generation_candidate();
+        candidate.widget_state.active_pointer_captures = candidate
+            .pointer_captures
+            .iter()
+            .map(|(pointer, capture)| (*pointer, capture.owner))
+            .collect();
         self.dispatch_pending_input(&mut candidate);
         self.dispatch_pending_wheels(&mut candidate.scroll_offsets);
         GenerationAttempt {
@@ -1588,6 +1663,7 @@ impl FrameCore {
     }
 
     fn dispatch_pending_input(&self, candidate: &mut GenerationCandidate) {
+        let mut ordered_targets = HashMap::<u64, WidgetId>::new();
         for event in &self.pending_pointer_events {
             let Some(scene) = self.committed.as_ref() else {
                 continue;
@@ -1596,10 +1672,18 @@ impl FrameCore {
                 .pointer_captures
                 .get(&event.pointer)
                 .and_then(|capture| scene.node(capture.owner))
+                .or_else(|| {
+                    ordered_targets
+                        .get(&event.pointer)
+                        .and_then(|owner| scene.node(*owner))
+                })
                 .or_else(|| scene.hit_test(event.position));
             let Some(target) = target else {
                 continue;
             };
+            if event.kind == PointerEventKind::Press && target.ordered_pointer_target {
+                ordered_targets.insert(event.pointer, target.id);
+            }
             let response = InputResponse {
                 kind: event.kind,
                 pointer: event.pointer,
@@ -1609,6 +1693,10 @@ impl FrameCore {
                 target_bounds: target
                     .hit_bounds
                     .expect("a hit-tested node always has hit bounds"),
+                target_parent_bounds: target
+                    .parent
+                    .and_then(|parent| scene.node(parent))
+                    .map(|parent| parent.transformed_bounds),
             };
             candidate
                 .widget_state
@@ -1621,6 +1709,7 @@ impl FrameCore {
                 PointerEventKind::Release | PointerEventKind::Cancel
             ) {
                 candidate.pointer_captures.remove(&event.pointer);
+                ordered_targets.remove(&event.pointer);
             }
         }
     }
@@ -1656,10 +1745,13 @@ impl FrameCore {
                         old_node.hit_bounds.unwrap_or(old_node.transformed_bounds).y,
                     ),
                     target_bounds: old_node.hit_bounds.unwrap_or(old_node.transformed_bounds),
+                    target_parent_bounds: old_node
+                        .parent
+                        .and_then(|parent| committed.and_then(|scene| scene.node(parent)))
+                        .map(|parent| parent.transformed_bounds),
                 });
             }
         }
-
         for pointer in candidate.widget_state.requested_pointer_releases.drain() {
             candidate.pointer_captures.remove(&pointer);
         }
@@ -1762,6 +1854,15 @@ fn resolve(
         if !live_ids.insert(element.id) {
             return Err(FrameError::DuplicateWidgetId(element.id));
         }
+        if element
+            .flex_basis
+            .is_some_and(|basis| !basis.is_finite() || basis < 0.0)
+        {
+            return Err(FrameError::InvalidFlexBasis {
+                id: element.id,
+                value: element.flex_basis.expect("invalid basis was present"),
+            });
+        }
 
         let children = element
             .children
@@ -1863,6 +1964,9 @@ fn resolve(
             },
         };
         style.flex_grow = element.flex_grow;
+        if let Some(basis) = element.flex_basis {
+            style.flex_basis = length(basis);
+        }
         style.justify_content = Some(match element.main_axis_alignment {
             MainAxisAlignment::Start => JustifyContent::START,
             MainAxisAlignment::Center => JustifyContent::CENTER,
@@ -2088,6 +2192,7 @@ fn resolve(
             (!effective_hidden && element.paint.is_some()).then_some(transformed_bounds);
         let hit_bounds =
             (element.interactive && participates_in_interaction).then_some(transformed_bounds);
+        let cursor_icon = hit_bounds.and(element.cursor_icon);
         let semantic_bounds = (!effective_hidden)
             .then_some(())
             .and(element.semantics.as_ref())
@@ -2101,6 +2206,8 @@ fn resolve(
             transformed_bounds,
             paint_bounds,
             hit_bounds,
+            cursor_icon,
+            ordered_pointer_target: element.ordered_pointer_target,
             semantic_bounds,
             effective_clip,
             current_damage_bounds,
@@ -2133,6 +2240,8 @@ fn resolve(
                 effective_clip: context.clip,
                 focus_scope,
                 blocks_input: element.blocking_overlay,
+                cursor_icon: element.cursor_icon,
+                ordered_pointer_target: element.ordered_pointer_target,
             });
         }
 

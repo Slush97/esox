@@ -10,6 +10,7 @@ use crate::frame_core::{
     WidgetStateStore,
 };
 use crate::response::Response;
+use esox_input::CursorIcon;
 
 pub use crate::frame_core::{CrossAxisAlignment, GridTrack, LogicalTransform, MainAxisAlignment};
 
@@ -25,6 +26,7 @@ pub struct DeclarationStyle {
     max_width: Option<f32>,
     max_height: Option<f32>,
     flex_grow: f32,
+    flex_basis: Option<f32>,
     main_axis_alignment: MainAxisAlignment,
     cross_axis_alignment: CrossAxisAlignment,
     clip_children: bool,
@@ -51,6 +53,7 @@ impl DeclarationStyle {
             max_width: None,
             max_height: None,
             flex_grow: 0.0,
+            flex_basis: None,
             main_axis_alignment: MainAxisAlignment::Start,
             cross_axis_alignment: CrossAxisAlignment::Stretch,
             clip_children: false,
@@ -113,6 +116,12 @@ impl DeclarationStyle {
     /// Consume remaining space on the parent's main axis.
     pub const fn flex_grow(mut self, grow: f32) -> Self {
         self.flex_grow = grow;
+        self
+    }
+
+    /// Set the logical flex basis used before free space is distributed.
+    pub const fn flex_basis(mut self, basis: f32) -> Self {
+        self.flex_basis = Some(basis);
         self
     }
 
@@ -225,6 +234,9 @@ impl DeclarationStyle {
             .with_hidden(self.hidden)
             .with_disabled(self.disabled)
             .with_transform(self.transform);
+        if let Some(basis) = self.flex_basis {
+            element = element.with_flex_basis(basis);
+        }
         if let Some((x, y)) = self.scroll_offset {
             element = element.with_scroll_offset(x, y);
         } else if self.scrollable {
@@ -392,6 +404,64 @@ pub struct ButtonIds {
     pub label: WidgetId,
 }
 
+/// Visual and layout properties for a production split pane.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SplitPaneStyle {
+    pub layout: DeclarationStyle,
+    pub divider_width: f32,
+    pub panel_padding: f32,
+    pub divider_color: Color,
+}
+
+impl Default for SplitPaneStyle {
+    fn default() -> Self {
+        Self {
+            layout: DeclarationStyle::new(),
+            divider_width: 5.0,
+            panel_padding: 0.0,
+            divider_color: Color::rgba(0.3, 0.3, 0.32, 1.0),
+        }
+    }
+}
+
+impl SplitPaneStyle {
+    pub const fn layout(mut self, layout: DeclarationStyle) -> Self {
+        self.layout = layout;
+        self
+    }
+
+    pub const fn divider(mut self, width: f32, color: Color) -> Self {
+        self.divider_width = width;
+        self.divider_color = color;
+        self
+    }
+
+    pub const fn panel_padding(mut self, padding: f32) -> Self {
+        self.panel_padding = padding;
+        self
+    }
+}
+
+/// Stable scene identities reserved by a split-pane declaration.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SplitPaneIds {
+    pub root: WidgetId,
+    pub first: WidgetId,
+    pub divider: WidgetId,
+    pub second: WidgetId,
+}
+
+impl SplitPaneIds {
+    pub const fn new(root: WidgetId) -> Self {
+        Self {
+            root,
+            first: derived_id(root, 0x5762_0fd5_c39c_35b1),
+            divider: derived_id(root, 0xd1aa_d911_9387_3f23),
+            second: derived_id(root, 0x7119_4c22_852d_41ab),
+        }
+    }
+}
+
 impl ButtonIds {
     pub const fn new(root: WidgetId) -> Self {
         Self {
@@ -408,6 +478,18 @@ const fn derived_id(parent: WidgetId, salt: u64) -> WidgetId {
 
 fn interaction_state_id(id: WidgetId) -> WidgetId {
     derived_id(id, 0x41e8_7305_bfd9_2c6b)
+}
+
+fn split_ratio_state_id(id: WidgetId) -> WidgetId {
+    derived_id(id, 0xc781_40c4_d551_c8f3)
+}
+
+fn split_drag_state_id(id: WidgetId) -> WidgetId {
+    derived_id(id, 0x48bb_99e5_2879_b288)
+}
+
+fn split_pointer_state_id(id: WidgetId) -> WidgetId {
+    derived_id(id, 0x4ff4_b7e3_6f88_3690)
 }
 
 /// One once-only declaration context for the tree currently under construction.
@@ -557,6 +639,183 @@ impl<'a> DeclarationUi<'a> {
         let element = Element::flex(id, Axis::Column, 0.0)
             .with_paint(PaintPrimitive::Border { color, width });
         self.push(style.apply(element));
+    }
+
+    /// Declare a left/right split pane with a retained, draggable divider ratio.
+    pub fn split_pane_h(
+        &mut self,
+        id: WidgetId,
+        initial_ratio: f32,
+        style: SplitPaneStyle,
+        first: impl FnOnce(&mut Self),
+        second: impl FnOnce(&mut Self),
+    ) {
+        self.split_pane(id, Axis::Row, initial_ratio, style, first, second);
+    }
+
+    /// Declare a top/bottom split pane with a retained, draggable divider ratio.
+    pub fn split_pane_v(
+        &mut self,
+        id: WidgetId,
+        initial_ratio: f32,
+        style: SplitPaneStyle,
+        first: impl FnOnce(&mut Self),
+        second: impl FnOnce(&mut Self),
+    ) {
+        self.split_pane(id, Axis::Column, initial_ratio, style, first, second);
+    }
+
+    fn split_pane(
+        &mut self,
+        id: WidgetId,
+        axis: Axis,
+        initial_ratio: f32,
+        style: SplitPaneStyle,
+        first: impl FnOnce(&mut Self),
+        second: impl FnOnce(&mut Self),
+    ) {
+        const MIN_RATIO: f32 = 0.05;
+        const MAX_RATIO: f32 = 0.95;
+
+        let ids = SplitPaneIds::new(id);
+        let ratio_state = split_ratio_state_id(id);
+        let drag_state = split_drag_state_id(id);
+        let pointer_state = split_pointer_state_id(id);
+        let default_ratio = if initial_ratio.is_finite() {
+            initial_ratio.clamp(MIN_RATIO, MAX_RATIO)
+        } else {
+            0.5
+        };
+        let mut ratio = self
+            .state
+            .get(ratio_state)
+            .map(|bits| f32::from_bits(bits as u32))
+            .filter(|ratio| ratio.is_finite())
+            .unwrap_or(default_ratio)
+            .clamp(MIN_RATIO, MAX_RATIO);
+        let mut dragging = self.state.get(drag_state).is_some_and(|active| active != 0);
+        let mut drag_pointer = self.state.get(pointer_state).unwrap_or_default();
+        if dragging && self.state.pointer_capture_owner(drag_pointer) != Some(ids.divider) {
+            dragging = false;
+        }
+        let suppressed = self.effective_hidden
+            || self.effective_disabled
+            || style.layout.hidden
+            || style.layout.disabled;
+
+        while let Some(response) = self.state.take_response(ids.divider) {
+            if suppressed {
+                continue;
+            }
+            match response.kind {
+                PointerEventKind::Press if !dragging => {
+                    dragging = true;
+                    drag_pointer = response.pointer;
+                    self.state
+                        .request_pointer_capture(response.pointer, ids.divider);
+                }
+                PointerEventKind::Move if dragging && response.pointer == drag_pointer => {
+                    if let Some(parent) = response.target_parent_bounds {
+                        let (position, start, parent_extent, divider_extent) = match axis {
+                            Axis::Row => (
+                                response.position.x,
+                                parent.x,
+                                parent.width,
+                                response.target_bounds.width,
+                            ),
+                            Axis::Column => (
+                                response.position.y,
+                                parent.y,
+                                parent.height,
+                                response.target_bounds.height,
+                            ),
+                        };
+                        let available = parent_extent - divider_extent;
+                        if available.is_finite() && available > 0.0 {
+                            let requested = (position - start - divider_extent * 0.5) / available;
+                            if requested.is_finite() {
+                                ratio = requested.clamp(MIN_RATIO, MAX_RATIO);
+                            }
+                        }
+                    }
+                }
+                PointerEventKind::Release | PointerEventKind::Cancel
+                    if response.pointer == drag_pointer =>
+                {
+                    dragging = false;
+                    self.state.request_pointer_release(response.pointer);
+                }
+                PointerEventKind::Press
+                | PointerEventKind::Move
+                | PointerEventKind::Release
+                | PointerEventKind::Cancel => {}
+            }
+        }
+        if suppressed && dragging {
+            self.state.request_pointer_release(drag_pointer);
+            dragging = false;
+        }
+        self.state.insert(ratio_state, u64::from(ratio.to_bits()));
+        self.state.insert(drag_state, u64::from(dragging));
+        self.state.insert(pointer_state, drag_pointer);
+
+        let previous_participation = self.enter_container_participation(style.layout);
+        let first_children = self.capture_children(first);
+        let second_children = self.capture_children(second);
+        self.restore_container_participation(previous_participation);
+
+        let padding = if style.panel_padding.is_finite() {
+            style.panel_padding.max(0.0)
+        } else {
+            0.0
+        };
+        let divider_width = if style.divider_width.is_finite() {
+            style.divider_width.max(0.0)
+        } else {
+            0.0
+        };
+        let panel = |panel_id, grow, children| {
+            Element::flex(panel_id, Axis::Column, 0.0)
+                .without_paint()
+                .with_padding(padding)
+                .with_flex_basis(0.0)
+                .with_flex_grow(grow)
+                .with_min_size(Some(0.0), Some(0.0))
+                .with_children(children)
+        };
+        let divider = match axis {
+            Axis::Row => Element::flex(ids.divider, Axis::Column, 0.0)
+                .with_size(Some(divider_width), None)
+                .with_min_size(Some(divider_width), Some(0.0))
+                .with_cursor_icon(CursorIcon::ColResize),
+            Axis::Column => Element::flex(ids.divider, Axis::Column, 0.0)
+                .with_size(None, Some(divider_width))
+                .with_min_size(Some(0.0), Some(divider_width))
+                .with_cursor_icon(CursorIcon::RowResize),
+        }
+        .with_paint(PaintPrimitive::SolidRect {
+            color: style.divider_color,
+        })
+        .ordered_pointer_target()
+        .interactive();
+        let root = Element::flex(ids.root, axis, 0.0).with_children(vec![
+            panel(ids.first, ratio, first_children),
+            divider,
+            panel(ids.second, 1.0 - ratio, second_children),
+        ]);
+        self.push(
+            style
+                .layout
+                .apply(Self::paint_container(root, style.layout.background)),
+        );
+    }
+
+    fn capture_children(&mut self, body: impl FnOnce(&mut Self)) -> Vec<Element> {
+        self.child_stacks.push(Vec::new());
+        body(self);
+        self.child_stacks
+            .pop()
+            .expect("the compound child stack was just pushed")
     }
 
     /// Declare a basic button and consume responses dispatched from the last
