@@ -28,6 +28,8 @@ pub struct DeclarationStyle {
     main_axis_alignment: MainAxisAlignment,
     cross_axis_alignment: CrossAxisAlignment,
     clip_children: bool,
+    scrollable: bool,
+    scroll_offset: Option<(f32, f32)>,
     hidden: bool,
     disabled: bool,
     background: Option<Color>,
@@ -49,6 +51,8 @@ impl DeclarationStyle {
             main_axis_alignment: MainAxisAlignment::Start,
             cross_axis_alignment: CrossAxisAlignment::Stretch,
             clip_children: false,
+            scrollable: false,
+            scroll_offset: None,
             hidden: false,
             disabled: false,
             background: None,
@@ -124,6 +128,27 @@ impl DeclarationStyle {
         self
     }
 
+    /// Retain this viewport's last successfully applied FrameCore scroll offset.
+    ///
+    /// A newly introduced stable ID starts at zero. Pair this with
+    /// [`Self::clip_children`] for a clipped scroll viewport.
+    pub const fn scrollable(mut self) -> Self {
+        self.scrollable = true;
+        self
+    }
+
+    /// Explicitly request this scroll viewport's current-frame offset.
+    ///
+    /// The offset affects resolved scene products, not Taffy's layout result.
+    /// It takes precedence over retained FrameCore state for this generation.
+    /// Use [`Self::scrollable`] instead when wheel input should drive the next
+    /// declaration from the last successfully applied offset.
+    pub const fn scroll_offset(mut self, x: f32, y: f32) -> Self {
+        self.scrollable = true;
+        self.scroll_offset = Some((x, y));
+        self
+    }
+
     /// Paint a solid background behind this container's children.
     ///
     /// Containers without a background stay excluded from paint, so they never
@@ -168,6 +193,11 @@ impl DeclarationStyle {
             .with_cross_axis_alignment(self.cross_axis_alignment)
             .with_hidden(self.hidden)
             .with_disabled(self.disabled);
+        if let Some((x, y)) = self.scroll_offset {
+            element = element.with_scroll_offset(x, y);
+        } else if self.scrollable {
+            element = element.scrollable();
+        }
         if self.clip_children {
             element = element.clip_children();
         }

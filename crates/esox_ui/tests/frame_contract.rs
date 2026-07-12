@@ -26,6 +26,15 @@ const VISIBILITY_GRID: WidgetId = WidgetId(15);
 const VISIBILITY_ACTION: WidgetId = WidgetId(16);
 const VISIBILITY_SIBLING: WidgetId = WidgetId(17);
 
+fn rect(x: f32, y: f32, width: f32, height: f32) -> LogicalRect {
+    LogicalRect {
+        x,
+        y,
+        width,
+        height,
+    }
+}
+
 fn representative_text_properties() -> TextProperties {
     TextProperties {
         font_family: Some("Esox Sans".into()),
@@ -92,6 +101,56 @@ fn participation_scene(hidden: bool, disabled: bool) -> Element {
                     .interactive()])]),
             Element::fixed(VISIBILITY_SIBLING, 40.0, 40.0),
         ])
+}
+
+fn retained_scroll_scene(request: Option<LogicalPoint>, content: LogicalSize) -> Element {
+    let viewport = Element::flex(SCROLL, Axis::Column, 0.0)
+        .without_paint()
+        .with_size(Some(100.0), Some(40.0))
+        .clip_children()
+        .with_children(vec![Element::fixed(
+            SCROLL_CONTENT,
+            content.width,
+            content.height,
+        )]);
+    let viewport = match request {
+        Some(offset) => viewport.with_scroll_offset(offset.x, offset.y),
+        None => viewport.scrollable(),
+    };
+    Element::flex(ROOT, Axis::Column, 0.0)
+        .without_paint()
+        .with_children(vec![viewport])
+}
+
+fn retained_nested_scroll_scene() -> Element {
+    let inner = Element::flex(SCROLL_CONTENT, Axis::Column, 0.0)
+        .without_paint()
+        .with_size(Some(100.0), Some(30.0))
+        .clip_children()
+        .scrollable()
+        .with_children(vec![Element::fixed(ROW_A, 100.0, 70.0)]);
+    let outer = Element::flex(SCROLL, Axis::Column, 0.0)
+        .without_paint()
+        .with_size(Some(100.0), Some(60.0))
+        .clip_children()
+        .scrollable()
+        .with_children(vec![inner, Element::fixed(ROW_B, 100.0, 80.0)]);
+    Element::flex(ROOT, Axis::Column, 0.0)
+        .without_paint()
+        .with_children(vec![outer])
+}
+
+fn retained_scroll_participation_scene(hidden: bool, disabled: bool) -> Element {
+    Element::flex(ROOT, Axis::Column, 0.0)
+        .without_paint()
+        .with_children(vec![Element::flex(SCROLL, Axis::Column, 0.0)
+            .without_paint()
+            .with_size(Some(100.0), Some(40.0))
+            .clip_children()
+            .scrollable()
+            .with_hidden(hidden)
+            .with_disabled(disabled)
+            .with_children(vec![Element::fixed(SCROLL_CONTENT, 100.0, 100.0)])])
 }
 
 #[test]
@@ -530,7 +589,17 @@ fn scroll_offset_is_current_frame_state() {
     let second_scene = &consumer.scenes()[1];
     let second_row = second_scene.node(ROW_B).unwrap();
     assert_eq!(first_row.bounds.y, 25.0);
-    assert_eq!(second_row.bounds.y, 5.0);
+    assert_eq!(second_row.bounds.y, 10.0);
+    assert_eq!(
+        second_scene.node(SCROLL).unwrap().scroll_metrics,
+        Some(esox_ui::frame_core::ScrollMetrics {
+            viewport_extent: LogicalSize::new(100.0, 40.0),
+            content_extent: LogicalSize::new(100.0, 60.0),
+            requested_offset: LogicalPoint::new(0.0, 25.0),
+            applied_offset: LogicalPoint::new(0.0, 20.0),
+            maximum_offset: LogicalPoint::new(0.0, 20.0),
+        })
+    );
     assert_eq!(second_row.paint_bounds, Some(second_row.bounds));
     assert_eq!(second_row.hit_bounds, Some(second_row.bounds));
     assert_eq!(second_row.semantic_bounds, Some(second_row.bounds));
@@ -551,6 +620,157 @@ fn scroll_offset_is_current_frame_state() {
             .map(|node| node.id),
         None
     );
+}
+
+#[test]
+fn scroll_metrics_recompute_for_growth_shrink_and_resize_in_the_current_frame() {
+    fn scene(content_height: f32) -> Element {
+        Element::flex(ROOT, Axis::Column, 0.0)
+            .without_paint()
+            .with_children(vec![Element::flex(SCROLL, Axis::Column, 0.0)
+                .without_paint()
+                .with_flex_grow(1.0)
+                .clip_children()
+                .with_scroll_offset(0.0, 50.0)
+                .with_children(vec![Element::fixed(
+                    SCROLL_CONTENT,
+                    100.0,
+                    content_height,
+                )
+                .interactive()])])
+    }
+
+    let measurer = DeterministicMeasurer::new(8.0, 18.0);
+    let mut consumer = NullSceneConsumer::default();
+    let mut core = FrameCore::new(LogicalSize::new(100.0, 40.0));
+
+    for (content_height, maximum, applied) in
+        [(60.0, 20.0, 20.0), (90.0, 50.0, 50.0), (45.0, 5.0, 5.0)]
+    {
+        let scene = core
+            .run_frame(&measurer, &mut consumer, |_| scene(content_height))
+            .unwrap();
+        let metrics = scene.node(SCROLL).unwrap().scroll_metrics.unwrap();
+        assert_eq!(metrics.content_extent.height, content_height);
+        assert_eq!(metrics.maximum_offset.y, maximum);
+        assert_eq!(metrics.applied_offset.y, applied);
+        assert_eq!(scene.node(SCROLL_CONTENT).unwrap().bounds.y, -applied);
+    }
+
+    core.resize(LogicalSize::new(100.0, 55.0));
+    let resized = core
+        .run_frame(&measurer, &mut consumer, |_| scene(45.0))
+        .unwrap();
+    let metrics = resized.node(SCROLL).unwrap().scroll_metrics.unwrap();
+    assert_eq!(metrics.viewport_extent, LogicalSize::new(100.0, 55.0));
+    assert_eq!(metrics.content_extent, LogicalSize::new(100.0, 55.0));
+    assert_eq!(metrics.maximum_offset, LogicalPoint::default());
+    assert_eq!(metrics.applied_offset, LogicalPoint::default());
+    assert_eq!(resized.node(SCROLL_CONTENT).unwrap().bounds.y, 0.0);
+    assert_eq!(consumer.scenes().len(), 4);
+}
+
+#[test]
+fn scroll_clamps_both_axes_and_sanitizes_non_finite_offsets() {
+    fn scene(requested: LogicalPoint) -> Element {
+        Element::fixed(ROOT, 100.0, 40.0)
+            .without_paint()
+            .with_children(vec![Element::fixed(SCROLL, 100.0, 40.0)
+                .without_paint()
+                .clip_children()
+                .with_scroll_offset(requested.x, requested.y)
+                .with_children(vec![Element::fixed(SCROLL_CONTENT, 140.0, 70.0)
+                    .with_semantics(SemanticProperties::new(SemanticRole::Generic))
+                    .interactive()])])
+    }
+
+    let measurer = DeterministicMeasurer::new(8.0, 18.0);
+    let mut consumer = NullSceneConsumer::default();
+    let mut core = FrameCore::new(LogicalSize::new(100.0, 40.0));
+
+    let clamped = core
+        .run_frame(&measurer, &mut consumer, |_| {
+            scene(LogicalPoint::new(25.0, 50.0))
+        })
+        .unwrap()
+        .clone();
+    let metrics = clamped.node(SCROLL).unwrap().scroll_metrics.unwrap();
+    assert_eq!(metrics.maximum_offset, LogicalPoint::new(40.0, 30.0));
+    assert_eq!(metrics.applied_offset, LogicalPoint::new(25.0, 30.0));
+    let content = clamped.node(SCROLL_CONTENT).unwrap();
+    assert_eq!(content.bounds, rect(-25.0, -30.0, 140.0, 70.0));
+    assert_eq!(content.paint_bounds, Some(content.bounds));
+    assert_eq!(content.hit_bounds, Some(content.bounds));
+    assert_eq!(content.semantic_bounds, Some(content.bounds));
+    assert_eq!(content.current_damage_bounds, Some(content.bounds));
+
+    let invalid = core
+        .run_frame(&measurer, &mut consumer, |_| {
+            scene(LogicalPoint::new(f32::NAN, f32::INFINITY))
+        })
+        .unwrap();
+    let metrics = invalid.node(SCROLL).unwrap().scroll_metrics.unwrap();
+    assert!(metrics.requested_offset.x.is_nan());
+    assert_eq!(metrics.applied_offset, LogicalPoint::new(0.0, 30.0));
+    let bounds = invalid.node(SCROLL_CONTENT).unwrap().bounds;
+    assert!(bounds.x.is_finite());
+    assert!(bounds.y.is_finite());
+
+    let negative = core
+        .run_frame(&measurer, &mut consumer, |_| {
+            scene(LogicalPoint::new(-10.0, f32::NEG_INFINITY))
+        })
+        .unwrap();
+    assert_eq!(
+        negative
+            .node(SCROLL)
+            .unwrap()
+            .scroll_metrics
+            .unwrap()
+            .applied_offset,
+        LogicalPoint::default()
+    );
+}
+
+#[test]
+fn fully_clipped_descendant_keeps_an_explicit_empty_clip() {
+    const CLIPPED_CONTAINER: WidgetId = WidgetId(18);
+    const CLIPPED_CHILD: WidgetId = WidgetId(19);
+
+    let measurer = DeterministicMeasurer::new(8.0, 18.0);
+    let mut consumer = NullSceneConsumer::default();
+    let mut core = FrameCore::new(LogicalSize::new(100.0, 60.0));
+
+    core.run_frame(&measurer, &mut consumer, |_| {
+        Element::fixed(ROOT, 100.0, 60.0)
+            .without_paint()
+            .with_children(vec![Element::fixed(SCROLL, 100.0, 40.0)
+                .without_paint()
+                .clip_children()
+                .with_children(vec![Element::fixed(CLIPPED_CONTAINER, 100.0, 20.0)
+                    .without_paint()
+                    .with_absolute_position(0.0, 50.0)
+                    .clip_children()
+                    .with_children(vec![
+                        Element::fixed(CLIPPED_CHILD, 100.0, 20.0).interactive()
+                    ])])])
+    })
+    .unwrap();
+
+    let scene = core.committed_scene().unwrap();
+    let child = scene.node(CLIPPED_CHILD).unwrap();
+    assert_eq!(child.bounds, rect(0.0, 50.0, 100.0, 20.0));
+    assert_eq!(child.effective_clip, Some(rect(0.0, 50.0, 100.0, 0.0)));
+    assert_eq!(
+        scene
+            .display_list
+            .iter()
+            .find(|record| record.id == CLIPPED_CHILD)
+            .unwrap()
+            .effective_clip,
+        child.effective_clip
+    );
+    assert_eq!(scene.hit_test(LogicalPoint::new(10.0, 55.0)), None);
 }
 
 #[test]
@@ -655,6 +875,187 @@ fn input_targets_committed_generation() {
     .unwrap();
 
     assert_eq!(core.committed_scene().unwrap().generation, 3);
+}
+
+#[test]
+fn failed_frame_rolls_back_pointer_dispatch_widget_state_and_interaction_requests() {
+    let measurer = DeterministicMeasurer::new(8.0, 18.0);
+    let mut consumer = NullSceneConsumer::default();
+    let mut core = FrameCore::new(LogicalSize::new(100.0, 40.0));
+
+    core.run_frame(&measurer, &mut consumer, |state| {
+        state.insert(CONTENT, 7);
+        state.request_keyboard_focus(CONTENT);
+        state.request_pointer_capture(3, CONTENT);
+        Element::fixed(CONTENT, 100.0, 40.0).interactive()
+    })
+    .unwrap();
+    let committed = core.committed_scene().unwrap().clone();
+    assert_eq!(core.keyboard_focus(), Some(CONTENT));
+    assert_eq!(core.pointer_capture(3), Some(CONTENT));
+
+    core.queue_pointer_event(PointerEventKind::Press, 4, LogicalPoint::new(10.0, 10.0));
+    let error = core
+        .run_frame(&measurer, &mut consumer, |state| {
+            let response = state.take_response(CONTENT).unwrap();
+            assert_eq!(response.committed_generation, committed.generation);
+            state.insert(CONTENT, 99);
+            state.insert(INSERTED, 123);
+            state.request_keyboard_focus(INSERTED);
+            state.request_pointer_capture(4, INSERTED);
+            state.request_pointer_release(3);
+            Element::flex(ROOT, Axis::Row, 0.0).with_children(vec![
+                Element::fixed(ROW_A, 50.0, 40.0),
+                Element::fixed(ROW_A, 50.0, 40.0),
+            ])
+        })
+        .unwrap_err();
+
+    assert_eq!(error, FrameError::DuplicateWidgetId(ROW_A));
+    assert_eq!(core.committed_scene(), Some(&committed));
+    assert_eq!(consumer.scenes().len(), 1);
+    assert_eq!(core.keyboard_focus(), Some(CONTENT));
+    assert_eq!(core.pointer_capture(3), Some(CONTENT));
+    assert_eq!(core.pointer_capture(4), None);
+    assert_eq!(core.take_cancellation(), None);
+
+    core.run_frame(&measurer, &mut consumer, |state| {
+        assert_eq!(state.get(CONTENT), Some(7));
+        assert_eq!(state.get(INSERTED), None);
+        let response = state.take_response(CONTENT).unwrap();
+        assert_eq!(response.kind, PointerEventKind::Press);
+        assert_eq!(response.pointer, 4);
+        assert_eq!(response.committed_generation, committed.generation);
+        assert_eq!(state.take_response(CONTENT), None);
+        Element::fixed(CONTENT, 100.0, 40.0).interactive()
+    })
+    .unwrap();
+
+    core.run_frame(&measurer, &mut consumer, |state| {
+        assert_eq!(state.take_response(CONTENT), None);
+        Element::fixed(CONTENT, 100.0, 40.0).interactive()
+    })
+    .unwrap();
+    assert_eq!(
+        core.committed_scene().unwrap().generation,
+        committed.generation + 2
+    );
+}
+
+#[test]
+fn queued_pointer_order_survives_failed_frame_and_successful_retry() {
+    let measurer = DeterministicMeasurer::new(8.0, 18.0);
+    let mut consumer = NullSceneConsumer::default();
+    let mut core = FrameCore::new(LogicalSize::new(100.0, 40.0));
+
+    core.run_frame(&measurer, &mut consumer, |_| {
+        Element::fixed(CONTENT, 100.0, 40.0).interactive()
+    })
+    .unwrap();
+    for kind in [
+        PointerEventKind::Press,
+        PointerEventKind::Move,
+        PointerEventKind::Release,
+    ] {
+        core.queue_pointer_event(kind, 8, LogicalPoint::new(10.0, 10.0));
+    }
+
+    let error = core
+        .run_frame(&measurer, &mut consumer, |_| {
+            Element::flex(ROOT, Axis::Row, 0.0).with_children(vec![
+                Element::fixed(ROW_A, 50.0, 40.0),
+                Element::fixed(ROW_A, 50.0, 40.0),
+            ])
+        })
+        .unwrap_err();
+    assert_eq!(error, FrameError::DuplicateWidgetId(ROW_A));
+    assert_eq!(core.committed_scene().unwrap().generation, 1);
+
+    core.run_frame(&measurer, &mut consumer, |state| {
+        let observed = [
+            state.take_response(CONTENT).unwrap().kind,
+            state.take_response(CONTENT).unwrap().kind,
+            state.take_response(CONTENT).unwrap().kind,
+        ];
+        assert_eq!(
+            observed,
+            [
+                PointerEventKind::Press,
+                PointerEventKind::Move,
+                PointerEventKind::Release,
+            ]
+        );
+        assert_eq!(state.take_response(CONTENT), None);
+        Element::fixed(CONTENT, 100.0, 40.0).interactive()
+    })
+    .unwrap();
+
+    core.run_frame(&measurer, &mut consumer, |state| {
+        assert_eq!(state.take_response(CONTENT), None);
+        Element::fixed(CONTENT, 100.0, 40.0).interactive()
+    })
+    .unwrap();
+}
+
+#[test]
+fn failed_capture_owner_removal_visibility_or_disablement_does_not_cancel() {
+    let measurer = DeterministicMeasurer::new(8.0, 18.0);
+
+    for (hidden, disabled, removed) in [
+        (false, false, true),
+        (true, false, false),
+        (false, true, false),
+    ] {
+        let mut consumer = NullSceneConsumer::default();
+        let mut core = FrameCore::new(LogicalSize::new(100.0, 40.0));
+        core.run_frame(&measurer, &mut consumer, |state| {
+            state.request_pointer_capture(7, CONTENT);
+            Element::fixed(CONTENT, 100.0, 40.0).interactive()
+        })
+        .unwrap();
+        assert_eq!(core.pointer_capture(7), Some(CONTENT));
+
+        let capture_owner = || {
+            Element::fixed(CONTENT, 100.0, 40.0)
+                .interactive()
+                .with_hidden(hidden)
+                .with_disabled(disabled)
+        };
+        let error = core
+            .run_frame(&measurer, &mut consumer, |_| {
+                let mut children = Vec::new();
+                if !removed {
+                    children.push(capture_owner());
+                }
+                children.extend([
+                    Element::fixed(ROW_A, 10.0, 10.0),
+                    Element::fixed(ROW_A, 10.0, 10.0),
+                ]);
+                Element::flex(ROOT, Axis::Column, 0.0).with_children(children)
+            })
+            .unwrap_err();
+        assert_eq!(error, FrameError::DuplicateWidgetId(ROW_A));
+        assert_eq!(core.committed_scene().unwrap().generation, 1);
+        assert_eq!(core.pointer_capture(7), Some(CONTENT));
+        assert_eq!(core.take_cancellation(), None);
+
+        core.run_frame(&measurer, &mut consumer, |_| {
+            let children = if removed {
+                Vec::new()
+            } else {
+                vec![capture_owner()]
+            };
+            Element::flex(ROOT, Axis::Column, 0.0).with_children(children)
+        })
+        .unwrap();
+        assert_eq!(core.pointer_capture(7), None);
+        let cancellation = core.take_cancellation().unwrap();
+        assert_eq!(cancellation.kind, PointerEventKind::Cancel);
+        assert_eq!(cancellation.pointer, 7);
+        assert_eq!(cancellation.target, CONTENT);
+        assert_eq!(cancellation.committed_generation, 1);
+        assert_eq!(core.take_cancellation(), None);
+    }
 }
 
 #[test]
@@ -1034,4 +1435,632 @@ fn invalid_grid_declaration_returns_typed_error_without_committing() {
     );
     assert_eq!(core.committed_scene(), Some(&committed));
     assert_eq!(consumer.scenes().len(), 1);
+}
+
+#[test]
+fn retained_scroll_state_accepts_repeated_two_axis_wheel_input() {
+    let measurer = DeterministicMeasurer::new(8.0, 18.0);
+    let mut consumer = NullSceneConsumer::default();
+    let mut core = FrameCore::new(LogicalSize::new(100.0, 40.0));
+
+    core.run_frame(&measurer, &mut consumer, |_| {
+        retained_scroll_scene(
+            Some(LogicalPoint::default()),
+            LogicalSize::new(160.0, 100.0),
+        )
+    })
+    .unwrap();
+    core.queue_wheel(LogicalPoint::new(10.0, 10.0), LogicalPoint::new(0.5, 0.25));
+    let second = core
+        .run_frame(&measurer, &mut consumer, |_| {
+            retained_scroll_scene(None, LogicalSize::new(160.0, 100.0))
+        })
+        .unwrap()
+        .clone();
+    assert_eq!(
+        second
+            .node(SCROLL)
+            .unwrap()
+            .scroll_metrics
+            .unwrap()
+            .applied_offset,
+        LogicalPoint::new(20.0, 10.0)
+    );
+    assert_eq!(
+        second.node(SCROLL_CONTENT).unwrap().bounds,
+        rect(-20.0, -10.0, 160.0, 100.0)
+    );
+
+    core.queue_wheel(LogicalPoint::new(10.0, 10.0), LogicalPoint::new(0.5, 0.25));
+    core.run_frame(&measurer, &mut consumer, |_| {
+        retained_scroll_scene(None, LogicalSize::new(160.0, 100.0))
+    })
+    .unwrap();
+    assert_eq!(
+        core.scroll_offset(SCROLL).unwrap().applied,
+        LogicalPoint::new(40.0, 20.0)
+    );
+    assert_eq!(consumer.scenes().len(), 3);
+}
+
+#[test]
+fn normalized_wheel_events_are_isolated_between_frame_core_owners() {
+    let measurer = DeterministicMeasurer::new(8.0, 18.0);
+    let mut left_consumer = NullSceneConsumer::default();
+    let mut right_consumer = NullSceneConsumer::default();
+    let mut left = FrameCore::new(LogicalSize::new(100.0, 40.0));
+    let mut right = FrameCore::new(LogicalSize::new(100.0, 40.0));
+
+    for (core, consumer) in [
+        (&mut left, &mut left_consumer),
+        (&mut right, &mut right_consumer),
+    ] {
+        core.run_frame(&measurer, consumer, |_| {
+            retained_scroll_scene(
+                Some(LogicalPoint::default()),
+                LogicalSize::new(160.0, 100.0),
+            )
+        })
+        .unwrap();
+    }
+
+    left.queue_wheel_event(esox_input::WheelEvent {
+        position: esox_input::WheelPosition::new(10.0, 10.0),
+        delta: esox_input::WheelDelta::new(0.5, 0.25),
+    });
+    left.run_frame(&measurer, &mut left_consumer, |_| {
+        retained_scroll_scene(None, LogicalSize::new(160.0, 100.0))
+    })
+    .unwrap();
+    right
+        .run_frame(&measurer, &mut right_consumer, |_| {
+            retained_scroll_scene(None, LogicalSize::new(160.0, 100.0))
+        })
+        .unwrap();
+
+    assert_eq!(
+        left.scroll_offset(SCROLL).unwrap().applied,
+        LogicalPoint::new(20.0, 10.0)
+    );
+    assert_eq!(
+        right.scroll_offset(SCROLL).unwrap().applied,
+        LogicalPoint::default()
+    );
+}
+
+#[test]
+fn wheel_before_first_commit_has_no_target_and_does_not_leak() {
+    let measurer = DeterministicMeasurer::new(8.0, 18.0);
+    let mut consumer = NullSceneConsumer::default();
+    let mut core = FrameCore::new(LogicalSize::new(100.0, 40.0));
+
+    core.queue_wheel_event(esox_input::WheelEvent {
+        position: esox_input::WheelPosition::new(10.0, 10.0),
+        delta: esox_input::WheelDelta::new(0.0, 1.0),
+    });
+    core.run_frame(&measurer, &mut consumer, |_| {
+        retained_scroll_scene(
+            Some(LogicalPoint::default()),
+            LogicalSize::new(100.0, 100.0),
+        )
+    })
+    .unwrap();
+    assert_eq!(
+        core.scroll_offset(SCROLL).unwrap().applied,
+        LogicalPoint::default()
+    );
+
+    core.run_frame(&measurer, &mut consumer, |_| {
+        retained_scroll_scene(None, LogicalSize::new(100.0, 100.0))
+    })
+    .unwrap();
+    assert_eq!(
+        core.scroll_offset(SCROLL).unwrap().applied,
+        LogicalPoint::default()
+    );
+}
+
+#[test]
+fn multiple_queued_wheels_are_applied_in_event_order() {
+    let measurer = DeterministicMeasurer::new(8.0, 18.0);
+    let mut consumer = NullSceneConsumer::default();
+    let mut core = FrameCore::new(LogicalSize::new(100.0, 40.0));
+
+    core.run_frame(&measurer, &mut consumer, |_| {
+        retained_scroll_scene(
+            Some(LogicalPoint::new(0.0, 20.0)),
+            LogicalSize::new(100.0, 100.0),
+        )
+    })
+    .unwrap();
+    core.queue_wheel(LogicalPoint::new(10.0, 10.0), LogicalPoint::new(0.0, -1.0));
+    core.queue_wheel(LogicalPoint::new(10.0, 10.0), LogicalPoint::new(0.0, 1.0));
+    core.run_frame(&measurer, &mut consumer, |_| {
+        retained_scroll_scene(None, LogicalSize::new(100.0, 100.0))
+    })
+    .unwrap();
+
+    assert_eq!(core.scroll_offset(SCROLL).unwrap().applied.y, 40.0);
+    assert_eq!(consumer.scenes().len(), 2);
+}
+
+#[test]
+fn nested_wheel_routes_each_axis_to_the_deepest_viewport_that_changes() {
+    let measurer = DeterministicMeasurer::new(8.0, 18.0);
+    let mut consumer = NullSceneConsumer::default();
+    let mut core = FrameCore::new(LogicalSize::new(100.0, 60.0));
+
+    core.run_frame(&measurer, &mut consumer, |_| retained_nested_scroll_scene())
+        .unwrap();
+    for expected_inner in [20.0, 40.0] {
+        core.queue_wheel(LogicalPoint::new(10.0, 10.0), LogicalPoint::new(0.0, 0.5));
+        core.run_frame(&measurer, &mut consumer, |_| retained_nested_scroll_scene())
+            .unwrap();
+        assert_eq!(
+            core.scroll_offset(SCROLL_CONTENT).unwrap().applied.y,
+            expected_inner
+        );
+        assert_eq!(core.scroll_offset(SCROLL).unwrap().applied.y, 0.0);
+    }
+
+    core.queue_wheel(LogicalPoint::new(10.0, 10.0), LogicalPoint::new(0.0, 0.5));
+    core.run_frame(&measurer, &mut consumer, |_| retained_nested_scroll_scene())
+        .unwrap();
+    assert_eq!(core.scroll_offset(SCROLL_CONTENT).unwrap().applied.y, 40.0);
+    assert_eq!(core.scroll_offset(SCROLL).unwrap().applied.y, 20.0);
+
+    core.queue_wheel(LogicalPoint::new(10.0, 10.0), LogicalPoint::new(0.5, 0.5));
+    core.run_frame(&measurer, &mut consumer, |_| retained_nested_scroll_scene())
+        .unwrap();
+    assert_eq!(core.scroll_offset(SCROLL_CONTENT).unwrap().applied.x, 0.0);
+    assert_eq!(core.scroll_offset(SCROLL).unwrap().applied.x, 0.0);
+    assert_eq!(core.scroll_offset(SCROLL).unwrap().applied.y, 40.0);
+}
+
+#[test]
+fn explicit_scroll_request_overrides_retained_input_then_retained_mode_resumes_it() {
+    let measurer = DeterministicMeasurer::new(8.0, 18.0);
+    let mut consumer = NullSceneConsumer::default();
+    let mut core = FrameCore::new(LogicalSize::new(100.0, 40.0));
+
+    core.run_frame(&measurer, &mut consumer, |_| {
+        retained_scroll_scene(
+            Some(LogicalPoint::default()),
+            LogicalSize::new(100.0, 100.0),
+        )
+    })
+    .unwrap();
+    core.queue_wheel(LogicalPoint::new(10.0, 10.0), LogicalPoint::new(0.0, 1.0));
+    let controlled = core
+        .run_frame(&measurer, &mut consumer, |_| {
+            retained_scroll_scene(
+                Some(LogicalPoint::new(0.0, 5.0)),
+                LogicalSize::new(100.0, 100.0),
+            )
+        })
+        .unwrap()
+        .clone();
+    let metrics = controlled.node(SCROLL).unwrap().scroll_metrics.unwrap();
+    assert_eq!(metrics.requested_offset, LogicalPoint::new(0.0, 5.0));
+    assert_eq!(metrics.applied_offset, LogicalPoint::new(0.0, 5.0));
+
+    let retained = core
+        .run_frame(&measurer, &mut consumer, |_| {
+            retained_scroll_scene(None, LogicalSize::new(100.0, 100.0))
+        })
+        .unwrap();
+    assert_eq!(
+        retained
+            .node(SCROLL)
+            .unwrap()
+            .scroll_metrics
+            .unwrap()
+            .requested_offset,
+        LogicalPoint::new(0.0, 5.0)
+    );
+}
+
+#[test]
+fn shrink_resize_removal_and_reintroduction_reconcile_stable_scroll_state() {
+    let measurer = DeterministicMeasurer::new(8.0, 18.0);
+    let mut consumer = NullSceneConsumer::default();
+    let mut core = FrameCore::new(LogicalSize::new(100.0, 40.0));
+
+    core.run_frame(&measurer, &mut consumer, |_| {
+        retained_scroll_scene(
+            Some(LogicalPoint::new(0.0, 50.0)),
+            LogicalSize::new(100.0, 100.0),
+        )
+    })
+    .unwrap();
+    let shrunk = core
+        .run_frame(&measurer, &mut consumer, |_| {
+            retained_scroll_scene(None, LogicalSize::new(100.0, 45.0))
+        })
+        .unwrap()
+        .clone();
+    let metrics = shrunk.node(SCROLL).unwrap().scroll_metrics.unwrap();
+    assert_eq!(metrics.requested_offset.y, 50.0);
+    assert_eq!(metrics.applied_offset.y, 5.0);
+    assert_eq!(core.scroll_offset(SCROLL).unwrap().requested.y, 50.0);
+    assert_eq!(core.scroll_offset(SCROLL).unwrap().applied.y, 5.0);
+
+    core.resize(LogicalSize::new(100.0, 100.0));
+    core.run_frame(&measurer, &mut consumer, |_| {
+        Element::flex(ROOT, Axis::Column, 0.0)
+            .without_paint()
+            .with_children(vec![Element::flex(SCROLL, Axis::Column, 0.0)
+                .without_paint()
+                .with_size(Some(100.0), Some(100.0))
+                .clip_children()
+                .scrollable()
+                .with_children(vec![Element::fixed(SCROLL_CONTENT, 100.0, 45.0)])])
+    })
+    .unwrap();
+    assert_eq!(core.scroll_offset(SCROLL).unwrap().applied.y, 0.0);
+
+    core.run_frame(&measurer, &mut consumer, |_| {
+        Element::fixed(ROOT, 100.0, 40.0)
+    })
+    .unwrap();
+    assert_eq!(core.scroll_offset(SCROLL), None);
+    core.run_frame(&measurer, &mut consumer, |_| {
+        retained_scroll_scene(None, LogicalSize::new(100.0, 100.0))
+    })
+    .unwrap();
+    assert_eq!(core.scroll_offset(SCROLL).unwrap().applied.y, 0.0);
+}
+
+#[test]
+fn invalid_wheel_and_failed_frame_leave_persistent_scroll_state_atomic() {
+    let measurer = DeterministicMeasurer::new(8.0, 18.0);
+    let mut consumer = NullSceneConsumer::default();
+    let mut core = FrameCore::new(LogicalSize::new(100.0, 40.0));
+
+    core.run_frame(&measurer, &mut consumer, |_| {
+        retained_scroll_scene(
+            Some(LogicalPoint::new(0.0, 20.0)),
+            LogicalSize::new(100.0, 100.0),
+        )
+    })
+    .unwrap();
+    for delta in [
+        LogicalPoint::new(f32::NAN, 1.0),
+        LogicalPoint::new(0.0, f32::INFINITY),
+        LogicalPoint::new(f32::NEG_INFINITY, 0.0),
+    ] {
+        core.queue_wheel(LogicalPoint::new(10.0, 10.0), delta);
+    }
+    core.run_frame(&measurer, &mut consumer, |_| {
+        retained_scroll_scene(None, LogicalSize::new(100.0, 100.0))
+    })
+    .unwrap();
+    assert_eq!(core.scroll_offset(SCROLL).unwrap().applied.y, 20.0);
+
+    core.queue_wheel(LogicalPoint::new(10.0, 10.0), LogicalPoint::new(0.0, 0.5));
+    let committed = core.committed_scene().unwrap().clone();
+    let state = core.scroll_offset(SCROLL).unwrap();
+    let error = core
+        .run_frame(&measurer, &mut consumer, |_| {
+            Element::flex(ROOT, Axis::Column, 0.0).with_children(vec![
+                Element::fixed(ROW_A, 10.0, 10.0),
+                Element::fixed(ROW_A, 20.0, 20.0),
+            ])
+        })
+        .unwrap_err();
+    assert_eq!(error, FrameError::DuplicateWidgetId(ROW_A));
+    assert_eq!(core.committed_scene(), Some(&committed));
+    assert_eq!(core.scroll_offset(SCROLL), Some(state));
+    assert_eq!(consumer.scenes().len(), 2);
+
+    core.run_frame(&measurer, &mut consumer, |_| {
+        retained_scroll_scene(None, LogicalSize::new(100.0, 100.0))
+    })
+    .unwrap();
+    assert_eq!(core.scroll_offset(SCROLL).unwrap().applied.y, 40.0);
+}
+
+#[test]
+fn blocking_non_scrollable_overlay_prevents_obscured_viewport_wheel_input() {
+    let measurer = DeterministicMeasurer::new(8.0, 18.0);
+    let mut consumer = NullSceneConsumer::default();
+    let mut core = FrameCore::new(LogicalSize::new(100.0, 40.0));
+
+    let scene = || {
+        Element::fixed(ROOT, 100.0, 40.0)
+            .without_paint()
+            .with_children(vec![
+                Element::flex(SCROLL, Axis::Column, 0.0)
+                    .without_paint()
+                    .with_size(Some(100.0), Some(40.0))
+                    .clip_children()
+                    .scrollable()
+                    .with_children(vec![Element::fixed(SCROLL_CONTENT, 100.0, 100.0)]),
+                Element::fixed(OVERLAY, 100.0, 40.0)
+                    .with_absolute_position(0.0, 0.0)
+                    .blocking_overlay(),
+            ])
+    };
+
+    core.run_frame(&measurer, &mut consumer, |_| scene())
+        .unwrap();
+    assert_eq!(
+        core.committed_scene()
+            .unwrap()
+            .hit_test(LogicalPoint::new(50.0, 20.0))
+            .map(|node| node.id),
+        Some(OVERLAY)
+    );
+    core.queue_wheel(LogicalPoint::new(50.0, 20.0), LogicalPoint::new(0.0, 1.0));
+    core.run_frame(&measurer, &mut consumer, |_| scene())
+        .unwrap();
+
+    assert_eq!(
+        core.scroll_offset(SCROLL).unwrap().applied,
+        LogicalPoint::default()
+    );
+}
+
+#[test]
+fn empty_viewport_space_still_routes_wheel_to_the_viewport() {
+    let measurer = DeterministicMeasurer::new(8.0, 18.0);
+    let mut consumer = NullSceneConsumer::default();
+    let mut core = FrameCore::new(LogicalSize::new(100.0, 40.0));
+
+    let scene = || {
+        Element::fixed(ROOT, 100.0, 40.0)
+            .without_paint()
+            .with_children(vec![Element::flex(SCROLL, Axis::Column, 0.0)
+                .without_paint()
+                .with_size(Some(100.0), Some(40.0))
+                .clip_children()
+                .scrollable()
+                .with_children(vec![Element::fixed(SCROLL_CONTENT, 40.0, 100.0)])])
+    };
+
+    core.run_frame(&measurer, &mut consumer, |_| scene())
+        .unwrap();
+    core.queue_wheel(LogicalPoint::new(80.0, 20.0), LogicalPoint::new(0.0, 0.5));
+    core.run_frame(&measurer, &mut consumer, |_| scene())
+        .unwrap();
+
+    assert_eq!(core.scroll_offset(SCROLL).unwrap().applied.y, 20.0);
+}
+
+#[test]
+fn diagonal_wheel_routes_x_to_inner_viewport_and_y_to_ancestor() {
+    let measurer = DeterministicMeasurer::new(8.0, 18.0);
+    let mut consumer = NullSceneConsumer::default();
+    let mut core = FrameCore::new(LogicalSize::new(100.0, 60.0));
+
+    let scene = || {
+        let inner = Element::flex(SCROLL_CONTENT, Axis::Column, 0.0)
+            .without_paint()
+            .with_size(Some(100.0), Some(30.0))
+            .clip_children()
+            .scrollable()
+            .with_children(vec![Element::fixed(ROW_A, 140.0, 30.0)]);
+        Element::flex(ROOT, Axis::Column, 0.0)
+            .without_paint()
+            .with_children(vec![Element::flex(SCROLL, Axis::Column, 0.0)
+                .without_paint()
+                .with_size(Some(100.0), Some(60.0))
+                .clip_children()
+                .scrollable()
+                .with_children(vec![inner, Element::fixed(ROW_B, 100.0, 80.0)])])
+    };
+
+    core.run_frame(&measurer, &mut consumer, |_| scene())
+        .unwrap();
+    core.queue_wheel(LogicalPoint::new(10.0, 10.0), LogicalPoint::new(0.5, 0.5));
+    core.run_frame(&measurer, &mut consumer, |_| scene())
+        .unwrap();
+
+    assert_eq!(
+        core.scroll_offset(SCROLL_CONTENT).unwrap().applied,
+        LogicalPoint::new(20.0, 0.0)
+    );
+    assert_eq!(
+        core.scroll_offset(SCROLL).unwrap().applied,
+        LogicalPoint::new(0.0, 20.0)
+    );
+}
+
+#[test]
+fn partial_edge_overshoot_is_consumed_without_residual_propagation() {
+    fn scene(explicit: bool) -> Element {
+        let inner = Element::flex(SCROLL_CONTENT, Axis::Column, 0.0)
+            .without_paint()
+            .with_size(Some(100.0), Some(30.0))
+            .clip_children()
+            .with_children(vec![Element::fixed(ROW_A, 100.0, 70.0)]);
+        let inner = if explicit {
+            inner.with_scroll_offset(0.0, 30.0)
+        } else {
+            inner.scrollable()
+        };
+        let outer = Element::flex(SCROLL, Axis::Column, 0.0)
+            .without_paint()
+            .with_size(Some(100.0), Some(60.0))
+            .clip_children()
+            .with_children(vec![inner, Element::fixed(ROW_B, 100.0, 80.0)]);
+        let outer = if explicit {
+            outer.with_scroll_offset(0.0, 0.0)
+        } else {
+            outer.scrollable()
+        };
+        Element::flex(ROOT, Axis::Column, 0.0)
+            .without_paint()
+            .with_children(vec![outer])
+    }
+
+    let measurer = DeterministicMeasurer::new(8.0, 18.0);
+    let mut consumer = NullSceneConsumer::default();
+    let mut core = FrameCore::new(LogicalSize::new(100.0, 60.0));
+    core.run_frame(&measurer, &mut consumer, |_| scene(true))
+        .unwrap();
+
+    core.queue_wheel(LogicalPoint::new(10.0, 10.0), LogicalPoint::new(0.0, 0.5));
+    core.run_frame(&measurer, &mut consumer, |_| scene(false))
+        .unwrap();
+    assert_eq!(core.scroll_offset(SCROLL_CONTENT).unwrap().applied.y, 40.0);
+    assert_eq!(core.scroll_offset(SCROLL).unwrap().applied.y, 0.0);
+
+    core.queue_wheel(LogicalPoint::new(10.0, 10.0), LogicalPoint::new(0.0, 0.5));
+    core.run_frame(&measurer, &mut consumer, |_| scene(false))
+        .unwrap();
+    assert_eq!(core.scroll_offset(SCROLL_CONTENT).unwrap().applied.y, 40.0);
+    assert_eq!(core.scroll_offset(SCROLL).unwrap().applied.y, 20.0);
+}
+
+#[test]
+fn hidden_scroll_viewport_retains_offset_round_trip_but_rejects_wheel() {
+    let measurer = DeterministicMeasurer::new(8.0, 18.0);
+    let mut consumer = NullSceneConsumer::default();
+    let mut core = FrameCore::new(LogicalSize::new(100.0, 40.0));
+    core.run_frame(&measurer, &mut consumer, |_| {
+        retained_scroll_scene(
+            Some(LogicalPoint::new(0.0, 20.0)),
+            LogicalSize::new(100.0, 100.0),
+        )
+    })
+    .unwrap();
+
+    core.run_frame(&measurer, &mut consumer, |_| {
+        retained_scroll_participation_scene(true, false)
+    })
+    .unwrap();
+    assert!(
+        core.committed_scene()
+            .unwrap()
+            .node(SCROLL)
+            .unwrap()
+            .effective_hidden
+    );
+    assert_eq!(core.scroll_offset(SCROLL).unwrap().applied.y, 20.0);
+
+    core.queue_wheel(LogicalPoint::new(10.0, 10.0), LogicalPoint::new(0.0, 0.5));
+    core.run_frame(&measurer, &mut consumer, |_| {
+        retained_scroll_participation_scene(true, false)
+    })
+    .unwrap();
+    assert_eq!(core.scroll_offset(SCROLL).unwrap().applied.y, 20.0);
+
+    core.run_frame(&measurer, &mut consumer, |_| {
+        retained_scroll_participation_scene(false, false)
+    })
+    .unwrap();
+    assert_eq!(core.scroll_offset(SCROLL).unwrap().applied.y, 20.0);
+}
+
+#[test]
+fn disabled_scroll_viewport_retains_offset_but_rejects_wheel() {
+    let measurer = DeterministicMeasurer::new(8.0, 18.0);
+    let mut consumer = NullSceneConsumer::default();
+    let mut core = FrameCore::new(LogicalSize::new(100.0, 40.0));
+    core.run_frame(&measurer, &mut consumer, |_| {
+        retained_scroll_scene(
+            Some(LogicalPoint::new(0.0, 20.0)),
+            LogicalSize::new(100.0, 100.0),
+        )
+    })
+    .unwrap();
+
+    core.run_frame(&measurer, &mut consumer, |_| {
+        retained_scroll_participation_scene(false, true)
+    })
+    .unwrap();
+    core.queue_wheel(LogicalPoint::new(10.0, 10.0), LogicalPoint::new(0.0, 0.5));
+    core.run_frame(&measurer, &mut consumer, |_| {
+        retained_scroll_participation_scene(false, true)
+    })
+    .unwrap();
+    assert!(
+        core.committed_scene()
+            .unwrap()
+            .node(SCROLL)
+            .unwrap()
+            .effective_disabled
+    );
+    assert_eq!(core.scroll_offset(SCROLL).unwrap().applied.y, 20.0);
+
+    core.run_frame(&measurer, &mut consumer, |_| {
+        retained_scroll_participation_scene(false, false)
+    })
+    .unwrap();
+    assert_eq!(core.scroll_offset(SCROLL).unwrap().applied.y, 20.0);
+}
+
+#[test]
+fn logical_pointer_and_wheel_events_share_committed_scene_position() {
+    let measurer = DeterministicMeasurer::new(8.0, 18.0);
+    let mut consumer = NullSceneConsumer::default();
+    let mut core = FrameCore::new(LogicalSize::new(100.0, 40.0));
+    let scene = || {
+        Element::flex(ROOT, Axis::Column, 0.0)
+            .without_paint()
+            .with_children(vec![Element::flex(SCROLL, Axis::Column, 0.0)
+                .without_paint()
+                .with_size(Some(100.0), Some(40.0))
+                .clip_children()
+                .scrollable()
+                .with_children(vec![
+                    Element::fixed(SCROLL_CONTENT, 100.0, 100.0).interactive()
+                ])])
+    };
+    core.run_frame(&measurer, &mut consumer, |_| scene())
+        .unwrap();
+
+    let position = esox_input::LogicalPosition::new(20.0, 10.0);
+    assert!(core.queue_pointer_input(
+        3,
+        esox_input::PointerEvent {
+            phase: esox_input::PointerPhase::Press { button: 0 },
+            position,
+        },
+    ));
+    assert!(core.queue_wheel_event(esox_input::WheelEvent {
+        position,
+        delta: esox_input::WheelDelta::new(0.0, 0.5),
+    }));
+    core.run_frame(&measurer, &mut consumer, |state| {
+        let response = state.take_response(SCROLL_CONTENT).unwrap();
+        assert_eq!(response.position, LogicalPoint::new(20.0, 10.0));
+        scene()
+    })
+    .unwrap();
+
+    assert_eq!(core.scroll_offset(SCROLL).unwrap().applied.y, 20.0);
+}
+
+#[test]
+fn invalid_logical_input_and_viewports_are_rejected_without_mutation() {
+    let measurer = DeterministicMeasurer::new(8.0, 18.0);
+    let mut consumer = NullSceneConsumer::default();
+    let mut core = FrameCore::new(LogicalSize::new(100.0, 40.0));
+    core.run_frame(&measurer, &mut consumer, |_| representative_scene())
+        .unwrap();
+
+    assert!(!core.resize(LogicalSize::new(f32::NAN, 40.0)));
+    assert!(!core.resize(LogicalSize::new(100.0, 0.0)));
+    assert!(!core.queue_pointer_event(
+        PointerEventKind::Press,
+        0,
+        LogicalPoint::new(f32::INFINITY, 10.0),
+    ));
+    assert!(!core.queue_wheel(
+        LogicalPoint::new(10.0, 10.0),
+        LogicalPoint::new(f32::NAN, 1.0),
+    ));
+    assert!(FrameCore::try_new(LogicalSize::new(-1.0, 40.0)).is_none());
+
+    core.run_frame(&measurer, &mut consumer, |state| {
+        assert!(state.take_response(ROW_A).is_none());
+        representative_scene()
+    })
+    .unwrap();
+    assert_eq!(
+        core.committed_scene().unwrap().viewport,
+        LogicalSize::new(100.0, 40.0)
+    );
 }

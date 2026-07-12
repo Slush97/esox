@@ -6,7 +6,9 @@ use esox_ui::frame_core::{
     PaintPrimitive, PaintRecord, ResolvedNode, SemanticNode, SemanticProperties, SemanticRole,
     SemanticSnapshot, TextDirection, TextProperties, WidgetId,
 };
-use esox_ui::frame_scene_consumer::{submit_display_list, FrameSceneSubmissionError};
+use esox_ui::frame_scene_consumer::{
+    submit_display_list, submit_display_list_scaled, FrameSceneSubmissionError, RendererScale,
+};
 use esox_ui::scene_submission::{
     SceneSubmissionError, SubmissionTextWeight, TextPaintBoundary, TextPaintRequest,
     UnsupportedPaintPrimitive, UnsupportedTextCapability,
@@ -105,12 +107,14 @@ fn representative_scene() -> CommittedScene {
         viewport: LogicalSize::new(640.5, 480.25),
         nodes: vec![ResolvedNode {
             id: SOLID,
+            parent: None,
             bounds: rect(301.0, 302.0, 303.0, 304.0),
             paint_bounds: Some(solid_bounds),
             hit_bounds: Some(rect(311.0, 312.0, 313.0, 314.0)),
             semantic_bounds: Some(rect(321.0, 322.0, 323.0, 324.0)),
             effective_clip: Some(solid_clip),
             current_damage_bounds: Some(rect(331.0, 332.0, 333.0, 334.0)),
+            scroll_metrics: None,
             focus_scope: Some(BORDER),
             blocks_input: true,
             effective_hidden: false,
@@ -287,6 +291,84 @@ fn committed_display_list_reaches_frame_in_order_without_recomputing_scene_produ
                 font_weight: SubmissionTextWeight::Bold,
             },
         ]
+    );
+}
+
+#[test]
+fn renderer_scale_converts_logical_geometry_exactly_once() {
+    let scene = representative_scene();
+    let scene_before_submission = scene.clone();
+    let mut frame = Frame::new();
+    let mut text = FakeTextPaint::default();
+
+    submit_display_list_scaled(
+        &scene.display_list,
+        &mut frame,
+        &mut text,
+        RendererScale::new(2.0).unwrap(),
+    )
+    .unwrap();
+
+    assert_eq!(scene, scene_before_submission);
+    assert_eq!(frame.instance_data()[0].rect, [2.5, 5.0, 61.5, 80.25]);
+    assert_eq!(frame.instance_data()[0].clip_rect, [1.0, 3.0, 50.5, 71.5]);
+    assert_eq!(frame.instance_data()[2].flags[1], 5.5);
+    assert_eq!(text.requests[0].bounds, rect(83.0, 6.5, 141.75, 37.25));
+    assert_eq!(text.requests[0].font_size, 34.5);
+}
+
+#[test]
+fn invalid_renderer_transform_is_rejected_before_target_mutation() {
+    assert!(RendererScale::new(0.0).is_none());
+    assert!(RendererScale::new(f64::NAN).is_none());
+    assert!(RendererScale::new(f64::MAX).is_none());
+
+    let display_list = vec![paint_record(
+        WidgetId(94),
+        PaintPrimitive::SolidRect {
+            color: Color::BLACK,
+        },
+        rect(f32::MAX, 0.0, 1.0, 1.0),
+        None,
+    )];
+    let mut frame = Frame::new();
+    let previous_clip = [1.0, 2.0, 3.0, 4.0];
+    frame.set_active_clip(Some(previous_clip));
+    let mut text = FakeTextPaint::default();
+
+    assert_eq!(
+        submit_display_list_scaled(
+            &display_list,
+            &mut frame,
+            &mut text,
+            RendererScale::new(2.0).unwrap(),
+        ),
+        Err(FrameSceneSubmissionError::InvalidTransform)
+    );
+    assert_eq!(frame.instance_len(), 0);
+    assert_eq!(frame.active_clip(), Some(previous_clip));
+    assert!(text.requests.is_empty());
+}
+
+#[test]
+fn explicit_empty_clip_survives_the_frame_no_clip_sentinel() {
+    let display_list = vec![paint_record(
+        WidgetId(93),
+        PaintPrimitive::SolidRect {
+            color: Color::BLACK,
+        },
+        rect(0.0, 0.0, 20.0, 20.0),
+        Some(rect(0.0, 0.0, 0.0, 0.0)),
+    )];
+    let mut frame = Frame::new();
+    let mut text = FakeTextPaint::default();
+
+    submit_display_list(&display_list, &mut frame, &mut text).unwrap();
+
+    assert_eq!(frame.instance_data().len(), 1);
+    assert_eq!(
+        frame.instance_data()[0].clip_rect,
+        [0.0, 0.0, 0.0, f32::EPSILON]
     );
 }
 

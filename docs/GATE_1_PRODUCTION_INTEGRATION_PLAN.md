@@ -67,6 +67,61 @@ headless `Element` and `CommittedScene` are deliberately small contract
 fixtures; production work should generalize their data model rather than put a
 second lifecycle beside them.
 
+FrameCore-owned mutable state is transactional across dispatch, declaration,
+resolution, and interaction reconciliation. Each attempted generation uses a
+candidate `WidgetStateStore`, scroll map, focus/capture state, focus scopes,
+restoration map, and cancellation queue. Pointer and wheel queues are cleared
+only with a successful candidate commit; a rejected attempt leaves the queues
+and all persistent state unchanged for deterministic retry against the same
+committed scene. Application-owned side effects performed by declaration are
+not rollbackable and remain outside this boundary.
+
+Wheel input is dispatched against the last immutable committed scene. Routing
+starts at the topmost visible, enabled structural node under the wheel position
+and follows only that node's committed parent chain, so overlapping siblings
+behind a blocking overlay are ineligible. X and Y route independently to the
+deepest scroll viewport on that chain that can change on the corresponding
+axis. A viewport that changes consumes that axis for the whole event, including
+when it reaches an edge after applying only part of the delta; residual delta is
+not propagated to ancestors. A still-declared hidden or disabled viewport keeps
+its stable-ID offset, but neither participates in wheel routing. Removing the
+viewport drops its retained state. Explicit declaration offsets override
+retained input state whenever the viewport participates in that generation.
+
+The platform boundary owns cursor validity and redraw eligibility per window.
+Cursor state has no coordinate sentinel: it is unavailable until a finite
+position arrives, and becomes unavailable again on leave, focus loss,
+suspension, or destruction. Position-dependent pointer and wheel events are
+rejected while unavailable rather than being routed at `(0, 0)`. Focus gain,
+resume, and position-less entry do not revive a stale coordinate.
+
+Headless and production redraw routing qualify a raw `WindowId` with a window
+incarnation and one coalesced pending redraw serial. Only a live matching
+incarnation with that pending serial accepts delivery, and acceptance consumes
+the serial before frame execution. Unknown, destroyed, suspended, stale, and
+duplicate deliveries are inert; they never fall back to another live window.
+Suspension or destruction clears pending redraw eligibility. This boundary
+prevents rejected delivery from duplicating frame execution, submission, input
+consumption, or cancellation while leaving failed FrameCore generations
+retryable under the transactional contract above.
+
+Coordinate conversion is asymmetric and single-owner. Winit physical cursor
+positions are divided once by the named window incarnation's validated
+event-time scale. Pointer and wheel capture use that same logical position.
+Physical-pixel wheel deltas are divided by the event-time scale and the fixed
+logical-units-per-line normalization constant; line-wheel deltas preserve both
+already-normalized axes. Native direction is inverted once on both axes before
+FrameCore. Queued events contain logical values only, so later cursor, scale,
+viewport, or other-window changes cannot reinterpret them.
+
+Resize and scale-factor events replace the window-local transform before the
+logical viewport callback and next redraw. FrameCore accepts only finite,
+positive logical viewports and stores unrounded logical committed geometry.
+Renderer submission owns the reverse transform and multiplies that geometry by
+one validated scale exactly once; WGPU clip quantization remains the snapping
+stage. Invalid positions, deltas, scales, viewports, or transform overflow are
+rejected before persistent or renderer mutation and have no fallback target.
+
 The semantic record remains an Esox type. A later AccessKit adapter consumes a
 committed semantic snapshot and does not own widget hierarchy or bounds.
 

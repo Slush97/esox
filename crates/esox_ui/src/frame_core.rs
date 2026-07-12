@@ -10,6 +10,7 @@ use taffy::prelude::{
     AlignContent, AlignItems, AvailableSpace, Display, FlexDirection, JustifyContent, NodeId,
     Position, Rect, Size, Style, TaffyMaxContent, TaffyTree,
 };
+use taffy::style::Overflow;
 use taffy::style_helpers::{auto, fr, length};
 
 /// Stable widget identity within one [`FrameCore`].
@@ -38,11 +39,14 @@ impl LogicalRect {
         let y = self.y.max(other.y);
         let right = (self.x + self.width).min(other.x + other.width);
         let bottom = (self.y + self.height).min(other.y + other.height);
-        (right > x && bottom > y).then_some(Self {
+        // `None` means that no clip is active throughout the scene model. Keep
+        // an explicit zero-area rectangle when two active clips are disjoint,
+        // otherwise a fully clipped descendant would become unclipped.
+        Some(Self {
             x,
             y,
-            width: right - x,
-            height: bottom - y,
+            width: (right - x).max(0.0),
+            height: (bottom - y).max(0.0),
         })
     }
 }
@@ -57,6 +61,10 @@ pub struct LogicalPoint {
 impl LogicalPoint {
     pub const fn new(x: f32, y: f32) -> Self {
         Self { x, y }
+    }
+
+    fn is_finite(self) -> bool {
+        self.x.is_finite() && self.y.is_finite()
     }
 }
 
@@ -87,6 +95,10 @@ impl Color {
 impl LogicalSize {
     pub const fn new(width: f32, height: f32) -> Self {
         Self { width, height }
+    }
+
+    pub fn is_valid(self) -> bool {
+        self.width.is_finite() && self.height.is_finite() && self.width > 0.0 && self.height > 0.0
     }
 }
 
@@ -252,7 +264,8 @@ pub struct Element {
     interactive: bool,
     semantics: Option<SemanticProperties>,
     clips_children: bool,
-    scroll_offset: LogicalPoint,
+    scrollable: bool,
+    requested_scroll_offset: Option<LogicalPoint>,
     absolute_position: Option<LogicalPoint>,
     blocking_overlay: bool,
     hidden: bool,
@@ -292,7 +305,8 @@ impl Element {
             interactive: false,
             semantics: None,
             clips_children: false,
-            scroll_offset: LogicalPoint::default(),
+            scrollable: false,
+            requested_scroll_offset: None,
             absolute_position: None,
             blocking_overlay: false,
             hidden: false,
@@ -441,10 +455,35 @@ impl Element {
         self
     }
 
-    /// Translate descendants by the current frame's scroll offset.
-    pub fn with_scroll_offset(mut self, x: f32, y: f32) -> Self {
-        self.scroll_offset = LogicalPoint::new(x, y);
+    /// Retain this viewport's last successfully applied FrameCore scroll offset.
+    pub fn scrollable(mut self) -> Self {
+        self.scrollable = true;
         self
+    }
+
+    /// Explicitly request this scroll viewport's current-frame offset.
+    ///
+    /// An explicit request takes precedence over retained FrameCore state for
+    /// this generation. Use [`Self::scrollable`] on later declarations to let
+    /// wheel input and the last successfully applied offset drive the viewport.
+    pub fn with_scroll_offset(mut self, x: f32, y: f32) -> Self {
+        self.scrollable = true;
+        self.requested_scroll_offset = Some(LogicalPoint::new(x, y));
+        self
+    }
+
+    fn apply_retained_scroll_offsets(&mut self, retained: &HashMap<WidgetId, ScrollOffsetState>) {
+        if self.scrollable && self.requested_scroll_offset.is_none() {
+            self.requested_scroll_offset = Some(
+                retained
+                    .get(&self.id)
+                    .map(|state| state.applied)
+                    .unwrap_or_default(),
+            );
+        }
+        for child in &mut self.children {
+            child.apply_retained_scroll_offsets(retained);
+        }
     }
 
     /// Remove this node from normal flow and place it at a logical position.
@@ -513,7 +552,7 @@ pub enum PointerEventKind {
 }
 
 /// Persistent per-widget values, deliberately separate from [`Element`].
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct WidgetStateStore {
     values: HashMap<WidgetId, u64>,
     responses: HashMap<WidgetId, VecDeque<InputResponse>>,
@@ -679,16 +718,44 @@ enum MeasureContext {
     Image(u64),
 }
 
+/// Current-generation scroll geometry for one explicitly declared scroll viewport.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ScrollMetrics {
+    /// Resolved viewport extent used to clip descendants.
+    pub viewport_extent: LogicalSize,
+    /// Resolved scrollable extent, never smaller than the viewport.
+    pub content_extent: LogicalSize,
+    /// Raw caller-owned offset declared for this generation.
+    pub requested_offset: LogicalPoint,
+    /// Offset sanitized and clamped against this generation's extents.
+    pub applied_offset: LogicalPoint,
+    /// Largest valid offset on each axis for this generation.
+    pub maximum_offset: LogicalPoint,
+}
+
+/// Per-window scroll offset retained across successful FrameCore generations.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct ScrollOffsetState {
+    /// Offset requested by input or the declaration that last committed.
+    pub requested: LogicalPoint,
+    /// Current-generation sanitized and clamped offset used by scene products.
+    pub applied: LogicalPoint,
+}
+
 /// All scene products for one resolved node, sourced by one traversal.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ResolvedNode {
     pub id: WidgetId,
+    /// Stable parent relationship in this immutable committed generation.
+    pub parent: Option<WidgetId>,
     pub bounds: LogicalRect,
     pub paint_bounds: Option<LogicalRect>,
     pub hit_bounds: Option<LogicalRect>,
     pub semantic_bounds: Option<LogicalRect>,
     pub effective_clip: Option<LogicalRect>,
     pub current_damage_bounds: Option<LogicalRect>,
+    /// Scroll geometry when this node was explicitly declared as a scroll viewport.
+    pub scroll_metrics: Option<ScrollMetrics>,
     pub focus_scope: Option<WidgetId>,
     pub blocks_input: bool,
     /// True when this node is under a current-generation hidden declaration.
@@ -846,12 +913,21 @@ pub struct FrameCore {
     generation: u64,
     widget_state: WidgetStateStore,
     committed: Option<CommittedScene>,
+    scroll_offsets: HashMap<WidgetId, ScrollOffsetState>,
+    pending_wheel_events: VecDeque<QueuedWheelEvent>,
+    wheel_scroll_speed: f32,
     pending_pointer_events: VecDeque<QueuedPointerEvent>,
     pointer_captures: HashMap<u64, PointerCapture>,
     keyboard_focus: Option<WidgetId>,
     active_focus_scopes: Vec<WidgetId>,
     focus_restoration: HashMap<WidgetId, Option<WidgetId>>,
     cancellations: VecDeque<InputResponse>,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct QueuedWheelEvent {
+    position: LogicalPoint,
+    delta: LogicalPoint,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -867,26 +943,62 @@ struct PointerCapture {
     focus_scope: Option<WidgetId>,
 }
 
+/// FrameCore-owned state that may change while one generation is attempted.
+///
+/// A candidate is cloned from the persistent owner, used for committed-scene
+/// input dispatch, declaration, and interaction reconciliation, then installed
+/// only when every fallible frame phase has succeeded.
+#[derive(Clone, Debug)]
+struct GenerationCandidate {
+    widget_state: WidgetStateStore,
+    scroll_offsets: HashMap<WidgetId, ScrollOffsetState>,
+    pointer_captures: HashMap<u64, PointerCapture>,
+    keyboard_focus: Option<WidgetId>,
+    active_focus_scopes: Vec<WidgetId>,
+    focus_restoration: HashMap<WidgetId, Option<WidgetId>>,
+    cancellations: VecDeque<InputResponse>,
+}
+
 impl FrameCore {
     /// Create an independent frame context for one logical viewport.
     pub fn new(viewport: LogicalSize) -> Self {
-        Self {
+        Self::try_new(viewport).expect("FrameCore requires a finite, positive logical viewport")
+    }
+
+    /// Create an independent frame context after validating its viewport.
+    pub fn try_new(viewport: LogicalSize) -> Option<Self> {
+        if !viewport.is_valid() {
+            return None;
+        }
+        Some(Self {
             viewport,
             generation: 0,
             widget_state: WidgetStateStore::default(),
             committed: None,
+            scroll_offsets: HashMap::new(),
+            pending_wheel_events: VecDeque::new(),
+            wheel_scroll_speed: 40.0,
             pending_pointer_events: VecDeque::new(),
             pointer_captures: HashMap::new(),
             keyboard_focus: None,
             active_focus_scopes: Vec::new(),
             focus_restoration: HashMap::new(),
             cancellations: VecDeque::new(),
-        }
+        })
     }
 
-    /// Change the viewport used by the very next frame.
-    pub fn resize(&mut self, viewport: LogicalSize) {
+    /// Change the viewport used by the very next frame when it is valid.
+    pub fn resize(&mut self, viewport: LogicalSize) -> bool {
+        if !viewport.is_valid() {
+            return false;
+        }
         self.viewport = viewport;
+        true
+    }
+
+    /// Apply a renderer-neutral viewport produced by the platform boundary.
+    pub fn resize_logical_viewport(&mut self, viewport: esox_input::LogicalViewport) -> bool {
+        self.resize(LogicalSize::new(viewport.width, viewport.height))
     }
 
     /// The immutable scene used for committed-scene input and damage comparison.
@@ -894,9 +1006,45 @@ impl FrameCore {
         self.committed.as_ref()
     }
 
+    /// The last successfully reconciled scroll state for a stable widget ID.
+    pub fn scroll_offset(&self, id: WidgetId) -> Option<ScrollOffsetState> {
+        self.scroll_offsets.get(&id).copied()
+    }
+
+    /// Set the logical movement applied to each normalized wheel-delta unit.
+    ///
+    /// The default is `40.0`, preserving the legacy production scroll speed.
+    pub fn set_wheel_scroll_speed(&mut self, speed: f32) {
+        if speed.is_finite() && speed >= 0.0 {
+            self.wheel_scroll_speed = speed;
+        }
+    }
+
+    /// Queue a normalized two-axis wheel event at a committed-scene position.
+    ///
+    /// Positive components increase the corresponding stored offset. Wheel
+    /// routing is independent of pointer capture and happens against the last
+    /// immutable committed scene before the next declaration.
+    pub fn queue_wheel(&mut self, position: LogicalPoint, delta: LogicalPoint) -> bool {
+        if !position.is_finite() || !delta.is_finite() || (delta.x == 0.0 && delta.y == 0.0) {
+            return false;
+        }
+        self.pending_wheel_events
+            .push_back(QueuedWheelEvent { position, delta });
+        true
+    }
+
+    /// Queue a renderer-neutral wheel event produced by the platform adapter.
+    pub fn queue_wheel_event(&mut self, event: esox_input::WheelEvent) -> bool {
+        self.queue_wheel(
+            LogicalPoint::new(event.position.x, event.position.y),
+            LogicalPoint::new(event.delta.x, event.delta.y),
+        )
+    }
+
     /// Queue a synthetic pointer press for dispatch before the next declaration.
     pub fn queue_pointer_press(&mut self, position: LogicalPoint) {
-        self.queue_pointer_event(PointerEventKind::Press, 0, position);
+        let _ = self.queue_pointer_event(PointerEventKind::Press, 0, position);
     }
 
     /// Queue a pointer event with an explicit pointer identity.
@@ -905,12 +1053,30 @@ impl FrameCore {
         kind: PointerEventKind,
         pointer: u64,
         position: LogicalPoint,
-    ) {
+    ) -> bool {
+        if !position.is_finite() {
+            return false;
+        }
         self.pending_pointer_events.push_back(QueuedPointerEvent {
             kind,
             pointer,
             position,
         });
+        true
+    }
+
+    /// Queue a renderer-neutral logical pointer event from the platform boundary.
+    pub fn queue_pointer_input(&mut self, pointer: u64, event: esox_input::PointerEvent) -> bool {
+        let kind = match event.phase {
+            esox_input::PointerPhase::Move => PointerEventKind::Move,
+            esox_input::PointerPhase::Press { .. } => PointerEventKind::Press,
+            esox_input::PointerPhase::Release { .. } => PointerEventKind::Release,
+        };
+        self.queue_pointer_event(
+            kind,
+            pointer,
+            LogicalPoint::new(event.position.x, event.position.y),
+        )
     }
 
     /// The current capture owner for a pointer in this window context.
@@ -942,8 +1108,11 @@ impl FrameCore {
         C: SceneConsumer,
         F: FnOnce(&mut WidgetStateStore) -> Element,
     {
-        self.dispatch_pending_input();
-        let root = declare(&mut self.widget_state);
+        let mut candidate = self.generation_candidate();
+        self.dispatch_pending_input(&mut candidate);
+        self.dispatch_pending_wheels(&mut candidate.scroll_offsets);
+        let mut root = declare(&mut candidate.widget_state);
+        root.apply_retained_scroll_offsets(&candidate.scroll_offsets);
         let resolved = resolve(&root, self.viewport, measurer)?;
         let all_focus_order: Vec<_> = resolved.hit_index.iter().map(|hit| hit.id).collect();
         let mut focus_scopes: Vec<FocusScope> = Vec::new();
@@ -979,21 +1148,170 @@ impl FrameCore {
             focus_scopes,
         };
 
-        self.reconcile_interaction(&scene);
+        candidate.scroll_offsets =
+            Self::reconcile_scroll_offsets(&scene, &candidate.scroll_offsets);
+        Self::reconcile_interaction(
+            &mut candidate,
+            &scene,
+            self.committed.as_ref(),
+            self.generation,
+        );
 
         self.generation = scene.generation;
+        self.widget_state = candidate.widget_state;
+        self.scroll_offsets = candidate.scroll_offsets;
+        self.pointer_captures = candidate.pointer_captures;
+        self.keyboard_focus = candidate.keyboard_focus;
+        self.active_focus_scopes = candidate.active_focus_scopes;
+        self.focus_restoration = candidate.focus_restoration;
+        self.cancellations = candidate.cancellations;
+        self.pending_wheel_events.clear();
+        self.pending_pointer_events.clear();
         self.committed = Some(scene);
         let committed = self.committed.as_ref().expect("scene was just committed");
         consumer.consume(committed);
         Ok(committed)
     }
 
-    fn dispatch_pending_input(&mut self) {
-        while let Some(event) = self.pending_pointer_events.pop_front() {
+    fn generation_candidate(&self) -> GenerationCandidate {
+        GenerationCandidate {
+            widget_state: self.widget_state.clone(),
+            scroll_offsets: self.scroll_offsets.clone(),
+            pointer_captures: self.pointer_captures.clone(),
+            keyboard_focus: self.keyboard_focus,
+            active_focus_scopes: self.active_focus_scopes.clone(),
+            focus_restoration: self.focus_restoration.clone(),
+            cancellations: self.cancellations.clone(),
+        }
+    }
+
+    fn dispatch_pending_wheels(
+        &self,
+        candidate_scroll_offsets: &mut HashMap<WidgetId, ScrollOffsetState>,
+    ) {
+        let Some(scene) = self.committed.as_ref() else {
+            return;
+        };
+        for event in &self.pending_wheel_events {
+            if !event.position.x.is_finite()
+                || !event.position.y.is_finite()
+                || !event.delta.x.is_finite()
+                || !event.delta.y.is_finite()
+            {
+                continue;
+            }
+            let scaled_delta = LogicalPoint::new(
+                event.delta.x * self.wheel_scroll_speed,
+                event.delta.y * self.wheel_scroll_speed,
+            );
+            if !scaled_delta.x.is_finite() || !scaled_delta.y.is_finite() {
+                continue;
+            }
+            Self::route_wheel(
+                scene,
+                event.position,
+                scaled_delta,
+                candidate_scroll_offsets,
+            );
+        }
+    }
+
+    fn route_wheel(
+        scene: &CommittedScene,
+        position: LogicalPoint,
+        delta: LogicalPoint,
+        offsets: &mut HashMap<WidgetId, ScrollOffsetState>,
+    ) {
+        // Resolved nodes are stored in structural paint order. Start at the
+        // topmost eligible structural node, then bubble only through its
+        // committed ancestry. In particular, an overlapping later sibling
+        // (including a blocking overlay) prevents routing into obscured
+        // scrollable siblings behind it.
+        let mut route = scene
+            .nodes
+            .iter()
+            .rev()
+            .find(|node| {
+                !node.effective_hidden
+                    && !node.effective_disabled
+                    && node.bounds.contains(position)
+                    && node
+                        .effective_clip
+                        .is_none_or(|clip| clip.contains(position))
+            })
+            .map(|node| node.id);
+        let mut route_x = delta.x != 0.0;
+        let mut route_y = delta.y != 0.0;
+        while let Some(id) = route.filter(|_| route_x || route_y) {
+            let node = scene
+                .node(id)
+                .expect("wheel route contains only committed nodes");
+            if let Some(metrics) = node.scroll_metrics {
+                let state = offsets.entry(id).or_insert(ScrollOffsetState {
+                    requested: metrics.requested_offset,
+                    applied: metrics.applied_offset,
+                });
+                let previous = state.applied;
+                let next = LogicalPoint::new(
+                    if route_x {
+                        (previous.x + delta.x).clamp(0.0, metrics.maximum_offset.x)
+                    } else {
+                        previous.x
+                    },
+                    if route_y {
+                        (previous.y + delta.y).clamp(0.0, metrics.maximum_offset.y)
+                    } else {
+                        previous.y
+                    },
+                );
+                if route_x && next.x != previous.x {
+                    route_x = false;
+                }
+                if route_y && next.y != previous.y {
+                    route_y = false;
+                }
+                // Each axis is consumed by the deepest viewport that changes
+                // on that axis, even when clamping applies only part of the
+                // delta. Residual delta is intentionally not propagated.
+                state.requested = next;
+                state.applied = next;
+            }
+            route = node.parent;
+        }
+    }
+
+    fn reconcile_scroll_offsets(
+        scene: &CommittedScene,
+        previous: &HashMap<WidgetId, ScrollOffsetState>,
+    ) -> HashMap<WidgetId, ScrollOffsetState> {
+        scene
+            .nodes
+            .iter()
+            .filter_map(|node| {
+                node.scroll_metrics.map(|metrics| {
+                    // A still-declared hidden viewport has no useful resolved
+                    // extent. Preserve its stable-ID state until it
+                    // participates again; removal still drops the entry.
+                    let state = if node.effective_hidden {
+                        previous.get(&node.id).copied().unwrap_or_default()
+                    } else {
+                        ScrollOffsetState {
+                            requested: metrics.requested_offset,
+                            applied: metrics.applied_offset,
+                        }
+                    };
+                    (node.id, state)
+                })
+            })
+            .collect()
+    }
+
+    fn dispatch_pending_input(&self, candidate: &mut GenerationCandidate) {
+        for event in &self.pending_pointer_events {
             let Some(scene) = self.committed.as_ref() else {
                 continue;
             };
-            let target = self
+            let target = candidate
                 .pointer_captures
                 .get(&event.pointer)
                 .and_then(|capture| scene.node(capture.owner))
@@ -1011,7 +1329,8 @@ impl FrameCore {
                     .hit_bounds
                     .expect("a hit-tested node always has hit bounds"),
             };
-            self.widget_state
+            candidate
+                .widget_state
                 .responses
                 .entry(target.id)
                 .or_default()
@@ -1020,15 +1339,20 @@ impl FrameCore {
                 event.kind,
                 PointerEventKind::Release | PointerEventKind::Cancel
             ) {
-                self.pointer_captures.remove(&event.pointer);
+                candidate.pointer_captures.remove(&event.pointer);
             }
         }
     }
 
-    fn reconcile_interaction(&mut self, scene: &CommittedScene) {
+    fn reconcile_interaction(
+        candidate: &mut GenerationCandidate,
+        scene: &CommittedScene,
+        committed: Option<&CommittedScene>,
+        committed_generation: u64,
+    ) {
         let focusable = |id| scene.node(id).is_some_and(|node| node.hit_bounds.is_some());
 
-        let removed_captures: Vec<_> = self
+        let removed_captures: Vec<_> = candidate
             .pointer_captures
             .iter()
             .filter(|(_, capture)| {
@@ -1039,25 +1363,25 @@ impl FrameCore {
             .map(|(pointer, capture)| (*pointer, capture.owner))
             .collect();
         for (pointer, owner) in removed_captures {
-            self.pointer_captures.remove(&pointer);
-            if let Some(old_node) = self.committed.as_ref().and_then(|old| old.node(owner)) {
-                self.cancellations.push_back(InputResponse {
+            candidate.pointer_captures.remove(&pointer);
+            if let Some(old_node) = committed.and_then(|old| old.node(owner)) {
+                candidate.cancellations.push_back(InputResponse {
                     kind: PointerEventKind::Cancel,
                     pointer,
                     target: owner,
-                    committed_generation: self.generation,
+                    committed_generation,
                     position: LogicalPoint::new(old_node.bounds.x, old_node.bounds.y),
                     target_bounds: old_node.bounds,
                 });
             }
         }
 
-        for pointer in self.widget_state.requested_pointer_releases.drain() {
-            self.pointer_captures.remove(&pointer);
+        for pointer in candidate.widget_state.requested_pointer_releases.drain() {
+            candidate.pointer_captures.remove(&pointer);
         }
-        for (pointer, owner) in self.widget_state.requested_pointer_captures.drain() {
+        for (pointer, owner) in candidate.widget_state.requested_pointer_captures.drain() {
             if let Some(node) = scene.node(owner).filter(|node| node.hit_bounds.is_some()) {
-                self.pointer_captures.insert(
+                candidate.pointer_captures.insert(
                     pointer,
                     PointerCapture {
                         owner,
@@ -1067,14 +1391,14 @@ impl FrameCore {
             }
         }
 
-        if let Some(requested) = self.widget_state.requested_keyboard_focus.take() {
+        if let Some(requested) = candidate.widget_state.requested_keyboard_focus.take() {
             if focusable(requested) {
-                self.keyboard_focus = Some(requested);
+                candidate.keyboard_focus = Some(requested);
             }
         }
 
         let current_scopes: Vec<_> = scene.focus_scopes.iter().map(|scope| scope.owner).collect();
-        let closed_scopes: Vec<_> = self
+        let closed_scopes: Vec<_> = candidate
             .active_focus_scopes
             .iter()
             .rev()
@@ -1083,32 +1407,33 @@ impl FrameCore {
             .collect();
         let mut restoration = None;
         for owner in closed_scopes {
-            if let Some(target) = self.focus_restoration.remove(&owner).flatten() {
+            if let Some(target) = candidate.focus_restoration.remove(&owner).flatten() {
                 restoration = Some(target);
             }
         }
 
         for scope in &scene.focus_scopes {
-            if !self.active_focus_scopes.contains(&scope.owner) {
-                self.focus_restoration
-                    .insert(scope.owner, self.keyboard_focus);
+            if !candidate.active_focus_scopes.contains(&scope.owner) {
+                candidate
+                    .focus_restoration
+                    .insert(scope.owner, candidate.keyboard_focus);
             }
         }
 
         if let Some(scope) = scene.focus_scopes.last() {
-            if !self
+            if !candidate
                 .keyboard_focus
                 .is_some_and(|focused| scope.members.contains(&focused))
             {
-                self.keyboard_focus = scope.members.first().copied();
+                candidate.keyboard_focus = scope.members.first().copied();
             }
         } else if let Some(target) = restoration.filter(|target| focusable(*target)) {
-            self.keyboard_focus = Some(target);
-        } else if !self.keyboard_focus.is_some_and(focusable) {
-            self.keyboard_focus = scene.focus_order.first().copied();
+            candidate.keyboard_focus = Some(target);
+        } else if !candidate.keyboard_focus.is_some_and(focusable) {
+            candidate.keyboard_focus = scene.focus_order.first().copied();
         }
-        self.active_focus_scopes = current_scopes;
-        self.widget_state.responses.retain(|id, _| {
+        candidate.active_focus_scopes = current_scopes;
+        candidate.widget_state.responses.retain(|id, _| {
             scene.node(*id).is_some_and(|node| {
                 !node.effective_hidden && !node.effective_disabled && node.hit_bounds.is_some()
             })
@@ -1129,6 +1454,7 @@ struct ResolvedProducts {
 struct TraversalContext {
     origin: (f32, f32),
     clip: Option<LogicalRect>,
+    parent: Option<WidgetId>,
     focus_scope: Option<WidgetId>,
     semantic_parent: Option<WidgetId>,
     hidden: bool,
@@ -1325,6 +1651,10 @@ fn resolve(
         if element.hidden {
             style.display = Display::None;
         }
+        if element.clips_children {
+            style.overflow.x = Overflow::Clip;
+            style.overflow.y = Overflow::Clip;
+        }
 
         let node = if children.is_empty() {
             match &element.kind {
@@ -1425,6 +1755,36 @@ fn resolve(
             width: layout.size.width,
             height: layout.size.height,
         };
+        let scroll_metrics = element.requested_scroll_offset.map(|requested_offset| {
+            let viewport_extent = LogicalSize::new(layout.size.width, layout.size.height);
+            let content_extent = LogicalSize::new(
+                layout.content_size.width.max(viewport_extent.width),
+                layout.content_size.height.max(viewport_extent.height),
+            );
+            let maximum_offset = LogicalPoint::new(
+                (content_extent.width - viewport_extent.width).max(0.0),
+                (content_extent.height - viewport_extent.height).max(0.0),
+            );
+            let clamp_offset = |requested: f32, maximum: f32| {
+                if requested.is_nan() || requested == f32::NEG_INFINITY {
+                    0.0
+                } else if requested == f32::INFINITY {
+                    maximum
+                } else {
+                    requested.clamp(0.0, maximum)
+                }
+            };
+            ScrollMetrics {
+                viewport_extent,
+                content_extent,
+                requested_offset,
+                applied_offset: LogicalPoint::new(
+                    clamp_offset(requested_offset.x, maximum_offset.x),
+                    clamp_offset(requested_offset.y, maximum_offset.y),
+                ),
+                maximum_offset,
+            }
+        });
         let participates_in_interaction = !effective_hidden && !effective_disabled;
         let effective_clip = (!effective_hidden).then_some(context.clip).flatten();
         let focus_scope = (element.blocking_overlay && participates_in_interaction)
@@ -1440,12 +1800,14 @@ fn resolve(
             (!effective_hidden && element.paint.is_some()).then_some(bounds);
         output.nodes.push(ResolvedNode {
             id: element.id,
+            parent: context.parent,
             bounds,
             paint_bounds,
             hit_bounds,
             semantic_bounds,
             effective_clip,
             current_damage_bounds,
+            scroll_metrics,
             focus_scope,
             blocks_input: element.blocking_overlay && participates_in_interaction,
             effective_hidden,
@@ -1515,9 +1877,12 @@ fn resolve(
         } else {
             context.clip
         };
+        let applied_scroll_offset = scroll_metrics
+            .map(|metrics| metrics.applied_offset)
+            .unwrap_or_default();
         let child_origin = (
-            bounds.x - element.scroll_offset.x,
-            bounds.y - element.scroll_offset.y,
+            bounds.x - applied_scroll_offset.x,
+            bounds.y - applied_scroll_offset.y,
         );
         for child in &element.children {
             collect(
@@ -1527,6 +1892,7 @@ fn resolve(
                 TraversalContext {
                     origin: child_origin,
                     clip: child_clip,
+                    parent: Some(element.id),
                     focus_scope,
                     semantic_parent,
                     hidden: effective_hidden,
@@ -1551,6 +1917,7 @@ fn resolve(
         TraversalContext {
             origin: (0.0, 0.0),
             clip: Some(viewport_rect),
+            parent: None,
             focus_scope: None,
             semantic_parent: None,
             hidden: false,

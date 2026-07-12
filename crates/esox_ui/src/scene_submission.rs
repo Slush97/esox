@@ -25,7 +25,11 @@ impl SubmissionTextWeight {
     }
 }
 
-/// A renderer-independent text paint request with resolved logical geometry.
+/// A renderer-independent text paint request.
+///
+/// Preflight stores committed logical geometry. A concrete renderer boundary
+/// may copy it into target coordinates immediately before invoking
+/// [`TextPaintBoundary`]; committed records remain logical and unchanged.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TextPaintRequest<'a> {
     pub id: WidgetId,
@@ -103,6 +107,10 @@ pub enum UnsupportedTextCapability {
 /// Typed preflight failure. No renderer target may be mutated before success.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SceneSubmissionError {
+    InvalidGeometry {
+        record_index: usize,
+        id: WidgetId,
+    },
     UnsupportedPrimitive {
         record_index: usize,
         id: WidgetId,
@@ -118,6 +126,10 @@ pub enum SceneSubmissionError {
 impl fmt::Display for SceneSubmissionError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::InvalidGeometry { record_index, id } => write!(
+                formatter,
+                "display-list record {record_index} ({id:?}) has non-finite geometry"
+            ),
             Self::UnsupportedPrimitive {
                 record_index,
                 id,
@@ -150,6 +162,18 @@ pub fn preflight_display_list(
     let mut records = Vec::with_capacity(display_list.len());
 
     for (record_index, record) in display_list.iter().enumerate() {
+        let finite_rect = |rect: LogicalRect| {
+            rect.x.is_finite()
+                && rect.y.is_finite()
+                && rect.width.is_finite()
+                && rect.height.is_finite()
+        };
+        if !finite_rect(record.bounds) || record.effective_clip.is_some_and(|r| !finite_rect(r)) {
+            return Err(SceneSubmissionError::InvalidGeometry {
+                record_index,
+                id: record.id,
+            });
+        }
         let primitive = match &record.primitive {
             PaintPrimitive::Box => {
                 return Err(SceneSubmissionError::UnsupportedPrimitive {
@@ -166,15 +190,29 @@ pub fn preflight_display_list(
                 });
             }
             PaintPrimitive::SolidRect { color } => SubmissionPrimitive::SolidRect { color: *color },
-            PaintPrimitive::Border { color, width } => SubmissionPrimitive::Border {
-                color: *color,
-                width: *width,
-            },
+            PaintPrimitive::Border { color, width } => {
+                if !width.is_finite() {
+                    return Err(SceneSubmissionError::InvalidGeometry {
+                        record_index,
+                        id: record.id,
+                    });
+                }
+                SubmissionPrimitive::Border {
+                    color: *color,
+                    width: *width,
+                }
+            }
             PaintPrimitive::Text {
                 content,
                 properties,
                 color,
             } => {
+                if !properties.font_size.is_finite() {
+                    return Err(SceneSubmissionError::InvalidGeometry {
+                        record_index,
+                        id: record.id,
+                    });
+                }
                 let capability = properties
                     .font_family
                     .as_ref()

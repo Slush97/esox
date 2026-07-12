@@ -65,7 +65,7 @@ impl ClipKey {
     /// Returns [`FULL_VIEWPORT`](Self::FULL_VIEWPORT) when the clip rect is
     /// all zeros (the "no clip" sentinel).
     pub fn from_clip_rect(clip: [f32; 4]) -> Self {
-        if clip[2] <= 0.0 && clip[3] <= 0.0 {
+        if clip == [0.0; 4] {
             return Self::FULL_VIEWPORT;
         }
         let max = u32::MAX as f32;
@@ -1377,6 +1377,21 @@ mod tests {
         let key = ClipKey::from_clip_rect([-5.0, -10.0, 100.0, 50.0]);
         assert_eq!(key.x, 0);
         assert_eq!(key.y, 0);
+    }
+
+    #[test]
+    fn clip_key_preserves_an_explicit_empty_scissor() {
+        let key = ClipKey::from_clip_rect([10.0, 20.0, 0.0, 0.0]);
+        assert!(!key.is_full_viewport());
+        assert_eq!(
+            key,
+            ClipKey {
+                x: 10,
+                y: 20,
+                w: 0,
+                h: 0
+            }
+        );
     }
 
     // ── build_batches tests ──

@@ -20,6 +20,8 @@ use crate::text::TextRenderer;
 pub enum FrameSceneSubmissionError<TextError> {
     /// The complete display list was rejected before [`Frame`] was mutated.
     Preflight(SceneSubmissionError),
+    /// The logical-to-physical renderer transform was invalid or overflowed.
+    InvalidTransform,
     /// The injected text backend failed while painting a supported request.
     Text(TextError),
 }
@@ -31,6 +33,7 @@ where
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Preflight(error) => error.fmt(formatter),
+            Self::InvalidTransform => formatter.write_str("invalid renderer coordinate transform"),
             Self::Text(error) => write!(formatter, "text submission failed: {error}"),
         }
     }
@@ -43,8 +46,46 @@ where
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Preflight(error) => Some(error),
+            Self::InvalidTransform => None,
             Self::Text(error) => Some(error),
         }
+    }
+}
+
+/// A validated logical-to-physical scale used only during renderer submission.
+///
+/// Platform input performs the inverse conversion before events reach
+/// FrameCore. Keeping this type at submission prevents committed logical scene
+/// geometry from being converted earlier or more than once.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct RendererScale(f32);
+
+impl RendererScale {
+    pub fn new(scale_factor: f64) -> Option<Self> {
+        let scale = scale_factor as f32;
+        (scale_factor.is_finite() && scale_factor > 0.0 && scale.is_finite()).then_some(Self(scale))
+    }
+
+    pub const fn one() -> Self {
+        Self(1.0)
+    }
+
+    pub const fn get(self) -> f32 {
+        self.0
+    }
+
+    fn rect(self, rect: LogicalRect) -> Option<LogicalRect> {
+        let scaled = LogicalRect {
+            x: rect.x * self.0,
+            y: rect.y * self.0,
+            width: rect.width * self.0,
+            height: rect.height * self.0,
+        };
+        (scaled.x.is_finite()
+            && scaled.y.is_finite()
+            && scaled.width.is_finite()
+            && scaled.height.is_finite())
+        .then_some(scaled)
     }
 }
 
@@ -71,6 +112,20 @@ where
     submit_prepared_display_list(&prepared, frame, text_backend)
 }
 
+/// Preflight and submit a logical display list in physical renderer pixels.
+pub fn submit_display_list_scaled<TextBackend>(
+    display_list: &[PaintRecord],
+    frame: &mut Frame,
+    text_backend: &mut TextBackend,
+    scale: RendererScale,
+) -> Result<(), FrameSceneSubmissionError<TextBackend::Error>>
+where
+    TextBackend: TextPaintBoundary<Frame>,
+{
+    let prepared = preflight_display_list(display_list)?;
+    submit_prepared_display_list_scaled(&prepared, frame, text_backend, scale)
+}
+
 /// Submit an already-preflighted display list without deriving new geometry.
 pub fn submit_prepared_display_list<TextBackend>(
     display_list: &PreparedDisplayList<'_>,
@@ -80,34 +135,70 @@ pub fn submit_prepared_display_list<TextBackend>(
 where
     TextBackend: TextPaintBoundary<Frame>,
 {
+    submit_prepared_display_list_scaled(display_list, frame, text_backend, RendererScale::one())
+}
+
+/// Submit a preflighted logical display list using one physical renderer scale.
+pub fn submit_prepared_display_list_scaled<TextBackend>(
+    display_list: &PreparedDisplayList<'_>,
+    frame: &mut Frame,
+    text_backend: &mut TextBackend,
+    scale: RendererScale,
+) -> Result<(), FrameSceneSubmissionError<TextBackend::Error>>
+where
+    TextBackend: TextPaintBoundary<Frame>,
+{
+    for record in display_list.records() {
+        let valid = scale.rect(record.bounds).is_some()
+            && record
+                .effective_clip
+                .is_none_or(|clip| scale.rect(clip).is_some())
+            && match record.primitive {
+                SubmissionPrimitive::SolidRect { .. } => true,
+                SubmissionPrimitive::Border { width, .. } => (width * scale.get()).is_finite(),
+                SubmissionPrimitive::Text(request) => {
+                    (request.font_size * scale.get()).is_finite()
+                        && scale.rect(request.bounds).is_some()
+                        && request
+                            .effective_clip
+                            .is_none_or(|clip| scale.rect(clip).is_some())
+                }
+            };
+        if !valid {
+            return Err(FrameSceneSubmissionError::InvalidTransform);
+        }
+    }
+
     let previous_clip = frame.active_clip();
 
     for record in display_list.records() {
-        frame.set_active_clip(record.effective_clip.map(logical_clip));
+        let bounds = scale
+            .rect(record.bounds)
+            .expect("the complete transform was preflighted");
+        frame.set_active_clip(
+            record
+                .effective_clip
+                .map(|clip| logical_clip(scale.rect(clip).expect("clip was preflighted"))),
+        );
 
         match record.primitive {
             SubmissionPrimitive::SolidRect { color } => frame.push(
-                ShapeBuilder::rect(
-                    record.bounds.x,
-                    record.bounds.y,
-                    record.bounds.width,
-                    record.bounds.height,
-                )
-                .color(gfx_color(color))
-                .build(),
+                ShapeBuilder::rect(bounds.x, bounds.y, bounds.width, bounds.height)
+                    .color(gfx_color(color))
+                    .build(),
             ),
             SubmissionPrimitive::Border { color, width } => frame.push(
-                ShapeBuilder::rect(
-                    record.bounds.x,
-                    record.bounds.y,
-                    record.bounds.width,
-                    record.bounds.height,
-                )
-                .color(gfx_color(color))
-                .stroke(width)
-                .build(),
+                ShapeBuilder::rect(bounds.x, bounds.y, bounds.width, bounds.height)
+                    .color(gfx_color(color))
+                    .stroke(width * scale.get())
+                    .build(),
             ),
-            SubmissionPrimitive::Text(request) => {
+            SubmissionPrimitive::Text(mut request) => {
+                request.bounds = bounds;
+                request.effective_clip = request
+                    .effective_clip
+                    .map(|clip| scale.rect(clip).expect("text clip was preflighted"));
+                request.font_size *= scale.get();
                 if let Err(error) = text_backend.paint_text(frame, request) {
                     frame.set_active_clip(previous_clip);
                     return Err(FrameSceneSubmissionError::Text(error));
@@ -174,5 +265,12 @@ const fn gfx_color(color: Color) -> GfxColor {
 }
 
 const fn logical_clip(rect: LogicalRect) -> [f32; 4] {
-    [rect.x, rect.y, rect.width, rect.height]
+    if rect.width <= 0.0 && rect.height <= 0.0 {
+        // Frame's all-zero instance clip is the no-clip sentinel. Preserve an
+        // explicitly empty scene clip by keeping one dimension non-zero; the
+        // other zero dimension still produces an empty scissor.
+        [rect.x, rect.y, 0.0, f32::EPSILON]
+    } else {
+        [rect.x, rect.y, rect.width, rect.height]
+    }
 }

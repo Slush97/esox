@@ -41,6 +41,8 @@ pub mod portal;
 #[cfg(feature = "a11y")]
 pub mod atspi;
 
+use std::collections::HashMap;
+use std::hash::Hash;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -48,6 +50,578 @@ use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoopProxy};
 use winit::window::{Window, WindowAttributes, WindowId};
+
+/// Logical scroll distance represented by one normalized line-delta unit.
+///
+/// Pixel deltas are divided by this value after physical-to-logical conversion
+/// so FrameCore's matching default speed reproduces exact logical-pixel motion.
+pub const WHEEL_LOGICAL_UNITS_PER_LINE: f64 = 40.0;
+
+/// Native wheel units accepted by the headless platform adapter.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum NativeWheelDelta {
+    /// Device- or platform-normalized line units.
+    Lines { x: f32, y: f32 },
+    /// Physical pixel units, typically produced by a touchpad.
+    PhysicalPixels { x: f64, y: f64 },
+}
+
+/// A position reported by the native window backend in physical pixels.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PhysicalPosition {
+    pub x: f64,
+    pub y: f64,
+}
+
+impl PhysicalPosition {
+    pub const fn new(x: f64, y: f64) -> Self {
+        Self { x, y }
+    }
+
+    fn is_finite(self) -> bool {
+        self.x.is_finite() && self.y.is_finite()
+    }
+}
+
+/// The physical-pixel extent of a native drawable surface.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PhysicalViewport {
+    pub width: u32,
+    pub height: u32,
+}
+
+impl PhysicalViewport {
+    pub const fn new(width: u32, height: u32) -> Self {
+        Self { width, height }
+    }
+
+    fn is_valid(self) -> bool {
+        self.width > 0 && self.height > 0
+    }
+}
+
+/// One window's validated physical-to-logical coordinate boundary.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct WindowCoordinateTransform {
+    physical_viewport: PhysicalViewport,
+    scale_factor: f64,
+}
+
+impl WindowCoordinateTransform {
+    pub fn new(physical_viewport: PhysicalViewport, scale_factor: f64) -> Option<Self> {
+        let transform = Self {
+            physical_viewport,
+            scale_factor,
+        };
+        transform.logical_viewport().map(|_| transform)
+    }
+
+    pub fn scale_factor(self) -> f64 {
+        self.scale_factor
+    }
+
+    pub fn physical_viewport(self) -> PhysicalViewport {
+        self.physical_viewport
+    }
+
+    pub fn logical_viewport(self) -> Option<esox_input::LogicalViewport> {
+        if !self.physical_viewport.is_valid()
+            || !self.scale_factor.is_finite()
+            || self.scale_factor <= 0.0
+        {
+            return None;
+        }
+        let viewport = esox_input::LogicalViewport::new(
+            (f64::from(self.physical_viewport.width) / self.scale_factor) as f32,
+            (f64::from(self.physical_viewport.height) / self.scale_factor) as f32,
+        );
+        viewport.is_valid().then_some(viewport)
+    }
+
+    pub fn logical_position(
+        self,
+        position: PhysicalPosition,
+    ) -> Option<esox_input::LogicalPosition> {
+        if !position.is_finite() || self.logical_viewport().is_none() {
+            return None;
+        }
+        let position = esox_input::LogicalPosition::new(
+            (position.x / self.scale_factor) as f32,
+            (position.y / self.scale_factor) as f32,
+        );
+        position.is_finite().then_some(position)
+    }
+}
+
+/// A physical cursor position whose validity is explicit.
+///
+/// `Unavailable` is the initial state and is restored by cursor leave, focus
+/// loss, suspension, and destruction. It is deliberately not represented by a
+/// coordinate sentinel: `(0, 0)` is a valid position once reported by the
+/// platform.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub enum CursorState {
+    #[default]
+    Unavailable,
+    Valid {
+        x: f64,
+        y: f64,
+    },
+}
+
+impl CursorState {
+    fn position(self) -> Option<(f64, f64)> {
+        match self {
+            Self::Unavailable => None,
+            Self::Valid { x, y } => Some((x, y)),
+        }
+    }
+}
+
+/// Per-window, renderer-neutral normalization state for wheel events.
+///
+/// Winit reports the cursor and pixel deltas in physical coordinates while
+/// FrameCore scenes use logical coordinates. This adapter captures both the
+/// logical pointer position and normalized two-axis delta when the event is
+/// received. Native positive deltas move content right/down; FrameCore positive
+/// deltas increase offsets and move content left/up, so both axes are negated at
+/// this boundary.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct WheelEventAdapter {
+    transform: WindowCoordinateTransform,
+    cursor: CursorState,
+}
+
+impl WheelEventAdapter {
+    /// Create adapter state for one window. Invalid scale factors are rejected.
+    pub fn new(scale_factor: f64) -> Option<Self> {
+        Self::new_with_viewport(PhysicalViewport::new(1, 1), scale_factor)
+    }
+
+    /// Create adapter state with the window's current physical viewport.
+    pub fn new_with_viewport(
+        physical_viewport: PhysicalViewport,
+        scale_factor: f64,
+    ) -> Option<Self> {
+        Some(Self {
+            transform: WindowCoordinateTransform::new(physical_viewport, scale_factor)?,
+            cursor: CursorState::Unavailable,
+        })
+    }
+
+    /// Update the window's current physical-to-logical scale factor.
+    ///
+    /// Invalid factors are ignored so an existing valid conversion cannot be
+    /// corrupted by a transient platform value.
+    pub fn set_scale_factor(&mut self, scale_factor: f64) -> bool {
+        if let Some(transform) =
+            WindowCoordinateTransform::new(self.transform.physical_viewport(), scale_factor)
+        {
+            self.transform = transform;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Update the physical viewport without changing the scale factor.
+    pub fn set_physical_viewport(&mut self, physical_viewport: PhysicalViewport) -> bool {
+        if let Some(transform) =
+            WindowCoordinateTransform::new(physical_viewport, self.transform.scale_factor())
+        {
+            self.transform = transform;
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn logical_viewport(&self) -> esox_input::LogicalViewport {
+        self.transform
+            .logical_viewport()
+            .expect("the adapter stores only a validated transform")
+    }
+
+    /// Record the latest physical cursor position for this window.
+    pub fn set_cursor_position(&mut self, x: f64, y: f64) -> bool {
+        if x.is_finite() && y.is_finite() {
+            self.cursor = CursorState::Valid { x, y };
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Invalidate the stored position without inventing a replacement.
+    pub fn invalidate_cursor(&mut self) {
+        self.cursor = CursorState::Unavailable;
+    }
+
+    /// Return the current physical position only while it is valid.
+    pub fn cursor_position(&self) -> Option<(f64, f64)> {
+        self.cursor.position()
+    }
+
+    /// Capture and normalize one native wheel event.
+    ///
+    /// Line magnitudes remain normalized units. Physical pixels first become
+    /// logical pixels and then normalized units, so a FrameCore using its
+    /// default 40-unit speed applies pixel input one logical pixel for one
+    /// logical pixel. Non-finite and zero-motion events are rejected.
+    pub fn logical_cursor_position(&self) -> Option<esox_input::LogicalPosition> {
+        let (x, y) = self.cursor_position()?;
+        self.transform.logical_position(PhysicalPosition::new(x, y))
+    }
+
+    /// Capture a pointer action with the same event-time transform used by wheel input.
+    pub fn capture_pointer(
+        &self,
+        phase: esox_input::PointerPhase,
+    ) -> Result<esox_input::PointerEvent, PlatformRejection> {
+        Ok(esox_input::PointerEvent {
+            phase,
+            position: self
+                .logical_cursor_position()
+                .ok_or(PlatformRejection::CursorUnavailable)?,
+        })
+    }
+
+    pub fn normalize(
+        &self,
+        delta: NativeWheelDelta,
+    ) -> Result<esox_input::WheelEvent, PlatformRejection> {
+        let (cursor_x, cursor_y) = self
+            .cursor_position()
+            .ok_or(PlatformRejection::CursorUnavailable)?;
+
+        let position = self
+            .transform
+            .logical_position(PhysicalPosition::new(cursor_x, cursor_y))
+            .ok_or(PlatformRejection::InvalidCoordinate)?;
+        let scale_factor = self.transform.scale_factor();
+        let delta = match delta {
+            NativeWheelDelta::Lines { x, y } => esox_input::WheelDelta::new(-x, -y),
+            NativeWheelDelta::PhysicalPixels { x, y } => esox_input::WheelDelta::new(
+                (-x / scale_factor / WHEEL_LOGICAL_UNITS_PER_LINE) as f32,
+                (-y / scale_factor / WHEEL_LOGICAL_UNITS_PER_LINE) as f32,
+            ),
+        };
+        if !delta.is_finite() || (delta.x == 0.0 && delta.y == 0.0) {
+            return Err(PlatformRejection::InvalidDelta);
+        }
+        Ok(esox_input::WheelEvent { position, delta })
+    }
+}
+
+/// Whether a platform window may accept input and redraw work.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WindowEligibility {
+    Live,
+    Suspended,
+    Destroyed,
+}
+
+/// Stable identity for one registration of a platform window ID.
+///
+/// The incarnation prevents delayed work for a destroyed window from being
+/// accepted if a backend later reuses the same raw ID.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct WindowHandle<I> {
+    pub id: I,
+    incarnation: u64,
+}
+
+/// One coalesced redraw request for a specific window incarnation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RedrawRequest<I> {
+    window: WindowHandle<I>,
+    serial: u64,
+}
+
+/// Why platform work was rejected at the per-window boundary.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlatformRejection {
+    UnknownWindow,
+    StaleWindow,
+    Suspended,
+    Destroyed,
+    CursorUnavailable,
+    InvalidCoordinate,
+    InvalidDelta,
+    InvalidScaleFactor,
+    InvalidViewport,
+    NoPendingRedraw,
+    StaleRedraw,
+}
+
+#[derive(Debug)]
+struct PlatformWindowState {
+    incarnation: u64,
+    eligibility: WindowEligibility,
+    wheel: WheelEventAdapter,
+    next_redraw_serial: u64,
+    pending_redraw: Option<u64>,
+}
+
+/// Renderer-neutral per-window platform boundary used by the runtime and
+/// headless contract tests.
+///
+/// Input and redraw operations always name both a raw window ID and its
+/// registration incarnation. Missing, stale, suspended, and destroyed targets
+/// are rejected; no operation falls back to another entry.
+#[derive(Debug)]
+pub struct PlatformWindowRegistry<I> {
+    windows: HashMap<I, PlatformWindowState>,
+    next_incarnation: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RuntimeRedrawState {
+    Idle,
+    Pending,
+}
+
+impl<I> Default for PlatformWindowRegistry<I> {
+    fn default() -> Self {
+        Self {
+            windows: HashMap::new(),
+            next_incarnation: 1,
+        }
+    }
+}
+
+impl<I: Copy + Eq + Hash> PlatformWindowRegistry<I> {
+    /// Register a live window and return its incarnation-qualified handle.
+    pub fn register(&mut self, id: I, scale_factor: f64) -> Option<WindowHandle<I>> {
+        self.register_with_viewport(id, PhysicalViewport::new(1, 1), scale_factor)
+    }
+
+    /// Register a live window with its current physical viewport and scale.
+    pub fn register_with_viewport(
+        &mut self,
+        id: I,
+        physical_viewport: PhysicalViewport,
+        scale_factor: f64,
+    ) -> Option<WindowHandle<I>> {
+        let wheel = WheelEventAdapter::new_with_viewport(physical_viewport, scale_factor)?;
+        let incarnation = self.next_incarnation;
+        self.next_incarnation = self.next_incarnation.wrapping_add(1).max(1);
+        self.windows.insert(
+            id,
+            PlatformWindowState {
+                incarnation,
+                eligibility: WindowEligibility::Live,
+                wheel,
+                next_redraw_serial: 1,
+                pending_redraw: None,
+            },
+        );
+        Some(WindowHandle { id, incarnation })
+    }
+
+    fn state(&self, window: WindowHandle<I>) -> Result<&PlatformWindowState, PlatformRejection> {
+        let state = self
+            .windows
+            .get(&window.id)
+            .ok_or(PlatformRejection::UnknownWindow)?;
+        if state.incarnation != window.incarnation {
+            return Err(PlatformRejection::StaleWindow);
+        }
+        match state.eligibility {
+            WindowEligibility::Live => Ok(state),
+            WindowEligibility::Suspended => Err(PlatformRejection::Suspended),
+            WindowEligibility::Destroyed => Err(PlatformRejection::Destroyed),
+        }
+    }
+
+    fn state_mut(
+        &mut self,
+        window: WindowHandle<I>,
+    ) -> Result<&mut PlatformWindowState, PlatformRejection> {
+        let state = self
+            .windows
+            .get_mut(&window.id)
+            .ok_or(PlatformRejection::UnknownWindow)?;
+        if state.incarnation != window.incarnation {
+            return Err(PlatformRejection::StaleWindow);
+        }
+        match state.eligibility {
+            WindowEligibility::Live => Ok(state),
+            WindowEligibility::Suspended => Err(PlatformRejection::Suspended),
+            WindowEligibility::Destroyed => Err(PlatformRejection::Destroyed),
+        }
+    }
+
+    /// Record a finite cursor position for exactly one live window.
+    pub fn cursor_moved(
+        &mut self,
+        window: WindowHandle<I>,
+        x: f64,
+        y: f64,
+    ) -> Result<(), PlatformRejection> {
+        let state = self.state_mut(window)?;
+        state
+            .wheel
+            .set_cursor_position(x, y)
+            .then_some(())
+            .ok_or(PlatformRejection::InvalidCoordinate)
+    }
+
+    /// Capture the logical cursor position for exactly one window.
+    pub fn pointer_position(
+        &self,
+        window: WindowHandle<I>,
+    ) -> Result<esox_input::LogicalPosition, PlatformRejection> {
+        self.state(window)?
+            .wheel
+            .logical_cursor_position()
+            .ok_or(PlatformRejection::CursorUnavailable)
+    }
+
+    /// Capture one renderer-neutral pointer event for exactly one window.
+    pub fn capture_pointer(
+        &self,
+        window: WindowHandle<I>,
+        phase: esox_input::PointerPhase,
+    ) -> Result<esox_input::PointerEvent, PlatformRejection> {
+        self.state(window)?.wheel.capture_pointer(phase)
+    }
+
+    /// Invalidate cursor routing for leave or focus loss.
+    pub fn invalidate_cursor(&mut self, window: WindowHandle<I>) -> Result<(), PlatformRejection> {
+        self.state_mut(window)?.wheel.invalidate_cursor();
+        Ok(())
+    }
+
+    /// Apply a cursor-leave transition.
+    pub fn cursor_left(&mut self, window: WindowHandle<I>) -> Result<(), PlatformRejection> {
+        self.invalidate_cursor(window)
+    }
+
+    /// Apply focus validity. Gaining focus never invents a cursor position.
+    pub fn focus_changed(
+        &mut self,
+        window: WindowHandle<I>,
+        focused: bool,
+    ) -> Result<(), PlatformRejection> {
+        if focused {
+            self.state(window).map(|_| ())
+        } else {
+            self.invalidate_cursor(window)
+        }
+    }
+
+    /// Update one live window's scale factor.
+    pub fn set_scale_factor(
+        &mut self,
+        window: WindowHandle<I>,
+        scale_factor: f64,
+    ) -> Result<(), PlatformRejection> {
+        self.state_mut(window)?
+            .wheel
+            .set_scale_factor(scale_factor)
+            .then_some(())
+            .ok_or(PlatformRejection::InvalidScaleFactor)
+    }
+
+    /// Update one live window's physical viewport immediately.
+    pub fn set_physical_viewport(
+        &mut self,
+        window: WindowHandle<I>,
+        physical_viewport: PhysicalViewport,
+    ) -> Result<esox_input::LogicalViewport, PlatformRejection> {
+        let wheel = &mut self.state_mut(window)?.wheel;
+        wheel
+            .set_physical_viewport(physical_viewport)
+            .then(|| wheel.logical_viewport())
+            .ok_or(PlatformRejection::InvalidViewport)
+    }
+
+    /// Return the current validated logical viewport for one live window.
+    pub fn logical_viewport(
+        &self,
+        window: WindowHandle<I>,
+    ) -> Result<esox_input::LogicalViewport, PlatformRejection> {
+        Ok(self.state(window)?.wheel.logical_viewport())
+    }
+
+    /// Normalize wheel input only when this exact window has a valid cursor.
+    pub fn normalize_wheel(
+        &self,
+        window: WindowHandle<I>,
+        delta: NativeWheelDelta,
+    ) -> Result<esox_input::WheelEvent, PlatformRejection> {
+        self.state(window)?.wheel.normalize(delta)
+    }
+
+    /// Coalesce redraw requests per live window.
+    pub fn request_redraw(
+        &mut self,
+        window: WindowHandle<I>,
+    ) -> Result<RedrawRequest<I>, PlatformRejection> {
+        let state = self.state_mut(window)?;
+        let serial = match state.pending_redraw {
+            Some(serial) => serial,
+            None => {
+                let serial = state.next_redraw_serial;
+                state.next_redraw_serial = state.next_redraw_serial.wrapping_add(1).max(1);
+                state.pending_redraw = Some(serial);
+                serial
+            }
+        };
+        Ok(RedrawRequest { window, serial })
+    }
+
+    /// Accept a pending redraw once. Duplicate or superseded delivery is inert.
+    pub fn accept_redraw(&mut self, request: RedrawRequest<I>) -> Result<(), PlatformRejection> {
+        let state = self.state_mut(request.window)?;
+        match state.pending_redraw {
+            Some(serial) if serial == request.serial => {
+                state.pending_redraw = None;
+                Ok(())
+            }
+            Some(_) => Err(PlatformRejection::StaleRedraw),
+            None => Err(PlatformRejection::NoPendingRedraw),
+        }
+    }
+
+    /// Suspend a window, invalidating its cursor and queued redraw token.
+    pub fn suspend(&mut self, window: WindowHandle<I>) -> Result<(), PlatformRejection> {
+        let state = self.state_mut(window)?;
+        state.wheel.invalidate_cursor();
+        state.pending_redraw = None;
+        state.eligibility = WindowEligibility::Suspended;
+        Ok(())
+    }
+
+    /// Resume the same window incarnation. Cursor validity is not restored.
+    pub fn resume(&mut self, window: WindowHandle<I>) -> Result<(), PlatformRejection> {
+        let state = self
+            .windows
+            .get_mut(&window.id)
+            .ok_or(PlatformRejection::UnknownWindow)?;
+        if state.incarnation != window.incarnation {
+            return Err(PlatformRejection::StaleWindow);
+        }
+        match state.eligibility {
+            WindowEligibility::Suspended => {
+                state.eligibility = WindowEligibility::Live;
+                Ok(())
+            }
+            WindowEligibility::Destroyed => Err(PlatformRejection::Destroyed),
+            WindowEligibility::Live => Ok(()),
+        }
+    }
+
+    /// Destroy a window incarnation and invalidate all pending platform state.
+    pub fn destroy(&mut self, window: WindowHandle<I>) -> Result<(), PlatformRejection> {
+        let state = self.state_mut(window)?;
+        state.wheel.invalidate_cursor();
+        state.pending_redraw = None;
+        state.eligibility = WindowEligibility::Destroyed;
+        Ok(())
+    }
+}
 
 /// Errors produced by the platform subsystem.
 #[derive(Debug, thiserror::Error)]
@@ -359,8 +933,28 @@ pub trait AppDelegate {
     /// Called when a mouse event occurs.
     fn on_mouse(&mut self, event: MouseInputEvent);
 
+    /// Queue pointer input already converted to this window's logical viewport.
+    ///
+    /// Return `true` when the event was accepted by a logical scene owner. A
+    /// `false` result preserves the physical-coordinate legacy mouse callback.
+    fn on_pointer(&mut self, _event: esox_input::PointerEvent) -> bool {
+        false
+    }
+
+    /// Queue normalized two-axis wheel input for this delegate's window.
+    ///
+    /// Return `true` when the event was accepted for a future frame. The
+    /// platform then requests a redraw. Returning `false` preserves the legacy
+    /// vertical-only [`MouseInputEvent::Scroll`] fallback.
+    fn on_wheel(&mut self, _event: esox_input::WheelEvent) -> bool {
+        false
+    }
+
     /// Called when the DPI scale factor changes.
     fn on_scale_changed(&mut self, scale_factor: f64, gpu: &esox_gfx::GpuContext);
+
+    /// Apply the current validated logical viewport to a logical scene owner.
+    fn on_logical_viewport_changed(&mut self, _viewport: esox_input::LogicalViewport) {}
 
     /// Return a new window title if one has been set, consuming the pending value.
     fn take_title(&mut self) -> Option<String> {
@@ -517,6 +1111,14 @@ pub trait AppDelegate {
         esox_input::CursorIcon::Text
     }
 
+    /// Return a cursor icon from an already-converted logical scene position.
+    fn logical_cursor_icon(
+        &self,
+        _position: esox_input::LogicalPosition,
+    ) -> Option<esox_input::CursorIcon> {
+        None
+    }
+
     /// Whether the cursor should be grabbed (confined to the window) and hidden.
     ///
     /// When `true`, the platform hides the cursor and locks it to the window
@@ -529,31 +1131,31 @@ pub trait AppDelegate {
 /// Mouse input event dispatched from platform to the delegate.
 #[derive(Debug, Clone, Copy)]
 pub enum MouseInputEvent {
-    /// Mouse moved to pixel coordinates.
+    /// Mouse moved to legacy physical-pixel coordinates.
     Moved { x: f64, y: f64 },
     /// Mouse button pressed.
     Press {
-        /// Pixel X coordinate.
+        /// Physical-pixel X coordinate.
         x: f64,
-        /// Pixel Y coordinate.
+        /// Physical-pixel Y coordinate.
         y: f64,
         /// Button (0=left, 1=middle, 2=right).
         button: u8,
     },
     /// Mouse button released.
     Release {
-        /// Pixel X coordinate.
+        /// Physical-pixel X coordinate.
         x: f64,
-        /// Pixel Y coordinate.
+        /// Physical-pixel Y coordinate.
         y: f64,
         /// Button (0=left, 1=middle, 2=right).
         button: u8,
     },
     /// Mouse wheel scroll.
     Scroll {
-        /// Pixel X coordinate.
+        /// Physical-pixel X coordinate.
         x: f64,
-        /// Pixel Y coordinate.
+        /// Physical-pixel Y coordinate.
         y: f64,
         /// Scroll delta (positive = up/left).
         delta_y: f32,
@@ -635,6 +1237,7 @@ pub struct App {
     config: crate::config::PlatformConfig,
     delegate: Box<dyn AppDelegate>,
     window: Option<Arc<Window>>,
+    window_eligibility: WindowEligibility,
     gpu: Option<esox_gfx::GpuContext>,
     pipeline_registry: Option<esox_gfx::PipelineRegistry>,
     render_resources: Option<esox_gfx::RenderResources>,
@@ -644,8 +1247,10 @@ pub struct App {
     last_frame_elapsed: f32,
     clear_color: esox_gfx::Color,
     current_modifiers: winit::keyboard::ModifiersState,
-    /// Last known cursor position in physical pixels.
-    cursor_position: (f64, f64),
+    /// Valid physical cursor position for this window, when established.
+    cursor_position: CursorState,
+    /// Window-local logical-coordinate and two-axis wheel normalizer.
+    wheel_adapter: WheelEventAdapter,
     /// Offscreen render target for post-processing (created lazily).
     offscreen: Option<esox_gfx::OffscreenTarget>,
     /// Post-process bind group layout (created once with offscreen).
@@ -667,7 +1272,7 @@ pub struct App {
     /// Timestamp of the last redraw (for frame rate throttling).
     last_redraw: std::time::Instant,
     /// Whether a redraw has been requested but not yet serviced.
-    redraw_pending: bool,
+    redraw_state: RuntimeRedrawState,
     /// Force the next frame to skip the damage check (e.g. after resize).
     force_next_redraw: bool,
     /// Whether the cursor is currently grabbed (locked + hidden).
@@ -691,6 +1296,7 @@ impl App {
             config,
             delegate,
             window: None,
+            window_eligibility: WindowEligibility::Destroyed,
             gpu: None,
             pipeline_registry: None,
             render_resources: None,
@@ -700,7 +1306,8 @@ impl App {
             last_frame_elapsed: 0.0,
             clear_color: esox_gfx::Color::BLACK,
             current_modifiers: winit::keyboard::ModifiersState::empty(),
-            cursor_position: (0.0, 0.0),
+            cursor_position: CursorState::Unavailable,
+            wheel_adapter: WheelEventAdapter::new(1.0).expect("one is a valid scale factor"),
             offscreen: None,
             pp_bind_group_layout: None,
             pp_sampler: None,
@@ -711,7 +1318,7 @@ impl App {
             depth_view: None,
             monitor_refresh_hz: 60,
             last_redraw: std::time::Instant::now(),
-            redraw_pending: false,
+            redraw_state: RuntimeRedrawState::Idle,
             force_next_redraw: true,
             cursor_grabbed: false,
             consecutive_render_failures: 0,
@@ -728,6 +1335,23 @@ impl App {
         if let Err(e) = self.perf.write_report(&path) {
             tracing::error!("failed to write perf report: {e}");
         }
+    }
+
+    fn request_redraw(&mut self) {
+        if self.window_eligibility != WindowEligibility::Live
+            || self.redraw_state == RuntimeRedrawState::Pending
+        {
+            return;
+        }
+        if let Some(window) = self.window.as_ref() {
+            window.request_redraw();
+            self.redraw_state = RuntimeRedrawState::Pending;
+        }
+    }
+
+    fn invalidate_cursor(&mut self) {
+        self.cursor_position = CursorState::Unavailable;
+        self.wheel_adapter.invalidate_cursor();
     }
 }
 
@@ -782,6 +1406,13 @@ fn create_depth_texture(
 
 impl ApplicationHandler<AppUserEvent> for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        if self.window.is_some() {
+            self.window_eligibility = WindowEligibility::Live;
+            self.invalidate_cursor();
+            self.force_next_redraw = true;
+            self.request_redraw();
+            return;
+        }
         let mut attrs = WindowAttributes::default()
             .with_title(&self.config.window.title)
             .with_decorations(self.config.window.decorations);
@@ -809,6 +1440,12 @@ impl ApplicationHandler<AppUserEvent> for App {
                 return;
             }
         };
+        let inner_size = window.inner_size();
+        self.wheel_adapter = WheelEventAdapter::new_with_viewport(
+            PhysicalViewport::new(inner_size.width.max(1), inner_size.height.max(1)),
+            window.scale_factor(),
+        )
+        .expect("winit returned a valid initial window transform");
 
         match pollster::block_on(esox_gfx::GpuContext::new(window.clone(), self.config.hdr)) {
             Ok(mut gpu) => {
@@ -946,6 +1583,10 @@ impl ApplicationHandler<AppUserEvent> for App {
 
                         self.delegate.register_pipelines(&gpu, &mut registry);
                         self.delegate.on_init(&gpu, &mut resources);
+                        self.delegate
+                            .on_scale_changed(self.wheel_adapter.transform.scale_factor(), &gpu);
+                        self.delegate
+                            .on_logical_viewport_changed(self.wheel_adapter.logical_viewport());
                         self.render_resources = Some(resources);
                         self.pipeline_registry = Some(registry);
                     }
@@ -1028,26 +1669,58 @@ impl ApplicationHandler<AppUserEvent> for App {
         }
 
         window.set_ime_allowed(true);
-        window.request_redraw();
         self.window = Some(window);
+        self.window_eligibility = WindowEligibility::Live;
+        self.request_redraw();
+    }
+
+    fn suspended(&mut self, _event_loop: &ActiveEventLoop) {
+        self.invalidate_cursor();
+        self.redraw_state = RuntimeRedrawState::Idle;
+        self.window_eligibility = WindowEligibility::Suspended;
     }
 
     fn window_event(
         &mut self,
         event_loop: &ActiveEventLoop,
-        _window_id: WindowId,
+        window_id: WindowId,
         event: WindowEvent,
     ) {
+        if self.window_eligibility != WindowEligibility::Live
+            || self
+                .window
+                .as_ref()
+                .is_none_or(|window| window.id() != window_id)
+        {
+            return;
+        }
         match event {
             WindowEvent::CloseRequested => {
+                self.invalidate_cursor();
+                self.redraw_state = RuntimeRedrawState::Idle;
+                self.window_eligibility = WindowEligibility::Destroyed;
                 self.write_perf_report();
                 self.delegate.on_close();
                 event_loop.exit();
             }
+            WindowEvent::Destroyed => {
+                self.invalidate_cursor();
+                self.redraw_state = RuntimeRedrawState::Idle;
+                self.window_eligibility = WindowEligibility::Destroyed;
+                self.window = None;
+            }
             WindowEvent::Resized(size) => {
+                if !self
+                    .wheel_adapter
+                    .set_physical_viewport(PhysicalViewport::new(size.width, size.height))
+                {
+                    return;
+                }
+                let logical_viewport = self.wheel_adapter.logical_viewport();
                 if let Some(gpu) = self.gpu.as_mut() {
                     gpu.resize(size.width, size.height);
                     self.delegate.on_resize(size.width, size.height, gpu);
+                    self.delegate.on_logical_viewport_changed(logical_viewport);
                     self.force_next_redraw = true;
                     // Recreate MSAA texture at new size.
                     if gpu.sample_count > 1 {
@@ -1111,9 +1784,7 @@ impl ApplicationHandler<AppUserEvent> for App {
                         }
                     }
                 }
-                if let Some(window) = self.window.as_ref() {
-                    window.request_redraw();
-                }
+                self.request_redraw();
             }
             WindowEvent::ModifiersChanged(mods) => {
                 self.current_modifiers = mods.state();
@@ -1151,9 +1822,7 @@ impl ApplicationHandler<AppUserEvent> for App {
                             } else {
                                 tracing::debug!("copy: no selection");
                             }
-                            if let Some(window) = self.window.as_ref() {
-                                window.request_redraw();
-                            }
+                            self.request_redraw();
                             return;
                         }
                         if paste {
@@ -1168,9 +1837,7 @@ impl ApplicationHandler<AppUserEvent> for App {
                                 }
                                 Err(e) => tracing::warn!("clipboard read failed: {e}"),
                             }
-                            if let Some(window) = self.window.as_ref() {
-                                window.request_redraw();
-                            }
+                            self.request_redraw();
                             return;
                         }
                     }
@@ -1190,33 +1857,65 @@ impl ApplicationHandler<AppUserEvent> for App {
                 let converted = convert_key_event(&event);
                 let mods = convert_modifiers(self.current_modifiers);
                 self.delegate.on_key(&converted, mods);
-                if let Some(window) = self.window.as_ref() {
-                    window.request_redraw();
-                }
+                self.request_redraw();
             }
             WindowEvent::CursorLeft { .. } => {
+                self.invalidate_cursor();
                 self.delegate.on_mouse(MouseInputEvent::Left);
-                if let Some(window) = self.window.as_ref() {
-                    window.request_redraw();
-                }
+                self.request_redraw();
             }
             WindowEvent::CursorMoved { position, .. } => {
-                self.cursor_position = (position.x, position.y);
-                self.delegate.on_mouse(MouseInputEvent::Moved {
+                if !self
+                    .wheel_adapter
+                    .set_cursor_position(position.x, position.y)
+                {
+                    return;
+                }
+                self.cursor_position = CursorState::Valid {
                     x: position.x,
                     y: position.y,
-                });
+                };
+                let pointer = self
+                    .wheel_adapter
+                    .capture_pointer(esox_input::PointerPhase::Move)
+                    .expect("the finite cursor was just installed");
+                if !self.delegate.on_pointer(pointer) {
+                    self.delegate.on_mouse(MouseInputEvent::Moved {
+                        x: position.x,
+                        y: position.y,
+                    });
+                }
                 // Update OS cursor icon based on pointer position (skip when grabbed).
                 if !self.cursor_grabbed
                     && let Some(window) = self.window.as_ref()
                 {
-                    let icon = self.delegate.cursor_icon(position.x, position.y);
+                    let icon = self
+                        .delegate
+                        .logical_cursor_icon(pointer.position)
+                        .unwrap_or_else(|| self.delegate.cursor_icon(position.x, position.y));
                     window.set_cursor(winit::window::Cursor::Icon(convert_cursor_icon(icon)));
                 }
             }
             WindowEvent::MouseInput { state, button, .. } => {
                 let btn = classify_mouse_button(button);
-                let (x, y) = self.cursor_position;
+                let Some((x, y)) = self.cursor_position.position() else {
+                    return;
+                };
+                let phase = match state {
+                    winit::event::ElementState::Pressed => {
+                        esox_input::PointerPhase::Press { button: btn }
+                    }
+                    winit::event::ElementState::Released => {
+                        esox_input::PointerPhase::Release { button: btn }
+                    }
+                };
+                let Ok(pointer) = self.wheel_adapter.capture_pointer(phase) else {
+                    return;
+                };
+                if self.delegate.on_pointer(pointer) {
+                    self.request_redraw();
+                    return;
+                }
                 let event = match state {
                     winit::event::ElementState::Pressed => {
                         MouseInputEvent::Press { x, y, button: btn }
@@ -1226,11 +1925,28 @@ impl ApplicationHandler<AppUserEvent> for App {
                     }
                 };
                 self.delegate.on_mouse(event);
-                if let Some(window) = self.window.as_ref() {
-                    window.request_redraw();
-                }
+                self.request_redraw();
             }
             WindowEvent::MouseWheel { delta, .. } => {
+                let native_delta = match delta {
+                    winit::event::MouseScrollDelta::LineDelta(x, y) => {
+                        NativeWheelDelta::Lines { x, y }
+                    }
+                    winit::event::MouseScrollDelta::PixelDelta(position) => {
+                        NativeWheelDelta::PhysicalPixels {
+                            x: position.x,
+                            y: position.y,
+                        }
+                    }
+                };
+                let Ok(event) = self.wheel_adapter.normalize(native_delta) else {
+                    return;
+                };
+                if self.delegate.on_wheel(event) {
+                    self.request_redraw();
+                    return;
+                }
+
                 let delta_y = match delta {
                     winit::event::MouseScrollDelta::LineDelta(_, y) => y,
                     // Convert pixel delta to approximate line delta. The
@@ -1240,27 +1956,23 @@ impl ApplicationHandler<AppUserEvent> for App {
                         pos.y as f32 / PIXELS_PER_LINE
                     }
                 };
-                let (x, y) = self.cursor_position;
+                let Some((x, y)) = self.cursor_position.position() else {
+                    return;
+                };
                 self.delegate
                     .on_mouse(MouseInputEvent::Scroll { x, y, delta_y });
-                if let Some(window) = self.window.as_ref() {
-                    window.request_redraw();
-                }
+                self.request_redraw();
             }
             WindowEvent::Ime(ime) => {
                 match ime {
                     winit::event::Ime::Commit(text) => {
                         // IME composition committed — forward raw text (not a paste).
                         self.delegate.on_ime_commit(&text);
-                        if let Some(window) = self.window.as_ref() {
-                            window.request_redraw();
-                        }
+                        self.request_redraw();
                     }
                     winit::event::Ime::Preedit(text, cursor) => {
                         self.delegate.on_ime_preedit(text, cursor);
-                        if let Some(window) = self.window.as_ref() {
-                            window.request_redraw();
-                        }
+                        self.request_redraw();
                     }
                     winit::event::Ime::Enabled => {
                         self.delegate.on_ime_enabled(true);
@@ -1272,25 +1984,26 @@ impl ApplicationHandler<AppUserEvent> for App {
             }
             WindowEvent::DroppedFile(path) => {
                 self.delegate.on_file_dropped(path);
-                if let Some(window) = self.window.as_ref() {
-                    window.request_redraw();
-                }
+                self.request_redraw();
             }
             WindowEvent::HoveredFile(path) => {
-                let (x, y) = self.cursor_position;
+                let Some((x, y)) = self.cursor_position.position() else {
+                    return;
+                };
                 self.delegate.on_file_hover(Some(path), x, y);
-                if let Some(window) = self.window.as_ref() {
-                    window.request_redraw();
-                }
+                self.request_redraw();
             }
             WindowEvent::HoveredFileCancelled => {
-                let (x, y) = self.cursor_position;
+                let Some((x, y)) = self.cursor_position.position() else {
+                    return;
+                };
                 self.delegate.on_file_hover(None, x, y);
-                if let Some(window) = self.window.as_ref() {
-                    window.request_redraw();
-                }
+                self.request_redraw();
             }
             WindowEvent::Focused(focused) => {
+                if !focused {
+                    self.invalidate_cursor();
+                }
                 // Release cursor grab on focus loss so the user can interact
                 // with other windows. It will be re-acquired on the next
                 // redraw if the delegate still wants it.
@@ -1303,20 +2016,25 @@ impl ApplicationHandler<AppUserEvent> for App {
                     }
                 }
                 self.delegate.on_focus_changed(focused);
-                if !self.redraw_pending
-                    && let Some(window) = self.window.as_ref()
-                {
-                    window.request_redraw();
-                    self.redraw_pending = true;
-                }
+                self.request_redraw();
             }
             WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
+                if !self.wheel_adapter.set_scale_factor(scale_factor) {
+                    return;
+                }
                 if let Some(gpu) = self.gpu.as_ref() {
                     self.delegate.on_scale_changed(scale_factor, gpu);
                 }
+                self.delegate
+                    .on_logical_viewport_changed(self.wheel_adapter.logical_viewport());
                 self.force_next_redraw = true;
+                self.request_redraw();
             }
             WindowEvent::RedrawRequested => {
+                if self.redraw_state != RuntimeRedrawState::Pending {
+                    return;
+                }
+                self.redraw_state = RuntimeRedrawState::Idle;
                 self.last_redraw = std::time::Instant::now();
 
                 // Sync cursor grab/hide state with delegate.
@@ -1659,7 +2377,7 @@ impl ApplicationHandler<AppUserEvent> for App {
                     if skip_gpu {
                         self.perf.end_frame(0, 0);
                         self.frame_number += 1;
-                        self.redraw_pending = false;
+                        self.redraw_state = RuntimeRedrawState::Idle;
                         tracing::trace!("frame skipped (no damage)");
                     } else {
                         let elapsed = self.start_time.elapsed().as_secs_f32();
@@ -1831,7 +2549,6 @@ impl ApplicationHandler<AppUserEvent> for App {
                     ));
                     self.delegate.on_bell();
                 }
-                self.redraw_pending = false;
             }
             _ => {}
         }
@@ -1842,12 +2559,7 @@ impl ApplicationHandler<AppUserEvent> for App {
             self.shader_reload_pending = true;
         }
         // A background thread (PTY watcher, blink timer, or shader watcher) wants a redraw.
-        if !self.redraw_pending
-            && let Some(window) = self.window.as_ref()
-        {
-            window.request_redraw();
-            self.redraw_pending = true;
-        }
+        self.request_redraw();
     }
 
     fn device_event(
@@ -1877,7 +2589,7 @@ impl ApplicationHandler<AppUserEvent> for App {
             // Exit cleanly to avoid winit teardown issues from signal context.
             std::process::exit(0);
         }
-        if self.redraw_pending {
+        if self.redraw_state == RuntimeRedrawState::Pending {
             return;
         }
         if self.delegate.needs_continuous_redraw() {
@@ -1892,16 +2604,19 @@ impl ApplicationHandler<AppUserEvent> for App {
             let now = std::time::Instant::now();
             let next_redraw = self.last_redraw + target_interval;
             if now >= next_redraw {
-                if let Some(window) = self.window.as_ref() {
-                    window.request_redraw();
-                    self.redraw_pending = true;
-                }
+                self.request_redraw();
             } else {
                 event_loop.set_control_flow(ControlFlow::WaitUntil(next_redraw));
             }
         } else {
             event_loop.set_control_flow(ControlFlow::Wait);
         }
+    }
+
+    fn exiting(&mut self, _event_loop: &ActiveEventLoop) {
+        self.invalidate_cursor();
+        self.redraw_state = RuntimeRedrawState::Idle;
+        self.window_eligibility = WindowEligibility::Destroyed;
     }
 }
 
@@ -2136,5 +2851,322 @@ mod tests {
             classify_mouse_button(winit::event::MouseButton::Other(4)),
             3
         );
+    }
+
+    // --- Headless wheel normalization tests ---
+
+    #[test]
+    fn line_wheel_preserves_both_axes_with_frame_core_direction() {
+        let mut adapter = WheelEventAdapter::new(2.0).unwrap();
+        adapter.set_cursor_position(120.0, 80.0);
+
+        let event = adapter
+            .normalize(NativeWheelDelta::Lines { x: 2.0, y: -3.0 })
+            .unwrap();
+
+        assert_eq!(event.position, esox_input::WheelPosition::new(60.0, 40.0));
+        assert_eq!(event.delta, esox_input::WheelDelta::new(-2.0, 3.0));
+    }
+
+    #[test]
+    fn pixel_wheel_converts_physical_pixels_to_normalized_logical_units() {
+        let mut adapter = WheelEventAdapter::new(2.0).unwrap();
+        adapter.set_cursor_position(120.0, 80.0);
+
+        let event = adapter
+            .normalize(NativeWheelDelta::PhysicalPixels { x: 80.0, y: -40.0 })
+            .unwrap();
+
+        assert_eq!(event.position, esox_input::WheelPosition::new(60.0, 40.0));
+        assert_eq!(event.delta, esox_input::WheelDelta::new(-1.0, 0.5));
+    }
+
+    #[test]
+    fn wheel_position_and_scale_are_captured_at_event_time() {
+        let mut adapter = WheelEventAdapter::new(1.0).unwrap();
+        adapter.set_cursor_position(120.0, 80.0);
+        let first = adapter
+            .normalize(NativeWheelDelta::PhysicalPixels { x: 40.0, y: 80.0 })
+            .unwrap();
+
+        assert!(adapter.set_scale_factor(2.0));
+        adapter.set_cursor_position(200.0, 100.0);
+        let second = adapter
+            .normalize(NativeWheelDelta::PhysicalPixels { x: 40.0, y: 80.0 })
+            .unwrap();
+
+        assert_eq!(first.position, esox_input::WheelPosition::new(120.0, 80.0));
+        assert_eq!(first.delta, esox_input::WheelDelta::new(-1.0, -2.0));
+        assert_eq!(second.position, esox_input::WheelPosition::new(100.0, 50.0));
+        assert_eq!(second.delta, esox_input::WheelDelta::new(-0.5, -1.0));
+    }
+
+    #[test]
+    fn pointer_and_wheel_capture_the_same_logical_event_time_position() {
+        let mut adapter =
+            WheelEventAdapter::new_with_viewport(PhysicalViewport::new(800, 600), 2.0).unwrap();
+        adapter.set_cursor_position(240.0, 160.0);
+
+        let pointer = adapter
+            .capture_pointer(esox_input::PointerPhase::Press { button: 0 })
+            .unwrap();
+        let wheel = adapter
+            .normalize(NativeWheelDelta::Lines { x: 1.0, y: -2.0 })
+            .unwrap();
+
+        assert_eq!(pointer.position, wheel.position);
+        assert_eq!(
+            pointer.position,
+            esox_input::LogicalPosition::new(120.0, 80.0)
+        );
+    }
+
+    #[test]
+    fn viewport_and_scale_updates_affect_the_first_subsequent_capture() {
+        let mut platform = PlatformWindowRegistry::<u64>::default();
+        let window = platform
+            .register_with_viewport(7, PhysicalViewport::new(800, 600), 2.0)
+            .unwrap();
+        platform.cursor_moved(window, 400.0, 300.0).unwrap();
+        assert_eq!(
+            platform.logical_viewport(window),
+            Ok(esox_input::LogicalViewport::new(400.0, 300.0))
+        );
+        assert_eq!(
+            platform.pointer_position(window),
+            Ok(esox_input::LogicalPosition::new(200.0, 150.0))
+        );
+
+        platform.set_scale_factor(window, 4.0).unwrap();
+        assert_eq!(
+            platform.pointer_position(window),
+            Ok(esox_input::LogicalPosition::new(100.0, 75.0))
+        );
+        assert_eq!(
+            platform
+                .set_physical_viewport(window, PhysicalViewport::new(1200, 800))
+                .unwrap(),
+            esox_input::LogicalViewport::new(300.0, 200.0)
+        );
+    }
+
+    #[test]
+    fn different_window_transforms_remain_isolated() {
+        let mut platform = PlatformWindowRegistry::<u64>::default();
+        let left = platform
+            .register_with_viewport(1, PhysicalViewport::new(800, 600), 2.0)
+            .unwrap();
+        let right = platform
+            .register_with_viewport(2, PhysicalViewport::new(900, 600), 3.0)
+            .unwrap();
+        platform.cursor_moved(left, 300.0, 180.0).unwrap();
+        platform.cursor_moved(right, 300.0, 180.0).unwrap();
+
+        assert_eq!(
+            platform.pointer_position(left),
+            Ok(esox_input::LogicalPosition::new(150.0, 90.0))
+        );
+        assert_eq!(
+            platform.pointer_position(right),
+            Ok(esox_input::LogicalPosition::new(100.0, 60.0))
+        );
+        assert_eq!(
+            platform.logical_viewport(left),
+            Ok(esox_input::LogicalViewport::new(400.0, 300.0))
+        );
+        assert_eq!(
+            platform.logical_viewport(right),
+            Ok(esox_input::LogicalViewport::new(300.0, 200.0))
+        );
+    }
+
+    #[test]
+    fn wheel_adapter_rejects_invalid_scale_coordinates_deltas_and_zero_motion() {
+        assert!(WheelEventAdapter::new(0.0).is_none());
+        assert!(WheelEventAdapter::new(f64::NAN).is_none());
+
+        let mut adapter = WheelEventAdapter::new(1.0).unwrap();
+        assert!(
+            adapter
+                .normalize(NativeWheelDelta::Lines { x: 1.0, y: 0.0 })
+                .is_err()
+        );
+        assert!(!adapter.set_scale_factor(f64::INFINITY));
+        adapter.set_cursor_position(f64::NAN, 0.0);
+        assert!(
+            adapter
+                .normalize(NativeWheelDelta::Lines { x: 1.0, y: 0.0 })
+                .is_err()
+        );
+
+        adapter.set_cursor_position(0.0, 0.0);
+        assert!(
+            adapter
+                .normalize(NativeWheelDelta::PhysicalPixels {
+                    x: f64::INFINITY,
+                    y: 0.0,
+                })
+                .is_err()
+        );
+        assert!(
+            adapter
+                .normalize(NativeWheelDelta::Lines { x: 0.0, y: 0.0 })
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn invalid_transform_updates_do_not_mutate_valid_window_state() {
+        let mut platform = PlatformWindowRegistry::<u64>::default();
+        let window = platform
+            .register_with_viewport(9, PhysicalViewport::new(640, 480), 2.0)
+            .unwrap();
+        platform.cursor_moved(window, 100.0, 80.0).unwrap();
+        let position = platform.pointer_position(window).unwrap();
+        let viewport = platform.logical_viewport(window).unwrap();
+
+        assert_eq!(
+            platform.set_scale_factor(window, f64::NAN),
+            Err(PlatformRejection::InvalidScaleFactor)
+        );
+        assert_eq!(
+            platform.set_physical_viewport(window, PhysicalViewport::new(0, 480)),
+            Err(PlatformRejection::InvalidViewport)
+        );
+        assert_eq!(
+            platform.cursor_moved(window, f64::INFINITY, 10.0),
+            Err(PlatformRejection::InvalidCoordinate)
+        );
+        assert_eq!(platform.pointer_position(window), Ok(position));
+        assert_eq!(platform.logical_viewport(window), Ok(viewport));
+    }
+
+    #[test]
+    fn cursor_leave_rejects_pointer_and_wheel_until_a_new_position() {
+        let mut platform = PlatformWindowRegistry::<u64>::default();
+        let window = platform.register(7, 1.0).unwrap();
+
+        assert_eq!(
+            platform.pointer_position(window),
+            Err(PlatformRejection::CursorUnavailable)
+        );
+        platform.cursor_moved(window, 25.0, 30.0).unwrap();
+        assert_eq!(
+            platform.pointer_position(window),
+            Ok(esox_input::LogicalPosition::new(25.0, 30.0))
+        );
+
+        platform.cursor_left(window).unwrap();
+        assert_eq!(
+            platform.normalize_wheel(window, NativeWheelDelta::Lines { x: 0.0, y: 1.0 }),
+            Err(PlatformRejection::CursorUnavailable)
+        );
+        platform.cursor_moved(window, 0.0, 0.0).unwrap();
+        assert_eq!(
+            platform.pointer_position(window),
+            Ok(esox_input::LogicalPosition::new(0.0, 0.0))
+        );
+    }
+
+    #[test]
+    fn focus_loss_and_suspension_do_not_borrow_another_windows_cursor() {
+        let mut platform = PlatformWindowRegistry::<u64>::default();
+        let left = platform.register(1, 1.0).unwrap();
+        let right = platform.register(2, 2.0).unwrap();
+        platform.cursor_moved(left, 40.0, 20.0).unwrap();
+        platform.cursor_moved(right, 200.0, 100.0).unwrap();
+
+        platform.focus_changed(left, false).unwrap();
+        assert_eq!(
+            platform.pointer_position(left),
+            Err(PlatformRejection::CursorUnavailable)
+        );
+        assert_eq!(
+            platform.pointer_position(right),
+            Ok(esox_input::LogicalPosition::new(100.0, 50.0))
+        );
+
+        platform.suspend(right).unwrap();
+        assert_eq!(
+            platform.pointer_position(right),
+            Err(PlatformRejection::Suspended)
+        );
+        platform.resume(right).unwrap();
+        assert_eq!(
+            platform.pointer_position(right),
+            Err(PlatformRejection::CursorUnavailable)
+        );
+    }
+
+    #[test]
+    fn redraw_is_accepted_once_for_the_intended_live_window() {
+        let mut platform = PlatformWindowRegistry::<u64>::default();
+        let left = platform.register(1, 1.0).unwrap();
+        let right = platform.register(2, 1.0).unwrap();
+
+        let first = platform.request_redraw(left).unwrap();
+        assert_eq!(platform.request_redraw(left), Ok(first));
+        platform.accept_redraw(first).unwrap();
+        assert_eq!(
+            platform.accept_redraw(first),
+            Err(PlatformRejection::NoPendingRedraw)
+        );
+
+        let right_request = platform.request_redraw(right).unwrap();
+        platform.accept_redraw(right_request).unwrap();
+        let second = platform.request_redraw(left).unwrap();
+        assert_ne!(first, second);
+        platform.accept_redraw(second).unwrap();
+    }
+
+    #[test]
+    fn redraw_rejection_has_no_cross_window_fallback() {
+        let mut platform = PlatformWindowRegistry::<u64>::default();
+        let live = platform.register(1, 1.0).unwrap();
+        let suspended = platform.register(2, 1.0).unwrap();
+        let destroyed = platform.register(3, 1.0).unwrap();
+        platform.suspend(suspended).unwrap();
+        platform.destroy(destroyed).unwrap();
+
+        let unknown = WindowHandle {
+            id: 99,
+            incarnation: 99,
+        };
+        assert_eq!(
+            platform.request_redraw(unknown),
+            Err(PlatformRejection::UnknownWindow)
+        );
+        assert_eq!(
+            platform.request_redraw(suspended),
+            Err(PlatformRejection::Suspended)
+        );
+        assert_eq!(
+            platform.request_redraw(destroyed),
+            Err(PlatformRejection::Destroyed)
+        );
+
+        let live_request = platform.request_redraw(live).unwrap();
+        platform.accept_redraw(live_request).unwrap();
+    }
+
+    #[test]
+    fn stale_window_and_redraw_tokens_are_rejected_after_id_reuse() {
+        let mut platform = PlatformWindowRegistry::<u64>::default();
+        let old = platform.register(5, 1.0).unwrap();
+        let old_redraw = platform.request_redraw(old).unwrap();
+        platform.destroy(old).unwrap();
+        let current = platform.register(5, 1.0).unwrap();
+
+        assert_eq!(
+            platform.pointer_position(old),
+            Err(PlatformRejection::StaleWindow)
+        );
+        assert_eq!(
+            platform.accept_redraw(old_redraw),
+            Err(PlatformRejection::StaleWindow)
+        );
+
+        let current_redraw = platform.request_redraw(current).unwrap();
+        platform.accept_redraw(current_redraw).unwrap();
     }
 }

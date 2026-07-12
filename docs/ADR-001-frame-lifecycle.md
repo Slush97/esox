@@ -66,6 +66,24 @@ bounds. Those products cannot perform layout independently or substitute
 geometry from an older generation. Logical-to-physical conversion and pixel
 snapping occur only at the renderer boundary.
 
+Native window coordinates have one inverse pipeline. The platform retains one
+validated `(physical viewport, scale factor)` transform per live window
+incarnation. At native event receipt it divides finite physical cursor
+coordinates by that event-time scale exactly once. Physical-pixel wheel deltas
+are divided by the same scale and then by the fixed logical-units-per-line
+normalizer; line deltas are already normalized and are not scale-converted.
+Both axes are negated once to preserve the native-to-FrameCore scroll
+direction. FrameCore therefore receives only renderer-neutral logical pointer
+and wheel snapshots and never reads a platform scale. Later cursor, resize, or
+scale changes cannot alter an already queued snapshot.
+
+The renderer performs the sole forward conversion: committed logical bounds,
+clips, border widths, text positions, and text sizes are multiplied by one
+validated renderer scale during submission. The committed scene is never
+rewritten with physical geometry. Frame/GPU clip quantization is consequently
+the only pixel-snapping stage, preventing either inverse or forward scale from
+being applied twice.
+
 The last committed scene remains useful for routing input and comparing old
 and new damage. It is historical state, not a current-frame correctness source.
 
@@ -77,12 +95,12 @@ interleave, but a window has at most one scene generation under construction.
 | Phase | Work | Allowed mutation |
 | --- | --- | --- |
 | 0. Collect | Queue platform, timer, resource, and accessibility events; request a frame. | Pending queues and scheduling state only. |
-| 1. Dispatch | Route queued input through the last committed hit/semantic tree or an existing capture path. Produce an event-response ledger for stable widget IDs. | Input state, focus/capture requests, and the ledger. The committed scene is immutable. |
-| 2. Declare | Invoke the application once and build the owned current-frame element tree, including overlay declarations. | Application state, per-widget persistent state, and the new tree. No solved-geometry query is available. |
+| 1. Dispatch | Route queued input through the last committed hit/semantic tree or an existing capture path. Produce an event-response ledger for stable widget IDs. | Generation-candidate input state and ledger only. The committed scene and persistent stores are immutable. |
+| 2. Declare | Invoke the application once and build the owned current-frame element tree, including overlay declarations. | Application state, the candidate per-widget state store, and the new tree. No solved-geometry query is available. |
 | 3. Measure/layout | Adapt the tree to Taffy, run constrained leaf measurements, and solve logical geometry. | Taffy-local caches and resolved geometry only. Application and widget declarations are immutable. |
 | 4. Resolve | Traverse resolved nodes in paint order to create display-list, clip, hit, semantic, and damage records. | Generation-local output builders only. |
-| 5. Reconcile interaction | Validate focus, capture, hover, and overlay ownership against the resolved live nodes; synthesize required cancellation and restoration. | Per-window interaction state and next-frame scheduling. Resolved geometry is immutable. |
-| 6. Commit | Atomically replace all products of the previous committed generation. Hand the display list and damage to a renderer or null sink. | The per-window committed-scene pointer and renderer submission state. |
+| 5. Reconcile interaction | Validate focus, capture, hover, and overlay ownership against the resolved live nodes; synthesize required cancellation and restoration. | Generation-candidate interaction state only. Resolved geometry is immutable. |
+| 6. Commit | Atomically replace all products and FrameCore-owned mutable state of the previous committed generation. Hand the display list and damage to a renderer or null sink. | The per-window committed-scene pointer, widget/interaction/scroll stores, input queues, and renderer submission state. |
 | 7. Schedule | Present when applicable and request the next deadline for active animation, pending work, or recovery. | Platform scheduling and diagnostics only. |
 
 If construction or resolution fails, none of its partial products become
@@ -90,6 +108,25 @@ committed. The previous scene remains intact for diagnostics and input until a
 later generation commits or the window closes. Renderer or surface failure
 does not destroy UI/application state; it schedules recovery through the same
 scene contract.
+
+FrameCore implements that boundary with one generation candidate cloned from
+its persistent widget, scroll, focus, capture, focus-scope, restoration, and
+cancellation state. Pointer dispatch and wheel routing read the last immutable
+committed scene and write only to that candidate. Declaration receives the
+candidate `WidgetStateStore`, and reconciliation mutates only candidate
+interaction state. The candidate is installed, and the queued pointer and
+wheel events are cleared, only after resolution and reconciliation succeed.
+On failure the candidate is dropped and the original queues remain in order,
+so the next attempt routes them against the same committed scene without
+persisting duplicate responses or cancellations from the rejected attempt.
+
+Application-owned effects performed by the once-only declaration closure are
+outside this transaction and cannot be rolled back. In particular, application
+code may observe a candidate response and mutate external state before a later
+layout or duplicate-ID failure. Retrying the still-queued event may expose it
+to the next declaration attempt again. Applications that require atomic
+external effects must defer them until their own success boundary; FrameCore
+guarantees rollback only for state it owns.
 
 ### Measurement
 
@@ -248,6 +285,35 @@ other window.
 ADR-004 will refine public multi-window APIs and resource lifetime. It may not
 weaken this ownership boundary.
 
+Platform cursor state is explicitly either unavailable or a finite physical
+position. It starts unavailable. A finite cursor-position event makes it valid
+for that window only; cursor leave, focus loss, suspension, and destruction
+make it unavailable and discard the old coordinate. Focus gain, resume, and a
+position-less cursor-enter event do not invent or restore a position. Pointer
+buttons, wheel input, and position-dependent file-hover input received while
+the cursor is unavailable are rejected at the platform boundary and are not
+queued. In particular, `(0, 0)` is routed only when the platform actually
+reported `(0, 0)`.
+
+Each live window registration also has an incarnation and at most one pending
+redraw serial. Multiple requests before delivery coalesce to that serial. A
+redraw executes only when its `WindowId`, incarnation, live eligibility, and
+pending serial all match, and acceptance consumes the serial before frame
+execution. Duplicate delivery is therefore inert. Unknown, destroyed,
+suspended, or superseded registrations are rejected without selecting another
+window. Suspension and destruction invalidate cursor state and pending redraw
+work; resume retains the incarnation but requires a new cursor position and a
+new redraw request. Re-registering a reused raw ID creates a new incarnation,
+so delayed input or redraw work for its predecessor is stale.
+
+Resize updates the named window's physical viewport before its logical
+viewport callback. A valid scale-factor change replaces the named window's
+transform before its callback and redraw request, so the first subsequent event
+and frame observe the new logical viewport. Zero-sized or non-finite logical
+viewports, non-positive/non-finite scales, non-finite positions or deltas, and
+renderer-transform overflow are rejected before queue, scene, or render-target
+mutation. Rejection never revives stale cursor state or selects another window.
+
 ## Headless rendering
 
 The UI-core phases depend on a viewport, logical scale, clock, intrinsic
@@ -260,6 +326,13 @@ contexts in one process.
 This is the minimum harness pulled forward from Phase 2. It does not require
 the Phase 2 crate split, production renderer abstraction, font discovery, or
 serialization design.
+
+The headless platform boundary uses the same eligibility, cursor-validity,
+incarnation, and redraw-acceptance rules. A rejected event has no fallback
+window and cannot execute a frame, submit a scene, consume input, or reconcile
+interaction. A successfully accepted redraw executes exactly the named
+window's pending frame once; any FrameCore failure keeps its own transactional
+input retry behavior described above.
 
 ## Reversal of the frame-1 cursor fallback
 

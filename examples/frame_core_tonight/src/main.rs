@@ -10,7 +10,10 @@ use std::cell::RefCell;
 
 use esox_gfx::{Frame, GpuContext, RenderResources};
 use esox_platform::config::{PlatformConfig, WindowConfig};
-use esox_platform::esox_input::{CursorIcon, Key, KeyEvent, Modifiers};
+use esox_platform::esox_input::{
+    CursorIcon, Key, KeyEvent, LogicalPosition, LogicalViewport, Modifiers, PointerEvent,
+    PointerPhase, WheelEvent,
+};
 use esox_platform::{AppDelegate, MouseInputEvent};
 use esox_ui::TextRenderer;
 use esox_ui::declaration::DeclarationUi;
@@ -18,7 +21,9 @@ use esox_ui::frame_core::{
     CommittedScene, FrameCore, ImageMeasureRequest, IntrinsicMeasurer, LogicalPoint, LogicalSize,
     PointerEventKind, SceneConsumer, TextMeasureRequest, WidgetId,
 };
-use esox_ui::frame_scene_consumer::{TextRendererFramePaint, submit_display_list};
+use esox_ui::frame_scene_consumer::{
+    RendererScale, TextRendererFramePaint, submit_display_list_scaled,
+};
 use frame_core_tonight::{
     CONTAINER_CLOSURES, DeclarationProbe, DemoState, SIBLING_CARD, ShowcaseFrame, TARGET_BUTTON,
     TARGET_CARD, declare_showcase, inspect, widget_label,
@@ -88,6 +93,7 @@ struct Tonight {
     prev_focus: Option<WidgetId>,
     prev_hidden: bool,
     prev_disabled: bool,
+    scale_factor: f64,
 }
 
 impl Tonight {
@@ -105,6 +111,7 @@ impl Tonight {
             prev_focus: None,
             prev_hidden: false,
             prev_disabled: false,
+            scale_factor: 1.0,
         }
     }
 
@@ -353,8 +360,13 @@ impl AppDelegate for Tonight {
 
         let renderer = self.text.as_mut().expect("initialized in on_init");
         let mut boundary = TextRendererFramePaint::new(renderer, gpu, resources);
-        submit_display_list(&scene.display_list, frame, &mut boundary)
-            .expect("the showcase display list uses only supported primitives");
+        submit_display_list_scaled(
+            &scene.display_list,
+            frame,
+            &mut boundary,
+            RendererScale::new(self.scale_factor).expect("platform scale is validated"),
+        )
+        .expect("the showcase display list uses only supported primitives");
     }
 
     fn on_key(&mut self, event: &KeyEvent, _modifiers: Modifiers) {
@@ -369,10 +381,7 @@ impl AppDelegate for Tonight {
         }
     }
 
-    fn on_resize(&mut self, width: u32, height: u32, _gpu: &GpuContext) {
-        self.core
-            .resize(LogicalSize::new(width as f32, height as f32));
-    }
+    fn on_resize(&mut self, _width: u32, _height: u32, _gpu: &GpuContext) {}
 
     fn on_mouse(&mut self, event: MouseInputEvent) {
         match event {
@@ -399,7 +408,28 @@ impl AppDelegate for Tonight {
         }
     }
 
-    fn on_scale_changed(&mut self, _scale_factor: f64, _gpu: &GpuContext) {}
+    fn on_pointer(&mut self, event: PointerEvent) -> bool {
+        self.cursor = LogicalPoint::new(event.position.x, event.position.y);
+        match event.phase {
+            PointerPhase::Move => self.core.queue_pointer_input(0, event),
+            PointerPhase::Press { button: 0 } | PointerPhase::Release { button: 0 } => {
+                self.core.queue_pointer_input(0, event)
+            }
+            PointerPhase::Press { .. } | PointerPhase::Release { .. } => true,
+        }
+    }
+
+    fn on_wheel(&mut self, event: WheelEvent) -> bool {
+        self.core.queue_wheel_event(event)
+    }
+
+    fn on_scale_changed(&mut self, scale_factor: f64, _gpu: &GpuContext) {
+        self.scale_factor = scale_factor;
+    }
+
+    fn on_logical_viewport_changed(&mut self, viewport: LogicalViewport) {
+        let _ = self.core.resize_logical_viewport(viewport);
+    }
     fn on_paste(&mut self, _text: &str) {}
     fn on_ime_commit(&mut self, _text: &str) {}
 
@@ -423,6 +453,22 @@ impl AppDelegate for Tonight {
         } else {
             CursorIcon::Default
         }
+    }
+
+    fn logical_cursor_icon(&self, position: LogicalPosition) -> Option<CursorIcon> {
+        let point = LogicalPoint::new(position.x, position.y);
+        Some(
+            if self
+                .core
+                .committed_scene()
+                .and_then(|scene| scene.hit_test(point))
+                .is_some()
+            {
+                CursorIcon::Pointer
+            } else {
+                CursorIcon::Default
+            },
+        )
     }
 }
 
