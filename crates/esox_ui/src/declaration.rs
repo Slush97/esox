@@ -30,6 +30,8 @@ pub struct DeclarationStyle {
     clip_children: bool,
     scrollable: bool,
     scroll_offset: Option<(f32, f32)>,
+    absolute_position: Option<(f32, f32)>,
+    blocking_overlay: bool,
     hidden: bool,
     disabled: bool,
     transform: LogicalTransform,
@@ -54,6 +56,8 @@ impl DeclarationStyle {
             clip_children: false,
             scrollable: false,
             scroll_offset: None,
+            absolute_position: None,
+            blocking_overlay: false,
             hidden: false,
             disabled: false,
             transform: LogicalTransform::new(0.0, 0.0, 1.0, 1.0),
@@ -151,6 +155,22 @@ impl DeclarationStyle {
         self
     }
 
+    /// Remove this declaration from normal flow and position it logically.
+    pub const fn absolute_position(mut self, x: f32, y: f32) -> Self {
+        self.absolute_position = Some((x, y));
+        self
+    }
+
+    /// Make this declaration a semantic, focus-scoped blocking overlay.
+    ///
+    /// FrameCore retains ownership of blocking, focus trapping and restoration,
+    /// and capture cancellation when this declaration closes or stops
+    /// participating in interaction.
+    pub const fn blocking_overlay(mut self) -> Self {
+        self.blocking_overlay = true;
+        self
+    }
+
     /// Paint a solid background behind this container's children.
     ///
     /// Containers without a background stay excluded from paint, so they never
@@ -212,6 +232,12 @@ impl DeclarationStyle {
         }
         if self.clip_children {
             element = element.clip_children();
+        }
+        if let Some((x, y)) = self.absolute_position {
+            element = element.with_absolute_position(x, y);
+        }
+        if self.blocking_overlay {
+            element = element.blocking_overlay();
         }
         element
     }
@@ -421,6 +447,21 @@ impl<'a> DeclarationUi<'a> {
             "a declaration requires exactly one root element"
         );
         root
+    }
+
+    /// Request keyboard focus after this declaration resolves successfully.
+    pub fn request_keyboard_focus(&mut self, id: WidgetId) {
+        self.state.request_keyboard_focus(id);
+    }
+
+    /// Request pointer capture after this declaration resolves successfully.
+    pub fn request_pointer_capture(&mut self, pointer: u64, id: WidgetId) {
+        self.state.request_pointer_capture(pointer, id);
+    }
+
+    /// Request release of an existing pointer capture on successful commit.
+    pub fn request_pointer_release(&mut self, pointer: u64) {
+        self.state.request_pointer_release(pointer);
     }
 
     /// Declare a vertical container and execute its body exactly once.
