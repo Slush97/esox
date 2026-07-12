@@ -1,7 +1,31 @@
 # Gate 1 production FrameCore integration plan
 
-**Status:** Planned; Gate 1 remains open until the production `Ui` no longer
-reads previous-frame layout.
+**Status:** In progress; the FrameCore production declaration path is live, but
+Gate 1 remains open until the production `Ui` no longer reads previous-frame
+layout.
+
+## Integration progress (2026-07-11)
+
+Completed and covered by production-API or renderer-boundary tests:
+
+- backend-neutral scene, semantic, paint, measurement, and submission records;
+- the once-only production declaration vertical slice for flex/grid containers,
+  text, buttons, solid rectangles, and borders;
+- current-frame constraints, alignment, hidden/disabled participation, clipping,
+  retained scrolling, transforms, damage expansion, and blocking overlays;
+- transactional pointer and wheel dispatch, focus/capture reconciliation, and
+  logical-to-physical conversion at platform and renderer boundaries; and
+- headless first-frame, resize, structural, metric, scroll, transform, overlay,
+  damage, and multi-owner contract coverage.
+
+Still required before Gate 1 closes:
+
+- migrate compound containers and the remaining production leaves;
+- route the existing application-facing `Ui::begin`/`Ui::finish` path through
+  one `FrameCore` owner per window;
+- remove production `prev_layout`, `layout_cache`, cursor fallback, and
+  closure-based measurement dependencies; and
+- run the complete cutover validation matrix and record Gate 1 status.
 
 ## Required outcome
 
