@@ -30,7 +30,8 @@ Completed and covered by production-API or renderer-boundary tests:
   virtual column, with once-only visible row callbacks, logical row/cell IDs,
   chronological external sort and selection intents, transactional column
   resizing and input replay, committed-row selection across same-batch scroll,
-  and shared current-generation header/body tracks; and
+  shared current-generation header/body tracks, and retry-safe keyboard row
+  navigation through Arrow, Home, End, Page, Enter, and Space keys; and
 - headless first-frame, resize, structural, metric, scroll, transform, overlay,
   damage, and multi-owner contract coverage.
 
@@ -39,7 +40,6 @@ Still required before Gate 1 closes:
 - migrate compound containers and the remaining production leaves;
 - migrate the legacy `Ui::virtual_scroll` and table caller surfaces onto the
   FrameCore virtual-content and table declarations;
-- add production table keyboard navigation on the FrameCore keyboard ledger;
 - route the existing application-facing `Ui::begin`/`Ui::finish` path through
   one `FrameCore` owner per window;
 - remove production `prev_layout`, `layout_cache`, cursor fallback, and

@@ -506,6 +506,7 @@ pub struct TableSpec {
     pub explicit_offset: Option<f32>,
     pub scroll_to: Option<usize>,
     pub selectable: bool,
+    pub selected_row_index: Option<usize>,
 }
 
 impl TableSpec {
@@ -525,6 +526,7 @@ impl TableSpec {
             explicit_offset: None,
             scroll_to: None,
             selectable: false,
+            selected_row_index: None,
         }
     }
 
@@ -540,6 +542,14 @@ impl TableSpec {
 
     pub const fn selectable(mut self) -> Self {
         self.selectable = true;
+        self
+    }
+
+    /// Supply the caller-owned logical selection used as the keyboard anchor.
+    ///
+    /// A stale index after a data-set shrink is treated as no selection.
+    pub const fn selected_row(mut self, index: usize) -> Self {
+        self.selected_row_index = Some(index);
         self
     }
 }
@@ -1015,6 +1025,9 @@ impl<'a> DeclarationUi<'a> {
                 || (input.virtual_owner == Some(ids.body)
                     && input.target == input.interaction_owner.unwrap_or(WidgetId(u64::MAX)))
         });
+        let keyboard_inputs = self
+            .state()
+            .drain_keyboard_responses(|input| input.target == ids.body);
         let mut pressed_this_batch = HashSet::new();
         for input in inputs {
             let sortable_column = spec.columns.iter().find(|column| {
@@ -1034,6 +1047,9 @@ impl<'a> DeclarationUi<'a> {
                         self.state().insert(active_target_state, input.target.0);
                         self.state()
                             .request_pointer_capture(input.pointer, input.target);
+                        if selectable_row {
+                            self.state().request_keyboard_focus(ids.body);
+                        }
                         pressed_this_batch.insert(input.pointer);
                     }
                 }
@@ -1106,6 +1122,44 @@ impl<'a> DeclarationUi<'a> {
                     | PointerEventKind::Cancel => {}
                 }
                 continue;
+            }
+        }
+
+        let mut keyboard_selection = spec
+            .selected_row_index
+            .filter(|index| *index < spec.row_count);
+        let mut keyboard_activated = false;
+        if spec.selectable && !suppressed && spec.row_count > 0 {
+            let last = spec.row_count - 1;
+            let page = ((spec.viewport_height / spec.row_height).floor() as usize).max(1);
+            for input in keyboard_inputs {
+                if !input.event.pressed {
+                    continue;
+                }
+                let requested = match input.event.key {
+                    esox_input::Key::Named(esox_input::NamedKey::ArrowDown) => Some(
+                        keyboard_selection.map_or(0, |index| index.saturating_add(1).min(last)),
+                    ),
+                    esox_input::Key::Named(esox_input::NamedKey::ArrowUp) => {
+                        Some(keyboard_selection.map_or(last, |index| index.saturating_sub(1)))
+                    }
+                    esox_input::Key::Named(esox_input::NamedKey::Home) => Some(0),
+                    esox_input::Key::Named(esox_input::NamedKey::End) => Some(last),
+                    esox_input::Key::Named(esox_input::NamedKey::PageDown) => Some(
+                        keyboard_selection.map_or(0, |index| index.saturating_add(page).min(last)),
+                    ),
+                    esox_input::Key::Named(esox_input::NamedKey::PageUp) => {
+                        Some(keyboard_selection.map_or(last, |index| index.saturating_sub(page)))
+                    }
+                    esox_input::Key::Named(
+                        esox_input::NamedKey::Enter | esox_input::NamedKey::Space,
+                    ) => keyboard_selection,
+                    _ => None,
+                };
+                if let Some(index) = requested {
+                    keyboard_selection = Some(index);
+                    keyboard_activated = true;
+                }
             }
         }
 
@@ -1214,6 +1268,10 @@ impl<'a> DeclarationUi<'a> {
         );
         virtual_spec.explicit_offset = spec.explicit_offset;
         virtual_spec.scroll_to = spec.scroll_to;
+        if keyboard_activated {
+            virtual_spec.explicit_offset = None;
+            virtual_spec.scroll_to = keyboard_selection;
+        }
 
         let previous_participation = self.enter_container_participation(style.layout);
         let body_result = self.virtual_column(
@@ -1224,6 +1282,9 @@ impl<'a> DeclarationUi<'a> {
                     return;
                 }
                 let (row_id, children) = ui.capture_children_result(|ui| row(ui, index));
+                if keyboard_activated && keyboard_selection == Some(index) {
+                    response.selected_row = Some(row_id);
+                }
                 if children.len() != spec.columns.len() {
                     ui.error = Some(FrameError::InvalidTable {
                         id: spec.id,
@@ -1257,7 +1318,8 @@ impl<'a> DeclarationUi<'a> {
             .expect("a declaration child stack always exists");
         let body = roots
             .pop()
-            .expect("virtual_column pushed the table body viewport");
+            .expect("virtual_column pushed the table body viewport")
+            .interactive();
         let root = Element::flex(ids.root, Axis::Column, 0.0)
             .without_paint()
             .with_children(vec![header, body]);

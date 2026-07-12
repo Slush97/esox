@@ -806,6 +806,28 @@ impl WidgetStateStore {
         response
     }
 
+    /// Drain matching keyboard responses across targets in ledger order.
+    pub fn drain_keyboard_responses(
+        &mut self,
+        mut matches: impl FnMut(&KeyboardInputResponse) -> bool,
+    ) -> Vec<KeyboardInputResponse> {
+        let mut drained = Vec::new();
+        self.keyboard_responses.retain(|_, queue| {
+            let mut retained = VecDeque::with_capacity(queue.len());
+            while let Some(response) = queue.pop_front() {
+                if matches(&response) {
+                    drained.push(response);
+                } else {
+                    retained.push_back(response);
+                }
+            }
+            *queue = retained;
+            !queue.is_empty()
+        });
+        drained.sort_by_key(|response| (response.committed_generation, response.dispatch_ordinal));
+        drained
+    }
+
     /// Read the capture owner visible at the start of this generation.
     pub fn pointer_capture_owner(&self, pointer: u64) -> Option<WidgetId> {
         self.active_pointer_captures.get(&pointer).copied()

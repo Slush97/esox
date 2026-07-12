@@ -1,5 +1,6 @@
 use std::cell::{Cell, RefCell};
 
+use esox_input::{Key, KeyCode, KeyEvent, Modifiers, NamedKey};
 use esox_ui::declaration::{
     run_declaration_frame, table_cell_id, table_header_cell_id, ButtonStyle, DeclarationStyle,
     TableColumn, TableIds, TableResponse, TableSpec, TableStyle,
@@ -25,6 +26,16 @@ fn rect(x: f32, y: f32, width: f32, height: f32) -> LogicalRect {
         y,
         width,
         height,
+    }
+}
+
+fn named_key(key: NamedKey, physical_key: KeyCode) -> KeyEvent {
+    KeyEvent {
+        key: Key::Named(key),
+        physical_key,
+        pressed: true,
+        repeat: false,
+        text: None,
     }
 }
 
@@ -534,6 +545,128 @@ fn sort_and_selection_require_release_inside_the_pressed_target() {
     .unwrap();
     assert!(observed.borrow().sort_requested.is_empty());
     assert_eq!(observed.borrow().selected_row, None);
+}
+
+#[test]
+fn row_click_focuses_the_body_and_arrow_navigation_returns_a_stable_row_id() {
+    let measurer = DeterministicMeasurer::new(8.0, 18.0);
+    let mut consumer = NullSceneConsumer::default();
+    let mut core = FrameCore::new(LogicalSize::new(180.0, 75.0));
+    let calls = RefCell::new(Vec::new());
+    run_declaration_frame(&mut core, &measurer, &mut consumer, |ui| {
+        declare_table(ui, spec(), &calls, false);
+    })
+    .unwrap();
+
+    core.queue_pointer_event(PointerEventKind::Press, 90, LogicalPoint::new(20.0, 40.0));
+    core.queue_pointer_event(PointerEventKind::Release, 90, LogicalPoint::new(20.0, 40.0));
+    let clicked = RefCell::new(TableResponse::default());
+    run_declaration_frame(&mut core, &measurer, &mut consumer, |ui| {
+        *clicked.borrow_mut() = declare_table(ui, spec(), &calls, false);
+    })
+    .unwrap();
+    assert_eq!(clicked.borrow().selected_row, Some(row_id(0)));
+    assert_eq!(core.keyboard_focus(), Some(TableIds::new(TABLE).body));
+
+    core.queue_keyboard_input(
+        named_key(NamedKey::ArrowDown, KeyCode::ArrowDown),
+        Modifiers::empty(),
+    );
+    let navigated = RefCell::new(TableResponse::default());
+    run_declaration_frame(&mut core, &measurer, &mut consumer, |ui| {
+        *navigated.borrow_mut() = declare_table(ui, spec().selected_row(0), &calls, false);
+    })
+    .unwrap();
+    assert_eq!(navigated.borrow().selected_row, Some(row_id(1)));
+}
+
+#[test]
+fn end_key_selects_and_scrolls_to_an_offscreen_row_in_the_same_generation() {
+    let measurer = DeterministicMeasurer::new(8.0, 18.0);
+    let mut consumer = NullSceneConsumer::default();
+    let mut core = FrameCore::new(LogicalSize::new(180.0, 75.0));
+    let calls = RefCell::new(Vec::new());
+    run_declaration_frame(&mut core, &measurer, &mut consumer, |ui| {
+        ui.request_keyboard_focus(TableIds::new(TABLE).body);
+        declare_table(ui, spec().selected_row(0), &calls, false);
+    })
+    .unwrap();
+
+    core.queue_keyboard_input(named_key(NamedKey::End, KeyCode::End), Modifiers::empty());
+    calls.borrow_mut().clear();
+    let observed = RefCell::new(None);
+    let scene = run_declaration_frame(&mut core, &measurer, &mut consumer, |ui| {
+        let (window, response) = ui
+            .table(spec().selected_row(0), table_style(), |ui, index| {
+                calls.borrow_mut().push(index);
+                let row = row_id(index);
+                ui.solid_rect(
+                    table_cell_id(row, FIRST_COLUMN),
+                    DeclarationStyle::new().height(20.0),
+                    Color::BLACK,
+                );
+                ui.solid_rect(
+                    table_cell_id(row, SECOND_COLUMN),
+                    DeclarationStyle::new().height(20.0),
+                    Color::BLACK,
+                );
+                row
+            })
+            .unwrap();
+        *observed.borrow_mut() = Some((window, response));
+    })
+    .unwrap();
+    let (window, response) = observed.borrow().clone().unwrap();
+    assert!(window.visible_range.contains(&19));
+    assert_eq!(response.selected_row, Some(row_id(19)));
+    assert!(calls.borrow().contains(&19));
+    assert!(scene.node(row_id(19)).is_some());
+}
+
+#[test]
+fn ordered_table_keyboard_navigation_replays_after_a_failed_generation() {
+    let measurer = DeterministicMeasurer::new(8.0, 18.0);
+    let mut consumer = NullSceneConsumer::default();
+    let mut core = FrameCore::new(LogicalSize::new(180.0, 75.0));
+    let calls = RefCell::new(Vec::new());
+    run_declaration_frame(&mut core, &measurer, &mut consumer, |ui| {
+        ui.request_keyboard_focus(TableIds::new(TABLE).body);
+        declare_table(ui, spec().selected_row(0), &calls, false);
+    })
+    .unwrap();
+    core.queue_keyboard_input(
+        named_key(NamedKey::ArrowDown, KeyCode::ArrowDown),
+        Modifiers::empty(),
+    );
+    core.queue_keyboard_input(
+        named_key(NamedKey::ArrowDown, KeyCode::ArrowDown),
+        Modifiers::empty(),
+    );
+
+    let observed = RefCell::new(Vec::new());
+    assert!(
+        run_declaration_frame(&mut core, &measurer, &mut consumer, |ui| {
+            observed
+                .borrow_mut()
+                .push(declare_table(ui, spec().selected_row(0), &calls, true));
+        })
+        .is_err()
+    );
+    run_declaration_frame(&mut core, &measurer, &mut consumer, |ui| {
+        observed
+            .borrow_mut()
+            .push(declare_table(ui, spec().selected_row(0), &calls, false));
+    })
+    .unwrap();
+    assert_eq!(observed.borrow()[0], observed.borrow()[1]);
+    assert_eq!(observed.borrow()[1].selected_row, Some(row_id(2)));
+
+    let next = RefCell::new(TableResponse::default());
+    run_declaration_frame(&mut core, &measurer, &mut consumer, |ui| {
+        *next.borrow_mut() = declare_table(ui, spec().selected_row(2), &calls, false);
+    })
+    .unwrap();
+    assert_eq!(next.borrow().selected_row, None);
 }
 
 #[test]
