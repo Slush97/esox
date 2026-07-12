@@ -11,7 +11,7 @@ use crate::frame_core::{
 };
 use crate::response::Response;
 
-pub use crate::frame_core::{CrossAxisAlignment, GridTrack, MainAxisAlignment};
+pub use crate::frame_core::{CrossAxisAlignment, GridTrack, LogicalTransform, MainAxisAlignment};
 
 /// Layout properties shared by the declarations in this production slice.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -32,6 +32,7 @@ pub struct DeclarationStyle {
     scroll_offset: Option<(f32, f32)>,
     hidden: bool,
     disabled: bool,
+    transform: LogicalTransform,
     background: Option<Color>,
 }
 
@@ -55,6 +56,7 @@ impl DeclarationStyle {
             scroll_offset: None,
             hidden: false,
             disabled: false,
+            transform: LogicalTransform::new(0.0, 0.0, 1.0, 1.0),
             background: None,
         }
     }
@@ -182,6 +184,15 @@ impl DeclarationStyle {
         self
     }
 
+    /// Apply a renderer-neutral transform after current-generation layout.
+    ///
+    /// The transform affects this declaration and its descendants. Scaling is
+    /// relative to this declaration's resolved logical center.
+    pub const fn transform(mut self, transform: LogicalTransform) -> Self {
+        self.transform = transform;
+        self
+    }
+
     fn apply(self, mut element: Element) -> Element {
         element = element
             .with_padding(self.padding)
@@ -192,7 +203,8 @@ impl DeclarationStyle {
             .with_main_axis_alignment(self.main_axis_alignment)
             .with_cross_axis_alignment(self.cross_axis_alignment)
             .with_hidden(self.hidden)
-            .with_disabled(self.disabled);
+            .with_disabled(self.disabled)
+            .with_transform(self.transform);
         if let Some((x, y)) = self.scroll_offset {
             element = element.with_scroll_offset(x, y);
         } else if self.scrollable {

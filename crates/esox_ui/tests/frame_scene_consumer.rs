@@ -109,6 +109,7 @@ fn representative_scene() -> CommittedScene {
             id: SOLID,
             parent: None,
             bounds: rect(301.0, 302.0, 303.0, 304.0),
+            transformed_bounds: rect(306.0, 307.0, 308.0, 309.0),
             paint_bounds: Some(solid_bounds),
             hit_bounds: Some(rect(311.0, 312.0, 313.0, 314.0)),
             semantic_bounds: Some(rect(321.0, 322.0, 323.0, 324.0)),

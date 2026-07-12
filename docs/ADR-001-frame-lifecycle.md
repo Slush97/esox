@@ -84,6 +84,17 @@ rewritten with physical geometry. Frame/GPU clip quantization is consequently
 the only pixel-snapping stage, preventing either inverse or forward scale from
 being applied twice.
 
+Element translation and independent X/Y scaling are a separate logical scene
+operation resolved only after Taffy produces current-generation geometry.
+Scaling uses the center of the resolved element rectangle that owns the
+transformed subtree. Nested transforms are accumulated while traversing from
+parent to child: each child-local transform is appended to the inherited parent
+transform, so a point is changed by its local transform and then by its
+ancestors. The composed transform is applied to paint, clips, hits, semantics,
+and damage, while the committed layout rectangle remains Taffy's untransformed,
+unrounded logical rectangle. Renderer scale is not part of this composition and
+is still applied exactly once during submission.
+
 The last committed scene remains useful for routing input and comparing old
 and new damage. It is historical state, not a current-frame correctness source.
 

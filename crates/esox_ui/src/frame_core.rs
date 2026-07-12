@@ -68,6 +68,114 @@ impl LogicalPoint {
     }
 }
 
+/// A renderer-neutral 2D transform applied after layout resolution.
+///
+/// Scaling is resolved around the transformed element's current-generation
+/// layout center. Layout constraints and Taffy's unrounded geometry are never
+/// changed by this value.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct LogicalTransform {
+    translate_x: f32,
+    translate_y: f32,
+    scale_x: f32,
+    scale_y: f32,
+}
+
+impl LogicalTransform {
+    /// Create a translation and independent X/Y scale.
+    pub const fn new(translate_x: f32, translate_y: f32, scale_x: f32, scale_y: f32) -> Self {
+        Self {
+            translate_x,
+            translate_y,
+            scale_x,
+            scale_y,
+        }
+    }
+
+    /// Create a translation-only transform.
+    pub const fn translate(x: f32, y: f32) -> Self {
+        Self::new(x, y, 1.0, 1.0)
+    }
+
+    /// Create an independent X/Y scale with no translation.
+    pub const fn scale(x: f32, y: f32) -> Self {
+        Self::new(0.0, 0.0, x, y)
+    }
+}
+
+impl Default for LogicalTransform {
+    fn default() -> Self {
+        Self::new(0.0, 0.0, 1.0, 1.0)
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct ResolvedTransform {
+    scale_x: f32,
+    scale_y: f32,
+    translate_x: f32,
+    translate_y: f32,
+}
+
+impl ResolvedTransform {
+    const IDENTITY: Self = Self {
+        scale_x: 1.0,
+        scale_y: 1.0,
+        translate_x: 0.0,
+        translate_y: 0.0,
+    };
+
+    fn local(transform: LogicalTransform, bounds: LogicalRect) -> Option<Self> {
+        let center_x = bounds.x + bounds.width * 0.5;
+        let center_y = bounds.y + bounds.height * 0.5;
+        let resolved = Self {
+            scale_x: transform.scale_x,
+            scale_y: transform.scale_y,
+            translate_x: transform.translate_x + center_x * (1.0 - transform.scale_x),
+            translate_y: transform.translate_y + center_y * (1.0 - transform.scale_y),
+        };
+        resolved.is_valid().then_some(resolved)
+    }
+
+    /// Compose a child-local transform after this parent transform.
+    fn compose(self, child: Self) -> Option<Self> {
+        let resolved = Self {
+            scale_x: self.scale_x * child.scale_x,
+            scale_y: self.scale_y * child.scale_y,
+            translate_x: self.scale_x * child.translate_x + self.translate_x,
+            translate_y: self.scale_y * child.translate_y + self.translate_y,
+        };
+        resolved.is_valid().then_some(resolved)
+    }
+
+    fn rect(self, rect: LogicalRect) -> Option<LogicalRect> {
+        let x1 = rect.x * self.scale_x + self.translate_x;
+        let y1 = rect.y * self.scale_y + self.translate_y;
+        let x2 = (rect.x + rect.width) * self.scale_x + self.translate_x;
+        let y2 = (rect.y + rect.height) * self.scale_y + self.translate_y;
+        let transformed = LogicalRect {
+            x: x1.min(x2),
+            y: y1.min(y2),
+            width: (x2 - x1).abs(),
+            height: (y2 - y1).abs(),
+        };
+        (transformed.x.is_finite()
+            && transformed.y.is_finite()
+            && transformed.width.is_finite()
+            && transformed.height.is_finite())
+        .then_some(transformed)
+    }
+
+    fn is_valid(self) -> bool {
+        self.scale_x.is_finite()
+            && self.scale_y.is_finite()
+            && self.translate_x.is_finite()
+            && self.translate_y.is_finite()
+            && self.scale_x != 0.0
+            && self.scale_y != 0.0
+    }
+}
+
 /// An unrounded size in logical coordinates.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct LogicalSize {
@@ -270,6 +378,7 @@ pub struct Element {
     blocking_overlay: bool,
     hidden: bool,
     disabled: bool,
+    transform: LogicalTransform,
 }
 
 impl Element {
@@ -311,6 +420,7 @@ impl Element {
             blocking_overlay: false,
             hidden: false,
             disabled: false,
+            transform: LogicalTransform::default(),
         }
     }
 
@@ -527,6 +637,12 @@ impl Element {
     /// Set whether this element and its descendants are disabled.
     pub fn with_disabled(mut self, disabled: bool) -> Self {
         self.disabled = disabled;
+        self
+    }
+
+    /// Transform this element and its descendants after current-generation layout.
+    pub fn with_transform(mut self, transform: LogicalTransform) -> Self {
+        self.transform = transform;
         self
     }
 }
@@ -749,6 +865,8 @@ pub struct ResolvedNode {
     /// Stable parent relationship in this immutable committed generation.
     pub parent: Option<WidgetId>,
     pub bounds: LogicalRect,
+    /// This node's layout rectangle after the composed logical transform.
+    pub transformed_bounds: LogicalRect,
     pub paint_bounds: Option<LogicalRect>,
     pub hit_bounds: Option<LogicalRect>,
     pub semantic_bounds: Option<LogicalRect>,
@@ -895,6 +1013,7 @@ pub enum FrameError {
         error: GridDeclarationError,
     },
     DuplicateWidgetId(WidgetId),
+    InvalidTransform(WidgetId),
     Layout(String),
 }
 
@@ -1113,7 +1232,8 @@ impl FrameCore {
         self.dispatch_pending_wheels(&mut candidate.scroll_offsets);
         let mut root = declare(&mut candidate.widget_state);
         root.apply_retained_scroll_offsets(&candidate.scroll_offsets);
-        let resolved = resolve(&root, self.viewport, measurer)?;
+        let mut resolved = resolve(&root, self.viewport, measurer)?;
+        Self::expand_damage(&mut resolved.damage, self.committed.as_ref());
         let all_focus_order: Vec<_> = resolved.hit_index.iter().map(|hit| hit.id).collect();
         let mut focus_scopes: Vec<FocusScope> = Vec::new();
         for node in &resolved.nodes {
@@ -1234,7 +1354,7 @@ impl FrameCore {
             .find(|node| {
                 !node.effective_hidden
                     && !node.effective_disabled
-                    && node.bounds.contains(position)
+                    && node.transformed_bounds.contains(position)
                     && node
                         .effective_clip
                         .is_none_or(|clip| clip.contains(position))
@@ -1306,6 +1426,26 @@ impl FrameCore {
             .collect()
     }
 
+    fn expand_damage(damage: &mut Vec<DamageRecord>, committed: Option<&CommittedScene>) {
+        let Some(committed) = committed else {
+            return;
+        };
+        for previous in &committed.display_list {
+            let unchanged = damage.iter().any(|current| {
+                current.id == previous.id
+                    && current.current_bounds == previous.bounds
+                    && current.effective_clip == previous.effective_clip
+            });
+            if !unchanged {
+                damage.push(DamageRecord {
+                    id: previous.id,
+                    current_bounds: previous.bounds,
+                    effective_clip: previous.effective_clip,
+                });
+            }
+        }
+    }
+
     fn dispatch_pending_input(&self, candidate: &mut GenerationCandidate) {
         for event in &self.pending_pointer_events {
             let Some(scene) = self.committed.as_ref() else {
@@ -1370,8 +1510,11 @@ impl FrameCore {
                     pointer,
                     target: owner,
                     committed_generation,
-                    position: LogicalPoint::new(old_node.bounds.x, old_node.bounds.y),
-                    target_bounds: old_node.bounds,
+                    position: LogicalPoint::new(
+                        old_node.hit_bounds.unwrap_or(old_node.transformed_bounds).x,
+                        old_node.hit_bounds.unwrap_or(old_node.transformed_bounds).y,
+                    ),
+                    target_bounds: old_node.hit_bounds.unwrap_or(old_node.transformed_bounds),
                 });
             }
         }
@@ -1454,6 +1597,7 @@ struct ResolvedProducts {
 struct TraversalContext {
     origin: (f32, f32),
     clip: Option<LogicalRect>,
+    transform: ResolvedTransform,
     parent: Option<WidgetId>,
     focus_scope: Option<WidgetId>,
     semantic_parent: Option<WidgetId>,
@@ -1745,7 +1889,7 @@ fn resolve(
         ids: &HashMap<WidgetId, NodeId>,
         context: TraversalContext,
         output: &mut ResolvedProducts,
-    ) {
+    ) -> Result<(), FrameError> {
         let layout = tree.unrounded_layout(ids[&element.id]);
         let effective_hidden = context.hidden || element.hidden;
         let effective_disabled = context.disabled || element.disabled;
@@ -1755,6 +1899,15 @@ fn resolve(
             width: layout.size.width,
             height: layout.size.height,
         };
+        let local_transform = ResolvedTransform::local(element.transform, bounds)
+            .ok_or(FrameError::InvalidTransform(element.id))?;
+        let transform = context
+            .transform
+            .compose(local_transform)
+            .ok_or(FrameError::InvalidTransform(element.id))?;
+        let transformed_bounds = transform
+            .rect(bounds)
+            .ok_or(FrameError::InvalidTransform(element.id))?;
         let scroll_metrics = element.requested_scroll_offset.map(|requested_offset| {
             let viewport_extent = LogicalSize::new(layout.size.width, layout.size.height);
             let content_extent = LogicalSize::new(
@@ -1790,18 +1943,21 @@ fn resolve(
         let focus_scope = (element.blocking_overlay && participates_in_interaction)
             .then_some(element.id)
             .or(context.focus_scope);
-        let paint_bounds = (!effective_hidden && element.paint.is_some()).then_some(bounds);
-        let hit_bounds = (element.interactive && participates_in_interaction).then_some(bounds);
+        let paint_bounds =
+            (!effective_hidden && element.paint.is_some()).then_some(transformed_bounds);
+        let hit_bounds =
+            (element.interactive && participates_in_interaction).then_some(transformed_bounds);
         let semantic_bounds = (!effective_hidden)
             .then_some(())
             .and(element.semantics.as_ref())
-            .map(|_| bounds);
+            .map(|_| transformed_bounds);
         let current_damage_bounds =
-            (!effective_hidden && element.paint.is_some()).then_some(bounds);
+            (!effective_hidden && element.paint.is_some()).then_some(transformed_bounds);
         output.nodes.push(ResolvedNode {
             id: element.id,
             parent: context.parent,
             bounds,
+            transformed_bounds,
             paint_bounds,
             hit_bounds,
             semantic_bounds,
@@ -1819,12 +1975,12 @@ fn resolve(
                 output.display_list.push(PaintRecord {
                     id: element.id,
                     primitive: primitive.clone(),
-                    bounds,
+                    bounds: transformed_bounds,
                     effective_clip: context.clip,
                 });
                 output.damage.push(DamageRecord {
                     id: element.id,
-                    current_bounds: bounds,
+                    current_bounds: transformed_bounds,
                     effective_clip: context.clip,
                 });
             }
@@ -1832,7 +1988,7 @@ fn resolve(
         if element.interactive && participates_in_interaction {
             output.hit_index.push(HitRecord {
                 id: element.id,
-                bounds,
+                bounds: transformed_bounds,
                 effective_clip: context.clip,
                 focus_scope,
                 blocks_input: element.blocking_overlay,
@@ -1860,7 +2016,7 @@ fn resolve(
                     parent: context.semantic_parent,
                     children: Vec::new(),
                     properties,
-                    bounds,
+                    bounds: transformed_bounds,
                     effective_clip: context.clip,
                     focus_scope,
                 });
@@ -1873,7 +2029,9 @@ fn resolve(
         };
 
         let child_clip = if element.clips_children {
-            context.clip.and_then(|clip| clip.intersection(bounds))
+            context
+                .clip
+                .and_then(|clip| clip.intersection(transformed_bounds))
         } else {
             context.clip
         };
@@ -1892,6 +2050,7 @@ fn resolve(
                 TraversalContext {
                     origin: child_origin,
                     clip: child_clip,
+                    transform,
                     parent: Some(element.id),
                     focus_scope,
                     semantic_parent,
@@ -1899,8 +2058,9 @@ fn resolve(
                     disabled: effective_disabled,
                 },
                 output,
-            );
+            )?;
         }
+        Ok(())
     }
 
     let viewport_rect = LogicalRect {
@@ -1917,6 +2077,7 @@ fn resolve(
         TraversalContext {
             origin: (0.0, 0.0),
             clip: Some(viewport_rect),
+            transform: ResolvedTransform::IDENTITY,
             parent: None,
             focus_scope: None,
             semantic_parent: None,
@@ -1924,6 +2085,6 @@ fn resolve(
             disabled: false,
         },
         &mut output,
-    );
+    )?;
     Ok(output)
 }

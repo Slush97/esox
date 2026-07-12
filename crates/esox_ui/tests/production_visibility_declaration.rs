@@ -232,14 +232,19 @@ fn assert_all_products_agree(scene: &CommittedScene) {
             .find(|record| record.id == node.id);
         let hit = scene.hit_index.iter().find(|record| record.id == node.id);
         let semantic = scene.semantics.node(node.id);
-        let damage = scene.damage.iter().find(|record| record.id == node.id);
+        let current_damage = node.current_damage_bounds.and_then(|bounds| {
+            scene
+                .damage
+                .iter()
+                .find(|record| record.id == node.id && record.current_bounds == bounds)
+        });
 
         assert_eq!(paint.map(|record| record.bounds), node.paint_bounds);
         assert_eq!(hit.map(|record| record.bounds), node.hit_bounds);
         assert_eq!(semantic.map(|record| record.bounds), node.semantic_bounds);
         assert_eq!(
-            damage.map(|record| record.current_bounds),
-            node.current_damage_bounds
+            current_damage.is_some(),
+            node.current_damage_bounds.is_some()
         );
         if let Some(record) = paint {
             assert_eq!(record.effective_clip, node.effective_clip);
@@ -251,7 +256,7 @@ fn assert_all_products_agree(scene: &CommittedScene) {
             assert_eq!(record.effective_clip, node.effective_clip);
             assert_eq!(record.properties.disabled, node.effective_disabled);
         }
-        if let Some(record) = damage {
+        if let Some(record) = current_damage {
             assert_eq!(record.effective_clip, node.effective_clip);
         }
         if node.effective_hidden {
@@ -259,7 +264,7 @@ fn assert_all_products_agree(scene: &CommittedScene) {
             assert!(paint.is_none());
             assert!(hit.is_none());
             assert!(semantic.is_none());
-            assert!(damage.is_none());
+            assert!(current_damage.is_none());
         }
         if node.effective_disabled {
             assert!(hit.is_none());
@@ -587,7 +592,11 @@ fn production_hidden_and_disabled_transitions_are_current_inherited_and_renderer
         assert_eq!(node.bounds, enabled.node(id).unwrap().bounds);
     }
     assert_eq!(restored_from_hidden.display_list, enabled.display_list);
-    assert_eq!(restored_from_hidden.damage, enabled.damage);
+    assert_eq!(
+        &restored_from_hidden.damage[..enabled.damage.len()],
+        enabled.damage.as_slice()
+    );
+    assert!(restored_from_hidden.damage.len() > enabled.damage.len());
     assert_eq!(restored_from_hidden.focus_order, vec![ACTION, SIBLING]);
     assert_all_products_agree(&restored_from_hidden);
 

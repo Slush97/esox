@@ -224,7 +224,12 @@ fn hidden_collapses_nested_layout_and_restores_on_the_first_frame() {
         assert!(!hidden.display_list.iter().any(|record| record.id == id));
         assert!(!hidden.hit_index.iter().any(|record| record.id == id));
         assert!(hidden.semantics.node(id).is_none());
-        assert!(!hidden.damage.iter().any(|record| record.id == id));
+        if let Some(previous_bounds) = visible.node(id).unwrap().current_damage_bounds {
+            assert!(hidden
+                .damage
+                .iter()
+                .any(|record| { record.id == id && record.current_bounds == previous_bounds }));
+        }
         assert!(!hidden.focus_order.contains(&id));
     }
     assert_eq!(hidden.node(VISIBILITY_SIBLING).unwrap().bounds.x, 0.0);

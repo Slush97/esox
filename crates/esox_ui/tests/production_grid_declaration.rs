@@ -405,6 +405,10 @@ fn production_grid_alignment_is_current_once_and_renderer_ready() {
             .map(|record| record.id)
             .collect::<Vec<_>>(),
         paint_order
+            .iter()
+            .chain(&paint_order)
+            .copied()
+            .collect::<Vec<_>>()
     );
     assert_eq!(
         resized
