@@ -5,11 +5,11 @@
 //! semantics, and damage are resolved after the application closure returns.
 
 use crate::frame_core::{
-    Axis, Color, CommittedScene, Element, FrameCore, FrameError, GenerationAttempt,
-    IntrinsicMeasurer, PaintPrimitive, PointerEventKind, ProgressDeclarationError, SceneConsumer,
-    SemanticProperties, SemanticRole, SemanticValueRange, SeparatorDeclarationError,
-    TableDeclarationError, TextProperties, VirtualListSpec, VirtualWindow, WidgetId,
-    WidgetStateStore,
+    Axis, CheckboxDeclarationError, Color, CommittedScene, Element, FrameCore, FrameError,
+    GenerationAttempt, IntrinsicMeasurer, PaintPrimitive, PointerEventKind,
+    ProgressDeclarationError, SceneConsumer, SemanticProperties, SemanticRole, SemanticValueRange,
+    SeparatorDeclarationError, TableDeclarationError, TextProperties, VirtualListSpec,
+    VirtualWindow, WidgetId, WidgetStateStore,
 };
 use crate::response::Response;
 use esox_input::CursorIcon;
@@ -528,6 +528,88 @@ pub struct ButtonIds {
     pub label: WidgetId,
 }
 
+/// Renderer-neutral layout and paint properties for a production checkbox.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CheckboxStyle {
+    pub layout: DeclarationStyle,
+    pub indicator_size: f32,
+    pub gap: f32,
+    pub radius: f32,
+    pub unchecked_fill: Color,
+    pub checked_fill: Color,
+    pub mark: TextStyle,
+    pub label: TextStyle,
+    pub disabled: bool,
+}
+
+impl Default for CheckboxStyle {
+    fn default() -> Self {
+        Self {
+            layout: DeclarationStyle::new().size(160.0, 36.0),
+            indicator_size: 18.0,
+            gap: 8.0,
+            radius: 4.0,
+            unchecked_fill: Color::rgba(0.16, 0.17, 0.20, 1.0),
+            checked_fill: Color::rgba(0.18, 0.38, 0.72, 1.0),
+            mark: TextStyle::default().color(Color::rgba(1.0, 1.0, 1.0, 1.0)),
+            label: TextStyle::default().color(Color::rgba(0.08, 0.08, 0.09, 1.0)),
+            disabled: false,
+        }
+    }
+}
+
+impl CheckboxStyle {
+    pub fn layout(mut self, layout: DeclarationStyle) -> Self {
+        self.layout = layout;
+        self
+    }
+
+    pub const fn indicator_size(mut self, indicator_size: f32) -> Self {
+        self.indicator_size = indicator_size;
+        self
+    }
+
+    pub const fn gap(mut self, gap: f32) -> Self {
+        self.gap = gap;
+        self
+    }
+
+    pub const fn radius(mut self, radius: f32) -> Self {
+        self.radius = radius;
+        self
+    }
+
+    pub const fn fills(mut self, unchecked: Color, checked: Color) -> Self {
+        self.unchecked_fill = unchecked;
+        self.checked_fill = checked;
+        self
+    }
+
+    pub fn mark(mut self, mark: TextStyle) -> Self {
+        self.mark = mark;
+        self
+    }
+
+    pub fn label(mut self, label: TextStyle) -> Self {
+        self.label = label;
+        self
+    }
+
+    pub const fn disabled(mut self) -> Self {
+        self.disabled = true;
+        self
+    }
+}
+
+/// Stable scene identities reserved by a checkbox declaration.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CheckboxIds {
+    pub root: WidgetId,
+    pub indicator: WidgetId,
+    pub mark: WidgetId,
+    pub label: WidgetId,
+}
+
 /// Visual and layout properties for a production split pane.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SplitPaneStyle {
@@ -801,6 +883,17 @@ impl ButtonIds {
             root,
             fill: derived_id(root, 0x8ab4_931c_46ad_83f9),
             label: derived_id(root, 0xe34a_5d71_928c_f607),
+        }
+    }
+}
+
+impl CheckboxIds {
+    pub const fn new(root: WidgetId) -> Self {
+        Self {
+            root,
+            indicator: derived_id(root, 0x3ad5_f946_7b24_c118),
+            mark: derived_id(root, 0x91e8_32a7_d41f_b065),
+            label: derived_id(root, 0xe6c2_7109_5ad8_3f4b),
         }
     }
 }
@@ -1994,6 +2087,114 @@ impl<'a> DeclarationUi<'a> {
             disabled: effective_disabled,
             ..response
         }
+    }
+
+    /// Declare a controlled checkbox and consume pointer input from the last
+    /// committed scene.
+    ///
+    /// The declaration never mutates application state. A click returns
+    /// `changed = true`; the caller supplies the next checked value. Indicator
+    /// geometry and paint stay renderer-neutral and are rejected rather than
+    /// clamped when they cannot be represented exactly.
+    pub fn checkbox(
+        &mut self,
+        id: WidgetId,
+        label: impl Into<String>,
+        checked: bool,
+        style: CheckboxStyle,
+    ) -> Result<Response, FrameError> {
+        let reject = |error| FrameError::InvalidCheckbox { id, error };
+        if !style.indicator_size.is_finite() || style.indicator_size <= 0.0 {
+            let error = reject(CheckboxDeclarationError::InvalidIndicatorSize(
+                style.indicator_size,
+            ));
+            self.error = Some(error.clone());
+            return Err(error);
+        }
+        if !style.gap.is_finite() || style.gap < 0.0 {
+            let error = reject(CheckboxDeclarationError::InvalidGap(style.gap));
+            self.error = Some(error.clone());
+            return Err(error);
+        }
+        if !style.radius.is_finite() || style.radius < 0.0 {
+            let error = reject(CheckboxDeclarationError::InvalidRadius(style.radius));
+            self.error = Some(error.clone());
+            return Err(error);
+        }
+        if style.radius > style.indicator_size / 2.0 {
+            let error = reject(CheckboxDeclarationError::RadiusExceedsIndicator {
+                radius: style.radius,
+                indicator_size: style.indicator_size,
+            });
+            self.error = Some(error.clone());
+            return Err(error);
+        }
+
+        let label = label.into();
+        let effective_hidden = self.effective_hidden || style.layout.hidden;
+        let effective_disabled = self.effective_disabled || style.layout.disabled || style.disabled;
+        let suppress_responses = effective_hidden || effective_disabled;
+        let mut response = self.pointer_response(id, suppress_responses);
+        response.changed = response.clicked;
+        response.disabled = effective_disabled;
+
+        let ids = CheckboxIds::new(id);
+        let label_element =
+            Element::text_with_properties(ids.label, label.clone(), style.label.properties.clone())
+                .with_paint(PaintPrimitive::Text {
+                    content: label.clone(),
+                    properties: style.label.properties,
+                    color: style.label.color,
+                });
+        let label_element = style.label.layout.apply(label_element);
+
+        let mut indicator_children = Vec::with_capacity(1);
+        if checked {
+            let mark =
+                Element::text_with_properties(ids.mark, "\u{2713}", style.mark.properties.clone())
+                    .with_paint(PaintPrimitive::Text {
+                        content: "\u{2713}".to_owned(),
+                        properties: style.mark.properties,
+                        color: style.mark.color,
+                    });
+            indicator_children.push(style.mark.layout.apply(mark));
+        }
+        let indicator = Element::flex(ids.indicator, Axis::Column, 0.0)
+            .with_size(Some(style.indicator_size), Some(style.indicator_size))
+            .with_min_size(Some(style.indicator_size), Some(style.indicator_size))
+            .with_max_size(Some(style.indicator_size), Some(style.indicator_size))
+            .with_main_axis_alignment(MainAxisAlignment::Center)
+            .with_cross_axis_alignment(CrossAxisAlignment::Center)
+            .with_paint(PaintPrimitive::RoundedRect {
+                color: if checked {
+                    style.checked_fill
+                } else {
+                    style.unchecked_fill
+                },
+                radius: style.radius,
+            })
+            .with_children(indicator_children);
+
+        let mut semantics = SemanticProperties::new(SemanticRole::Checkbox)
+            .with_label(label)
+            .with_checked(checked);
+        if style.disabled || style.layout.disabled {
+            semantics = semantics.disabled();
+        }
+        let mut checkbox = style
+            .layout
+            .apply(Element::flex(ids.root, Axis::Row, style.gap))
+            .with_main_axis_alignment(MainAxisAlignment::Start)
+            .with_cross_axis_alignment(CrossAxisAlignment::Center)
+            .without_paint()
+            .with_semantics(semantics)
+            .with_children(vec![indicator, label_element]);
+        if !style.disabled {
+            checkbox = checkbox.interactive();
+        }
+        self.push(checkbox.with_disabled(style.layout.disabled || style.disabled));
+
+        Ok(response)
     }
 
     fn pointer_response(&mut self, id: WidgetId, suppress: bool) -> Response {

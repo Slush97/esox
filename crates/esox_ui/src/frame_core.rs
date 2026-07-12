@@ -332,6 +332,7 @@ pub enum SemanticRole {
     Text,
     Image,
     Button,
+    Checkbox,
     Separator,
     ProgressBar,
     ScrollView,
@@ -351,6 +352,7 @@ pub struct SemanticProperties {
     pub role: SemanticRole,
     pub label: Option<String>,
     pub disabled: bool,
+    pub checked: Option<bool>,
     pub value_range: Option<SemanticValueRange>,
 }
 
@@ -360,6 +362,7 @@ impl SemanticProperties {
             role,
             label: None,
             disabled: false,
+            checked: None,
             value_range: None,
         }
     }
@@ -371,6 +374,11 @@ impl SemanticProperties {
 
     pub fn disabled(mut self) -> Self {
         self.disabled = true;
+        self
+    }
+
+    pub fn with_checked(mut self, checked: bool) -> Self {
+        self.checked = Some(checked);
         self
     }
 
@@ -1309,6 +1317,15 @@ pub enum ProgressDeclarationError {
     InvalidRadius(f32),
 }
 
+/// Invalid production checkbox declarations.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum CheckboxDeclarationError {
+    InvalidIndicatorSize(f32),
+    InvalidGap(f32),
+    InvalidRadius(f32),
+    RadiusExceedsIndicator { radius: f32, indicator_size: f32 },
+}
+
 /// Failure before a scene reaches the atomic commit point.
 #[derive(Clone, Debug, PartialEq)]
 pub enum FrameError {
@@ -1331,6 +1348,10 @@ pub enum FrameError {
     InvalidProgress {
         id: WidgetId,
         error: ProgressDeclarationError,
+    },
+    InvalidCheckbox {
+        id: WidgetId,
+        error: CheckboxDeclarationError,
     },
     DuplicateWidgetId(WidgetId),
     InvalidTransform(WidgetId),

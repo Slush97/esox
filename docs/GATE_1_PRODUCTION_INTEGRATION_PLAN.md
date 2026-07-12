@@ -4,7 +4,7 @@
 Gate 1 remains open until the production `Ui` no longer reads previous-frame
 layout.
 
-## Integration progress (2026-07-11)
+## Integration progress (2026-07-12)
 
 Completed and covered by production-API or renderer-boundary tests:
 
@@ -19,6 +19,9 @@ Completed and covered by production-API or renderer-boundary tests:
 - renderer-neutral determinate progress declarations with exact uniform rounded-
   rectangle track/fill submission, stable internal fill geometry, numeric range
   semantics, and typed rejection instead of value clamping or paint fallback;
+- renderer-neutral controlled checkbox declarations with stable indicator/mark/
+  label identities, exact rounded indicator paint, checked semantics,
+  transactional pointer responses, and typed geometry rejection;
 - current-frame constraints, alignment, hidden/disabled participation, clipping,
   retained scrolling, transforms, damage expansion, and blocking overlays;
 - transactional pointer and wheel dispatch, focus/capture reconciliation, and
