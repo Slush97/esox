@@ -291,7 +291,7 @@ impl Modifiers {
 }
 
 /// A keyboard event.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KeyEvent {
     /// The logical key value.
     pub key: Key,

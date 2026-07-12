@@ -721,6 +721,17 @@ pub struct InputResponse {
     pub target_parent_bounds: Option<LogicalRect>,
 }
 
+/// One keyboard response routed to the committed keyboard focus.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct KeyboardInputResponse {
+    pub event: esox_input::KeyEvent,
+    pub modifiers: esox_input::Modifiers,
+    pub target: WidgetId,
+    pub committed_generation: u64,
+    /// Original order in the dispatched keyboard ledger for this generation.
+    pub dispatch_ordinal: u64,
+}
+
 /// Pointer event kinds retained in committed-generation response order.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PointerEventKind {
@@ -735,6 +746,7 @@ pub enum PointerEventKind {
 pub struct WidgetStateStore {
     values: HashMap<WidgetId, u64>,
     responses: HashMap<WidgetId, VecDeque<InputResponse>>,
+    keyboard_responses: HashMap<WidgetId, VecDeque<KeyboardInputResponse>>,
     active_pointer_captures: HashMap<u64, WidgetId>,
     requested_keyboard_focus: Option<WidgetId>,
     requested_pointer_captures: HashMap<u64, WidgetId>,
@@ -782,6 +794,16 @@ impl WidgetStateStore {
         });
         drained.sort_by_key(|response| (response.committed_generation, response.dispatch_ordinal));
         drained
+    }
+
+    /// Consume the oldest pending keyboard response for this widget at most once.
+    pub fn take_keyboard_response(&mut self, id: WidgetId) -> Option<KeyboardInputResponse> {
+        let queue = self.keyboard_responses.get_mut(&id)?;
+        let response = queue.pop_front();
+        if queue.is_empty() {
+            self.keyboard_responses.remove(&id);
+        }
+        response
     }
 
     /// Read the capture owner visible at the start of this generation.
@@ -1294,6 +1316,7 @@ pub struct FrameCore {
     pending_wheel_events: VecDeque<QueuedWheelEvent>,
     wheel_scroll_speed: f32,
     pending_pointer_events: VecDeque<QueuedPointerEvent>,
+    pending_keyboard_events: VecDeque<QueuedKeyboardEvent>,
     pointer_captures: HashMap<u64, PointerCapture>,
     keyboard_focus: Option<WidgetId>,
     active_focus_scopes: Vec<WidgetId>,
@@ -1312,6 +1335,12 @@ struct QueuedPointerEvent {
     kind: PointerEventKind,
     pointer: u64,
     position: LogicalPoint,
+}
+
+#[derive(Clone, Debug)]
+struct QueuedKeyboardEvent {
+    event: esox_input::KeyEvent,
+    modifiers: esox_input::Modifiers,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -1351,6 +1380,7 @@ pub struct GenerationAttempt {
     mutation_revision: u64,
     viewport: LogicalSize,
     pointer_event_prefix: usize,
+    keyboard_event_prefix: usize,
     wheel_event_prefix: usize,
 }
 
@@ -1517,6 +1547,7 @@ impl FrameCore {
             pending_wheel_events: VecDeque::new(),
             wheel_scroll_speed: 40.0,
             pending_pointer_events: VecDeque::new(),
+            pending_keyboard_events: VecDeque::new(),
             pointer_captures: HashMap::new(),
             keyboard_focus: None,
             active_focus_scopes: Vec::new(),
@@ -1625,6 +1656,16 @@ impl FrameCore {
         )
     }
 
+    /// Queue a platform-independent keyboard event for the committed keyboard focus.
+    pub fn queue_keyboard_input(
+        &mut self,
+        event: esox_input::KeyEvent,
+        modifiers: esox_input::Modifiers,
+    ) {
+        self.pending_keyboard_events
+            .push_back(QueuedKeyboardEvent { event, modifiers });
+    }
+
     /// The current capture owner for a pointer in this window context.
     pub fn pointer_capture(&self, pointer: u64) -> Option<WidgetId> {
         self.pointer_captures
@@ -1680,6 +1721,7 @@ impl FrameCore {
             .map(|(pointer, capture)| (*pointer, capture.owner))
             .collect();
         self.dispatch_pending_input(&mut candidate);
+        self.dispatch_pending_keyboard(&mut candidate);
         self.dispatch_pending_wheels(&mut candidate.scroll_offsets);
         GenerationAttempt {
             candidate,
@@ -1688,6 +1730,7 @@ impl FrameCore {
             mutation_revision: self.mutation_revision,
             viewport: self.viewport,
             pointer_event_prefix: self.pending_pointer_events.len(),
+            keyboard_event_prefix: self.pending_keyboard_events.len(),
             wheel_event_prefix: self.pending_wheel_events.len(),
         }
     }
@@ -1748,6 +1791,7 @@ impl FrameCore {
         let GenerationAttempt {
             mut candidate,
             pointer_event_prefix,
+            keyboard_event_prefix,
             wheel_event_prefix,
             ..
         } = attempt;
@@ -1809,6 +1853,8 @@ impl FrameCore {
             .drain(..wheel_event_prefix.min(self.pending_wheel_events.len()));
         self.pending_pointer_events
             .drain(..pointer_event_prefix.min(self.pending_pointer_events.len()));
+        self.pending_keyboard_events
+            .drain(..keyboard_event_prefix.min(self.pending_keyboard_events.len()));
         self.committed = Some(scene);
         let committed = self.committed.as_ref().expect("scene was just committed");
         consumer.consume(committed);
@@ -2069,6 +2115,32 @@ impl FrameCore {
         }
     }
 
+    fn dispatch_pending_keyboard(&self, candidate: &mut GenerationCandidate) {
+        let Some(scene) = self.committed.as_ref() else {
+            return;
+        };
+        let Some(target) = self
+            .keyboard_focus
+            .filter(|focused| scene.focus_order.contains(focused))
+        else {
+            return;
+        };
+        let responses = candidate
+            .widget_state
+            .keyboard_responses
+            .entry(target)
+            .or_default();
+        for (dispatch_ordinal, queued) in self.pending_keyboard_events.iter().enumerate() {
+            responses.push_back(KeyboardInputResponse {
+                event: queued.event.clone(),
+                modifiers: queued.modifiers,
+                target,
+                committed_generation: scene.generation,
+                dispatch_ordinal: dispatch_ordinal as u64,
+            });
+        }
+    }
+
     fn reconcile_interaction(
         candidate: &mut GenerationCandidate,
         scene: &CommittedScene,
@@ -2167,6 +2239,10 @@ impl FrameCore {
             candidate.keyboard_focus = scene.focus_order.first().copied();
         }
         candidate.active_focus_scopes = current_scopes;
+        candidate
+            .widget_state
+            .keyboard_responses
+            .retain(|id, _| scene.focus_order.contains(id));
         candidate.widget_state.responses.retain(|id, responses| {
             let current_target = scene.node(*id).is_some_and(|node| {
                 !node.effective_hidden && !node.effective_disabled && node.hit_bounds.is_some()

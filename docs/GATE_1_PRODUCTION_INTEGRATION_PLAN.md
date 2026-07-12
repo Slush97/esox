@@ -15,6 +15,8 @@ Completed and covered by production-API or renderer-boundary tests:
   retained scrolling, transforms, damage expansion, and blocking overlays;
 - transactional pointer and wheel dispatch, focus/capture reconciliation, and
   logical-to-physical conversion at platform and renderer boundaries;
+- a renderer-neutral transactional keyboard ledger routed to committed focus,
+  with chronological delivery, deterministic retry, and per-window isolation;
 - detached split-phase generation attempts that preserve `Ui::begin`/`finish`
   ownership ergonomics while retaining atomic commit, retry, and per-window
   isolation;
@@ -37,6 +39,7 @@ Still required before Gate 1 closes:
 - migrate compound containers and the remaining production leaves;
 - migrate the legacy `Ui::virtual_scroll` and table caller surfaces onto the
   FrameCore virtual-content and table declarations;
+- add production table keyboard navigation on the FrameCore keyboard ledger;
 - route the existing application-facing `Ui::begin`/`Ui::finish` path through
   one `FrameCore` owner per window;
 - remove production `prev_layout`, `layout_cache`, cursor fallback, and
@@ -110,11 +113,15 @@ second lifecycle beside them.
 FrameCore-owned mutable state is transactional across dispatch, declaration,
 resolution, and interaction reconciliation. Each attempted generation uses a
 candidate `WidgetStateStore`, scroll map, focus/capture state, focus scopes,
-restoration map, and cancellation queue. Pointer and wheel queues are cleared
-only with a successful candidate commit; a rejected attempt leaves the queues
-and all persistent state unchanged for deterministic retry against the same
-committed scene. Application-owned side effects performed by declaration are
-not rollbackable and remain outside this boundary.
+restoration map, and cancellation queue. Pointer, wheel, and keyboard queues
+are cleared only with a successful candidate commit; a rejected attempt leaves
+the queues and all persistent state unchanged for deterministic retry against
+the same committed scene. Keyboard events contain only `esox_input` values and
+route in queue order to the focus of that immutable committed scene; focus
+requests made during declaration cannot retarget them. Unconsumed keyboard
+responses are discarded when their target leaves the active focus order.
+Application-owned side effects performed by declaration are not rollbackable
+and remain outside this boundary.
 
 Wheel input is dispatched against the last immutable committed scene. Routing
 starts at the topmost visible, enabled structural node under the wheel position
