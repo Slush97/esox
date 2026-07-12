@@ -7,10 +7,12 @@
 use crate::frame_core::{
     Axis, Color, CommittedScene, Element, FrameCore, FrameError, GenerationAttempt,
     IntrinsicMeasurer, PaintPrimitive, PointerEventKind, SceneConsumer, SemanticProperties,
-    SemanticRole, TextProperties, VirtualListSpec, VirtualWindow, WidgetId, WidgetStateStore,
+    SemanticRole, TableDeclarationError, TextProperties, VirtualListSpec, VirtualWindow, WidgetId,
+    WidgetStateStore,
 };
 use crate::response::Response;
 use esox_input::CursorIcon;
+use std::collections::HashSet;
 
 pub use crate::frame_core::{CrossAxisAlignment, GridTrack, LogicalTransform, MainAxisAlignment};
 
@@ -451,6 +453,205 @@ pub struct SplitPaneIds {
     pub second: WidgetId,
 }
 
+/// One fixed-width column in a production [`DeclarationUi::table`].
+///
+/// Widths are intentionally fixed in this first slice. Intrinsic `Auto` tracks
+/// cannot align a separately virtualized body with the header without
+/// measuring offscreen rows, which this API never does.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TableColumn {
+    pub id: WidgetId,
+    pub label: String,
+    pub width: f32,
+    pub min_width: f32,
+    pub max_width: f32,
+    pub sortable: bool,
+    pub resizable: bool,
+}
+
+impl TableColumn {
+    pub fn new(id: WidgetId, label: impl Into<String>, width: f32) -> Self {
+        Self {
+            id,
+            label: label.into(),
+            width,
+            min_width: 0.0,
+            max_width: f32::INFINITY,
+            sortable: false,
+            resizable: false,
+        }
+    }
+
+    pub const fn sortable(mut self) -> Self {
+        self.sortable = true;
+        self
+    }
+
+    pub const fn resizable(mut self, min_width: f32, max_width: f32) -> Self {
+        self.resizable = true;
+        self.min_width = min_width;
+        self.max_width = max_width;
+        self
+    }
+}
+
+/// Current-generation inputs for a virtual production table.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TableSpec {
+    pub id: WidgetId,
+    pub row_count: usize,
+    pub row_height: f32,
+    pub viewport_height: f32,
+    pub columns: Vec<TableColumn>,
+    pub explicit_offset: Option<f32>,
+    pub scroll_to: Option<usize>,
+    pub selectable: bool,
+}
+
+impl TableSpec {
+    pub fn new(
+        id: WidgetId,
+        row_count: usize,
+        row_height: f32,
+        viewport_height: f32,
+        columns: impl Into<Vec<TableColumn>>,
+    ) -> Self {
+        Self {
+            id,
+            row_count,
+            row_height,
+            viewport_height,
+            columns: columns.into(),
+            explicit_offset: None,
+            scroll_to: None,
+            selectable: false,
+        }
+    }
+
+    pub const fn with_offset(mut self, offset: f32) -> Self {
+        self.explicit_offset = Some(offset);
+        self
+    }
+
+    pub const fn scroll_to(mut self, row: usize) -> Self {
+        self.scroll_to = Some(row);
+        self
+    }
+
+    pub const fn selectable(mut self) -> Self {
+        self.selectable = true;
+        self
+    }
+}
+
+/// Renderer-neutral visual properties for a production table declaration.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TableStyle {
+    pub layout: DeclarationStyle,
+    pub header_height: f32,
+    pub header_background: Color,
+    pub resize_handle_width: f32,
+    pub resize_handle_color: Color,
+    pub header_text: TextStyle,
+}
+
+impl Default for TableStyle {
+    fn default() -> Self {
+        Self {
+            layout: DeclarationStyle::new(),
+            header_height: 32.0,
+            header_background: Color::rgba(0.12, 0.12, 0.14, 1.0),
+            resize_handle_width: 5.0,
+            resize_handle_color: Color::rgba(0.35, 0.35, 0.38, 1.0),
+            header_text: TextStyle::default(),
+        }
+    }
+}
+
+/// Stable part identities reserved by a production table.
+///
+/// The table owns `root`, `header`, `body`, every [`Self::header_cell`],
+/// [`Self::header_label`], [`Self::resize_handle`], and
+/// [`Self::virtual_wrapper`] ID. Row callbacks must not reuse any of them.
+/// Application row IDs and cell descendants occupy a separate namespace and
+/// are checked atomically with the reserved parts during resolution.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TableIds {
+    pub root: WidgetId,
+    pub header: WidgetId,
+    pub body: WidgetId,
+}
+
+impl TableIds {
+    pub const fn new(root: WidgetId) -> Self {
+        Self {
+            root,
+            header: derived_id(root, 0x78c3_943a_f0b3_2731),
+            body: derived_id(root, 0xb529_d4a2_4013_aa7d),
+        }
+    }
+
+    pub const fn header_cell(self, column: WidgetId) -> WidgetId {
+        table_header_cell_id(self.root, column)
+    }
+
+    pub const fn header_label(self, column: WidgetId) -> WidgetId {
+        table_header_label_id(self.root, column)
+    }
+
+    pub const fn resize_handle(self, column: WidgetId) -> WidgetId {
+        table_resize_handle_id(self.root, column)
+    }
+
+    pub const fn virtual_wrapper(self, logical_row_index: usize) -> WidgetId {
+        virtual_item_id(self.body, logical_row_index)
+    }
+}
+
+/// Stable ID for a header cell derived from the logical column identity.
+pub const fn table_header_cell_id(table: WidgetId, column: WidgetId) -> WidgetId {
+    derived_id(table, 0xdea6_23af_77c1_a4b9 ^ column.0.rotate_left(11))
+}
+
+/// Stable ID helper for an application-declared logical cell.
+pub const fn table_cell_id(row: WidgetId, column: WidgetId) -> WidgetId {
+    derived_id(row, 0xa173_b9ce_4f03_88d1 ^ column.0.rotate_left(29))
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TableResize {
+    pub column: WidgetId,
+    pub width: f32,
+}
+
+/// Intents consumed from the last committed table scene.
+///
+/// Sorting and selected application data remain caller-owned. A failed frame
+/// replays these intents because response consumption is candidate state.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct TableResponse {
+    /// Last row whose press/release click completed in ledger order this frame.
+    pub selected_row: Option<WidgetId>,
+    /// Sort clicks in committed input-ledger order; data reordering is external.
+    pub sort_requested: Vec<WidgetId>,
+    pub resized: Vec<TableResize>,
+}
+
+struct TableColumnRuntime {
+    width: f32,
+    dragging: bool,
+    pointer: u64,
+    origin: f32,
+    start_width: f32,
+}
+
+fn response_inside_target(input: &crate::frame_core::InputResponse) -> bool {
+    input.position.x >= input.target_bounds.x
+        && input.position.y >= input.target_bounds.y
+        && input.position.x < input.target_bounds.x + input.target_bounds.width
+        && input.position.y < input.target_bounds.y + input.target_bounds.height
+}
+
 impl SplitPaneIds {
     pub const fn new(root: WidgetId) -> Self {
         Self {
@@ -490,6 +691,46 @@ fn split_drag_state_id(id: WidgetId) -> WidgetId {
 
 fn split_pointer_state_id(id: WidgetId) -> WidgetId {
     derived_id(id, 0x4ff4_b7e3_6f88_3690)
+}
+
+fn table_width_state_id(table: WidgetId, column: WidgetId) -> WidgetId {
+    derived_id(table_header_cell_id(table, column), 0xc187_b4fb_c84a_17d3)
+}
+
+fn table_drag_state_id(table: WidgetId, column: WidgetId) -> WidgetId {
+    derived_id(table_header_cell_id(table, column), 0x9be2_9b3a_a191_4267)
+}
+
+fn table_pointer_state_id(table: WidgetId, column: WidgetId) -> WidgetId {
+    derived_id(table_header_cell_id(table, column), 0x3f74_a6d8_28ea_f263)
+}
+
+fn table_drag_origin_state_id(table: WidgetId, column: WidgetId) -> WidgetId {
+    derived_id(table_header_cell_id(table, column), 0xac79_4551_0ddd_a747)
+}
+
+fn table_drag_width_state_id(table: WidgetId, column: WidgetId) -> WidgetId {
+    derived_id(table_header_cell_id(table, column), 0x6974_26db_4f89_5219)
+}
+
+fn table_base_width_state_id(table: WidgetId, column: WidgetId) -> WidgetId {
+    derived_id(table_header_cell_id(table, column), 0xa27d_2ff8_931c_ba17)
+}
+
+fn table_active_press_state_id(table: WidgetId, pointer: u64) -> WidgetId {
+    derived_id(table, 0xf2ab_86c4_915d_d31b ^ pointer.rotate_left(19))
+}
+
+fn table_active_press_target_state_id(table: WidgetId, pointer: u64) -> WidgetId {
+    derived_id(table, 0x5f04_731c_e7af_d2d9 ^ pointer.rotate_left(31))
+}
+
+pub const fn table_header_label_id(table: WidgetId, column: WidgetId) -> WidgetId {
+    derived_id(table_header_cell_id(table, column), 0x56e5_f39e_116a_9d89)
+}
+
+pub const fn table_resize_handle_id(table: WidgetId, column: WidgetId) -> WidgetId {
+    derived_id(table_header_cell_id(table, column), 0xd4b4_6c8e_b7e9_313f)
 }
 
 /// Stable wrapper identity reserved for one logical item in a virtual viewport.
@@ -678,6 +919,401 @@ impl<'a> DeclarationUi<'a> {
             .with_virtual_content_height(window.content_height);
         self.push(style.apply(viewport));
         Ok(window)
+    }
+
+    /// Declare a fixed-track header and one virtualized body exactly once.
+    ///
+    /// `row` runs once for each visible logical index, in ascending row order,
+    /// and returns that row's stable application identity. It must declare
+    /// exactly one direct child per column in column order. The callback is
+    /// never retained and is never invoked for measurement or an offscreen
+    /// row. Cell IDs should be derived from logical row and column identities
+    /// with [`table_cell_id`], never from the visible slot. See [`TableIds`]
+    /// for the complete reserved identity namespace.
+    pub fn table(
+        &mut self,
+        spec: TableSpec,
+        style: TableStyle,
+        mut row: impl FnMut(&mut Self, usize) -> WidgetId,
+    ) -> Result<(VirtualWindow, TableResponse), FrameError> {
+        self.validate_table(&spec, &style)?;
+
+        let ids = TableIds::new(spec.id);
+        let suppressed = self.effective_hidden
+            || self.effective_disabled
+            || style.layout.hidden
+            || style.layout.disabled;
+        let mut response = TableResponse::default();
+        let mut runtime = Vec::with_capacity(spec.columns.len());
+        for column in &spec.columns {
+            let width_state = table_width_state_id(spec.id, column.id);
+            let base_state = table_base_width_state_id(spec.id, column.id);
+            let previous_base = self
+                .state()
+                .get(base_state)
+                .map(|bits| f32::from_bits(bits as u32));
+            let width = if column.resizable {
+                if previous_base == Some(column.width) {
+                    self.state()
+                        .get(width_state)
+                        .map(|bits| f32::from_bits(bits as u32))
+                        .filter(|width| width.is_finite())
+                        .unwrap_or(column.width)
+                } else {
+                    column.width
+                }
+                .clamp(column.min_width, column.max_width)
+            } else {
+                column.width
+            };
+            self.state()
+                .insert(base_state, u64::from(column.width.to_bits()));
+            let mut dragging = column.resizable
+                && self
+                    .state()
+                    .get(table_drag_state_id(spec.id, column.id))
+                    .is_some_and(|value| value != 0);
+            let pointer = self
+                .state()
+                .get(table_pointer_state_id(spec.id, column.id))
+                .unwrap_or_default();
+            if dragging
+                && self.state().pointer_capture_owner(pointer)
+                    != Some(table_resize_handle_id(spec.id, column.id))
+            {
+                dragging = false;
+            }
+            runtime.push(TableColumnRuntime {
+                width,
+                dragging,
+                pointer,
+                origin: self
+                    .state()
+                    .get(table_drag_origin_state_id(spec.id, column.id))
+                    .map(|bits| f32::from_bits(bits as u32))
+                    .unwrap_or_default(),
+                start_width: self
+                    .state()
+                    .get(table_drag_width_state_id(spec.id, column.id))
+                    .map(|bits| f32::from_bits(bits as u32))
+                    .unwrap_or(width),
+            });
+        }
+
+        let header_targets = spec
+            .columns
+            .iter()
+            .flat_map(|column| {
+                [
+                    table_header_cell_id(spec.id, column.id),
+                    table_resize_handle_id(spec.id, column.id),
+                ]
+            })
+            .collect::<HashSet<_>>();
+        let inputs = self.state().drain_responses(|input| {
+            header_targets.contains(&input.target)
+                || (input.virtual_owner == Some(ids.body)
+                    && input.target == input.interaction_owner.unwrap_or(WidgetId(u64::MAX)))
+        });
+        let mut pressed_this_batch = HashSet::new();
+        for input in inputs {
+            let sortable_column = spec.columns.iter().find(|column| {
+                column.sortable && table_header_cell_id(spec.id, column.id) == input.target
+            });
+            let selectable_row = spec.selectable && input.interaction_owner == Some(input.target);
+            let active_state = table_active_press_state_id(spec.id, input.pointer);
+            let active_target_state = table_active_press_target_state_id(spec.id, input.pointer);
+
+            match input.kind {
+                PointerEventKind::Press => {
+                    // Every new table gesture supersedes stale click state for
+                    // this table/pointer, including a press on a resize handle.
+                    self.state().insert(active_state, 0);
+                    if !suppressed && (sortable_column.is_some() || selectable_row) {
+                        self.state().insert(active_state, 1);
+                        self.state().insert(active_target_state, input.target.0);
+                        self.state()
+                            .request_pointer_capture(input.pointer, input.target);
+                        pressed_this_batch.insert(input.pointer);
+                    }
+                }
+                PointerEventKind::Release | PointerEventKind::Cancel => {
+                    let active = self.state().get(active_state) == Some(1)
+                        && self.state().get(active_target_state) == Some(input.target.0);
+                    let capture_valid = pressed_this_batch.contains(&input.pointer)
+                        || self.state().pointer_capture_owner(input.pointer) == Some(input.target);
+                    if input.kind == PointerEventKind::Release
+                        && !suppressed
+                        && active
+                        && capture_valid
+                        && response_inside_target(&input)
+                    {
+                        if let Some(column) = sortable_column {
+                            response.sort_requested.push(column.id);
+                        } else if selectable_row {
+                            // Multiple completed row clicks are processed in ledger order;
+                            // the last completed click wins this scalar selection intent.
+                            response.selected_row = Some(input.target);
+                        }
+                    }
+                    // All terminal table events clear prior click state even
+                    // when sorting/selection was disabled since the press.
+                    self.state().insert(active_state, 0);
+                    self.state().request_pointer_release(input.pointer);
+                    pressed_this_batch.remove(&input.pointer);
+                }
+                PointerEventKind::Move => {}
+            }
+
+            if let Some(index) = spec
+                .columns
+                .iter()
+                .position(|column| table_resize_handle_id(spec.id, column.id) == input.target)
+            {
+                if suppressed {
+                    continue;
+                }
+                let column = &spec.columns[index];
+                let state = &mut runtime[index];
+                match input.kind {
+                    PointerEventKind::Press if !state.dragging => {
+                        state.dragging = true;
+                        state.pointer = input.pointer;
+                        state.origin = input.position.x;
+                        state.start_width = state.width;
+                        self.state()
+                            .request_pointer_capture(input.pointer, input.target);
+                    }
+                    PointerEventKind::Move if state.dragging && input.pointer == state.pointer => {
+                        let requested = state.start_width + input.position.x - state.origin;
+                        if requested.is_finite() {
+                            state.width = requested.clamp(column.min_width, column.max_width);
+                            response.resized.push(TableResize {
+                                column: column.id,
+                                width: state.width,
+                            });
+                        }
+                    }
+                    PointerEventKind::Release | PointerEventKind::Cancel
+                        if input.pointer == state.pointer =>
+                    {
+                        state.dragging = false;
+                        self.state().request_pointer_release(input.pointer);
+                    }
+                    PointerEventKind::Press
+                    | PointerEventKind::Move
+                    | PointerEventKind::Release
+                    | PointerEventKind::Cancel => {}
+                }
+                continue;
+            }
+        }
+
+        for (column, state) in spec.columns.iter().zip(&mut runtime) {
+            if suppressed && state.dragging {
+                self.state().request_pointer_release(state.pointer);
+                state.dragging = false;
+            }
+            self.state().insert(
+                table_width_state_id(spec.id, column.id),
+                u64::from(state.width.to_bits()),
+            );
+            self.state().insert(
+                table_drag_state_id(spec.id, column.id),
+                u64::from(state.dragging),
+            );
+            self.state()
+                .insert(table_pointer_state_id(spec.id, column.id), state.pointer);
+            self.state().insert(
+                table_drag_origin_state_id(spec.id, column.id),
+                u64::from(state.origin.to_bits()),
+            );
+            self.state().insert(
+                table_drag_width_state_id(spec.id, column.id),
+                u64::from(state.start_width.to_bits()),
+            );
+        }
+
+        let widths = runtime.iter().map(|state| state.width).collect::<Vec<_>>();
+        let total_width_f64: f64 = widths.iter().map(|width| f64::from(*width)).sum();
+        if !total_width_f64.is_finite() || total_width_f64 > f64::from(f32::MAX) {
+            let error = FrameError::InvalidTable {
+                id: spec.id,
+                error: TableDeclarationError::UnrepresentableAggregateWidth,
+            };
+            self.error = Some(error.clone());
+            return Err(error);
+        }
+        let total_width = total_width_f64 as f32;
+
+        let tracks = widths
+            .iter()
+            .copied()
+            .map(GridTrack::Fixed)
+            .collect::<Vec<_>>();
+        let header_children = spec
+            .columns
+            .iter()
+            .zip(widths.iter().copied())
+            .map(|(column, width)| {
+                let label = Element::text_with_properties(
+                    table_header_label_id(spec.id, column.id),
+                    column.label.clone(),
+                    style.header_text.properties.clone(),
+                )
+                .with_paint(PaintPrimitive::Text {
+                    content: column.label.clone(),
+                    properties: style.header_text.properties.clone(),
+                    color: style.header_text.color,
+                });
+                let label = style.header_text.layout.flex_grow(1.0).apply(label);
+                let mut children = vec![label];
+                if column.resizable {
+                    // A shrunk track owns its whole handle, but the handle never
+                    // escapes the resolved header-cell bounds.
+                    let handle_width = style.resize_handle_width.min(width);
+                    children.push(
+                        Element::flex(
+                            table_resize_handle_id(spec.id, column.id),
+                            Axis::Column,
+                            0.0,
+                        )
+                        .with_size(Some(handle_width), None)
+                        .with_min_size(Some(handle_width), Some(0.0))
+                        .with_paint(PaintPrimitive::SolidRect {
+                            color: style.resize_handle_color,
+                        })
+                        .with_cursor_icon(CursorIcon::ColResize)
+                        .ordered_pointer_target()
+                        .interactive(),
+                    );
+                }
+                let mut cell =
+                    Element::flex(table_header_cell_id(spec.id, column.id), Axis::Row, 0.0)
+                        .with_size(Some(width), Some(style.header_height))
+                        .with_children(children);
+                if column.sortable {
+                    cell = cell.ordered_pointer_target().interactive();
+                }
+                cell
+            })
+            .collect();
+        let header = Element::grid(ids.header, tracks.clone(), 0.0)
+            .with_size(Some(total_width), Some(style.header_height))
+            .with_min_size(Some(total_width), Some(style.header_height))
+            .with_paint(PaintPrimitive::SolidRect {
+                color: style.header_background,
+            })
+            .with_children(header_children);
+
+        let mut virtual_spec = VirtualListSpec::new(
+            ids.body,
+            spec.row_count,
+            spec.row_height,
+            spec.viewport_height,
+        );
+        virtual_spec.explicit_offset = spec.explicit_offset;
+        virtual_spec.scroll_to = spec.scroll_to;
+
+        let previous_participation = self.enter_container_participation(style.layout);
+        let body_result = self.virtual_column(
+            virtual_spec,
+            DeclarationStyle::new().width(total_width),
+            |ui, index| {
+                if ui.error.is_some() {
+                    return;
+                }
+                let (row_id, children) = ui.capture_children_result(|ui| row(ui, index));
+                if children.len() != spec.columns.len() {
+                    ui.error = Some(FrameError::InvalidTable {
+                        id: spec.id,
+                        error: TableDeclarationError::InvalidRowCellCount {
+                            row: index,
+                            expected: spec.columns.len(),
+                            actual: children.len(),
+                        },
+                    });
+                    return;
+                }
+                let mut row_element = Element::grid(row_id, tracks.clone(), 0.0)
+                    .with_size(Some(total_width), Some(spec.row_height))
+                    .with_min_size(Some(total_width), Some(spec.row_height))
+                    .with_children(children);
+                if spec.selectable {
+                    row_element = row_element
+                        .with_interaction_owner(row_id)
+                        .ordered_pointer_target()
+                        .interactive();
+                }
+                ui.push(row_element);
+            },
+        );
+        self.restore_container_participation(previous_participation);
+        let window = body_result?;
+
+        let roots = self
+            .child_stacks
+            .last_mut()
+            .expect("a declaration child stack always exists");
+        let body = roots
+            .pop()
+            .expect("virtual_column pushed the table body viewport");
+        let root = Element::flex(ids.root, Axis::Column, 0.0)
+            .without_paint()
+            .with_children(vec![header, body]);
+        self.push(style.layout.apply(root));
+        Ok((window, response))
+    }
+
+    fn validate_table(&mut self, spec: &TableSpec, style: &TableStyle) -> Result<(), FrameError> {
+        let invalid = if spec.columns.is_empty() {
+            Some(TableDeclarationError::EmptyColumns)
+        } else if !style.header_height.is_finite() || style.header_height <= 0.0 {
+            Some(TableDeclarationError::InvalidHeaderHeight(
+                style.header_height,
+            ))
+        } else if !style.resize_handle_width.is_finite() || style.resize_handle_width <= 0.0 {
+            Some(TableDeclarationError::InvalidResizeHandleWidth(
+                style.resize_handle_width,
+            ))
+        } else {
+            let mut ids = HashSet::with_capacity(spec.columns.len());
+            spec.columns.iter().find_map(|column| {
+                if !ids.insert(column.id) {
+                    Some(TableDeclarationError::DuplicateColumnId(column.id))
+                } else if !column.width.is_finite() || column.width <= 0.0 {
+                    Some(TableDeclarationError::InvalidColumnWidth {
+                        column: column.id,
+                        value: column.width,
+                    })
+                } else if !column.min_width.is_finite() || column.min_width < 0.0 {
+                    Some(TableDeclarationError::InvalidColumnMinimum {
+                        column: column.id,
+                        value: column.min_width,
+                    })
+                } else if column.max_width.is_nan() || column.max_width <= 0.0 {
+                    Some(TableDeclarationError::InvalidColumnMaximum {
+                        column: column.id,
+                        value: column.max_width,
+                    })
+                } else if column.min_width > column.max_width {
+                    Some(TableDeclarationError::InvalidColumnRange {
+                        column: column.id,
+                        min: column.min_width,
+                        max: column.max_width,
+                    })
+                } else {
+                    None
+                }
+            })
+        };
+        if let Some(error) = invalid {
+            let error = FrameError::InvalidTable { id: spec.id, error };
+            self.error = Some(error.clone());
+            Err(error)
+        } else {
+            Ok(())
+        }
     }
 
     /// Declare a grid container and execute its body exactly once.
@@ -943,6 +1579,19 @@ impl<'a> DeclarationUi<'a> {
         self.child_stacks
             .pop()
             .expect("the compound child stack was just pushed")
+    }
+
+    fn capture_children_result<T>(
+        &mut self,
+        body: impl FnOnce(&mut Self) -> T,
+    ) -> (T, Vec<Element>) {
+        self.child_stacks.push(Vec::new());
+        let result = body(self);
+        let children = self
+            .child_stacks
+            .pop()
+            .expect("the compound child stack was just pushed");
+        (result, children)
     }
 
     /// Declare a basic button and consume responses dispatched from the last

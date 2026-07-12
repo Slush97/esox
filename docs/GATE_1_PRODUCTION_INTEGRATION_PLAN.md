@@ -23,15 +23,20 @@ Completed and covered by production-API or renderer-boundary tests:
 - renderer-neutral uniform virtual content with candidate-generation retained
   and wheel state, full logical content extents, once-only visible item
   declaration, stable logical item identities, current-generation scroll-to and
-  clamping, and transactional retry; and
+  clamping, and transactional retry;
+- a renderer-neutral fixed-track production table declaration built on one
+  virtual column, with once-only visible row callbacks, logical row/cell IDs,
+  chronological external sort and selection intents, transactional column
+  resizing and input replay, committed-row selection across same-batch scroll,
+  and shared current-generation header/body tracks; and
 - headless first-frame, resize, structural, metric, scroll, transform, overlay,
   damage, and multi-owner contract coverage.
 
 Still required before Gate 1 closes:
 
 - migrate compound containers and the remaining production leaves;
-- migrate the legacy `Ui::virtual_scroll` caller surface and tables onto the
-  FrameCore virtual-content primitive;
+- migrate the legacy `Ui::virtual_scroll` and table caller surfaces onto the
+  FrameCore virtual-content and table declarations;
 - route the existing application-facing `Ui::begin`/`Ui::finish` path through
   one `FrameCore` owner per window;
 - remove production `prev_layout`, `layout_cache`, cursor fallback, and
@@ -180,7 +185,10 @@ The current virtualization slice exposes a `ScrollView` semantic node and only
 the semantic rows in the visible declared range. Virtual collection size/index
 metadata, offscreen accessibility navigation, and accessibility scroll actions
 remain required before accessibility support for virtual collections can be
-called complete.
+called complete. The production table slice likewise exposes only currently
+declared interactive rows and generic header interactions: table/header/cell
+roles, row/column metadata, sort state, and offscreen row navigation are not yet
+represented and must not be advertised as complete table accessibility.
 
 ## Production-neutral leaf boundaries
 

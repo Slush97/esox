@@ -377,6 +377,7 @@ pub struct Element {
     paint: Option<PaintPrimitive>,
     interactive: bool,
     ordered_pointer_target: bool,
+    interaction_owner: Option<WidgetId>,
     cursor_icon: Option<CursorIcon>,
     semantics: Option<SemanticProperties>,
     clips_children: bool,
@@ -424,6 +425,7 @@ impl Element {
             paint: Some(paint),
             interactive: false,
             ordered_pointer_target: false,
+            interaction_owner: None,
             cursor_icon: None,
             semantics: None,
             clips_children: false,
@@ -591,6 +593,12 @@ impl Element {
         self
     }
 
+    /// Associate this node and its descendants with a logical compound-widget part.
+    pub fn with_interaction_owner(mut self, owner: WidgetId) -> Self {
+        self.interaction_owner = Some(owner);
+        self
+    }
+
     /// Attach an Esox-owned semantic declaration to this node.
     pub fn with_semantics(mut self, semantics: SemanticProperties) -> Self {
         self.semantics = Some(semantics);
@@ -701,6 +709,12 @@ pub struct InputResponse {
     pub pointer: u64,
     pub target: WidgetId,
     pub committed_generation: u64,
+    /// Original order in the dispatched pointer ledger for this generation.
+    pub dispatch_ordinal: u64,
+    /// Committed virtual viewport containing the target, when any.
+    pub virtual_owner: Option<WidgetId>,
+    /// Nearest committed compound-widget interaction owner, when any.
+    pub interaction_owner: Option<WidgetId>,
     pub position: LogicalPoint,
     pub target_bounds: LogicalRect,
     /// Committed transformed bounds of the target's structural parent.
@@ -746,6 +760,28 @@ impl WidgetStateStore {
             self.responses.remove(&id);
         }
         response
+    }
+
+    /// Drain matching responses across targets in their original ledger order.
+    pub fn drain_responses(
+        &mut self,
+        mut matches: impl FnMut(&InputResponse) -> bool,
+    ) -> Vec<InputResponse> {
+        let mut drained = Vec::new();
+        self.responses.retain(|_, queue| {
+            let mut retained = VecDeque::with_capacity(queue.len());
+            while let Some(response) = queue.pop_front() {
+                if matches(&response) {
+                    drained.push(response);
+                } else {
+                    retained.push_back(response);
+                }
+            }
+            *queue = retained;
+            !queue.is_empty()
+        });
+        drained.sort_by_key(|response| (response.committed_generation, response.dispatch_ordinal));
+        drained
     }
 
     /// Read the capture owner visible at the start of this generation.
@@ -995,6 +1031,8 @@ pub struct ResolvedNode {
     pub parent: Option<WidgetId>,
     /// Still-declared virtual viewport owning this visible descendant.
     pub virtual_owner: Option<WidgetId>,
+    /// Nearest logical compound-widget owner inherited by this node.
+    pub interaction_owner: Option<WidgetId>,
     pub bounds: LogicalRect,
     /// This node's layout rectangle after the composed logical transform.
     pub transformed_bounds: LogicalRect,
@@ -1153,6 +1191,38 @@ pub enum GridDeclarationError {
     InvalidRowGap(f32),
 }
 
+/// Invalid production table declarations rejected before any row is declared.
+#[derive(Clone, Debug, PartialEq)]
+pub enum TableDeclarationError {
+    EmptyColumns,
+    DuplicateColumnId(WidgetId),
+    InvalidColumnWidth {
+        column: WidgetId,
+        value: f32,
+    },
+    InvalidColumnMinimum {
+        column: WidgetId,
+        value: f32,
+    },
+    InvalidColumnMaximum {
+        column: WidgetId,
+        value: f32,
+    },
+    InvalidColumnRange {
+        column: WidgetId,
+        min: f32,
+        max: f32,
+    },
+    InvalidHeaderHeight(f32),
+    InvalidResizeHandleWidth(f32),
+    UnrepresentableAggregateWidth,
+    InvalidRowCellCount {
+        row: usize,
+        expected: usize,
+        actual: usize,
+    },
+}
+
 /// Failure before a scene reaches the atomic commit point.
 #[derive(Clone, Debug, PartialEq)]
 pub enum FrameError {
@@ -1163,6 +1233,10 @@ pub enum FrameError {
     InvalidGrid {
         id: WidgetId,
         error: GridDeclarationError,
+    },
+    InvalidTable {
+        id: WidgetId,
+        error: TableDeclarationError,
     },
     DuplicateWidgetId(WidgetId),
     InvalidTransform(WidgetId),
@@ -1942,7 +2016,7 @@ impl FrameCore {
 
     fn dispatch_pending_input(&self, candidate: &mut GenerationCandidate) {
         let mut ordered_targets = HashMap::<u64, WidgetId>::new();
-        for event in &self.pending_pointer_events {
+        for (dispatch_ordinal, event) in self.pending_pointer_events.iter().enumerate() {
             let Some(scene) = self.committed.as_ref() else {
                 continue;
             };
@@ -1967,6 +2041,9 @@ impl FrameCore {
                 pointer: event.pointer,
                 target: target.id,
                 committed_generation: scene.generation,
+                dispatch_ordinal: dispatch_ordinal as u64,
+                virtual_owner: target.virtual_owner,
+                interaction_owner: target.interaction_owner,
                 position: event.position,
                 target_bounds: target
                     .hit_bounds
@@ -2018,6 +2095,9 @@ impl FrameCore {
                     pointer,
                     target: owner,
                     committed_generation,
+                    dispatch_ordinal: u64::MAX,
+                    virtual_owner: old_node.virtual_owner,
+                    interaction_owner: old_node.interaction_owner,
                     position: LogicalPoint::new(
                         old_node.hit_bounds.unwrap_or(old_node.transformed_bounds).x,
                         old_node.hit_bounds.unwrap_or(old_node.transformed_bounds).y,
@@ -2133,6 +2213,7 @@ struct TraversalContext {
     transform: ResolvedTransform,
     parent: Option<WidgetId>,
     virtual_owner: Option<WidgetId>,
+    interaction_owner: Option<WidgetId>,
     focus_scope: Option<WidgetId>,
     semantic_parent: Option<WidgetId>,
     hidden: bool,
@@ -2524,6 +2605,7 @@ fn resolve(
             id: element.id,
             parent: context.parent,
             virtual_owner: context.virtual_owner,
+            interaction_owner: element.interaction_owner.or(context.interaction_owner),
             bounds,
             transformed_bounds,
             paint_bounds,
@@ -2618,6 +2700,7 @@ fn resolve(
             .virtual_content_height
             .map(|_| element.id)
             .or(context.virtual_owner);
+        let interaction_owner = element.interaction_owner.or(context.interaction_owner);
         for child in &element.children {
             collect(
                 child,
@@ -2629,6 +2712,7 @@ fn resolve(
                     transform,
                     parent: Some(element.id),
                     virtual_owner,
+                    interaction_owner,
                     focus_scope,
                     semantic_parent,
                     hidden: effective_hidden,
@@ -2657,6 +2741,7 @@ fn resolve(
             transform: ResolvedTransform::IDENTITY,
             parent: None,
             virtual_owner: None,
+            interaction_owner: None,
             focus_scope: None,
             semantic_parent: None,
             hidden: false,
