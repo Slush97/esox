@@ -11,6 +11,8 @@ Completed and covered by production-API or renderer-boundary tests:
 - backend-neutral scene, semantic, paint, measurement, and submission records;
 - the once-only production declaration vertical slice for flex/grid containers,
   text, buttons, solid rectangles, and borders;
+- renderer-neutral production image declarations with GPU-independent intrinsic
+  measurement, semantic labels, and transactional pointer responses;
 - current-frame constraints, alignment, hidden/disabled participation, clipping,
   retained scrolling, transforms, damage expansion, and blocking overlays;
 - transactional pointer and wheel dispatch, focus/capture reconciliation, and

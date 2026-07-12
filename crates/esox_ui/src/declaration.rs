@@ -344,6 +344,34 @@ impl TextStyle {
     }
 }
 
+/// Renderer-neutral properties for an intrinsically measured image leaf.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ImageStyle {
+    pub layout: DeclarationStyle,
+    pub label: Option<String>,
+    pub disabled: bool,
+}
+
+impl ImageStyle {
+    /// Replace layout properties for this image leaf.
+    pub const fn layout(mut self, layout: DeclarationStyle) -> Self {
+        self.layout = layout;
+        self
+    }
+
+    /// Set the accessible label without coupling the declaration to a backend.
+    pub fn label(mut self, label: impl Into<String>) -> Self {
+        self.label = Some(label.into());
+        self
+    }
+
+    /// Keep the image visible while excluding it from interaction.
+    pub const fn disabled(mut self) -> Self {
+        self.disabled = true;
+        self
+    }
+}
+
 /// Visual and layout properties for the basic production button.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ButtonStyle {
@@ -1449,6 +1477,40 @@ impl<'a> DeclarationUi<'a> {
         self.push(style.layout.apply(element));
     }
 
+    /// Declare an image by stable renderer-neutral resource key.
+    ///
+    /// Intrinsic dimensions are supplied later through [`IntrinsicMeasurer`];
+    /// declaration never reads a GPU atlas or executes a measurement callback.
+    pub fn image(&mut self, id: WidgetId, resource: u64, style: ImageStyle) -> Response {
+        let effective_hidden = self.effective_hidden || style.layout.hidden;
+        let effective_disabled = self.effective_disabled || style.layout.disabled || style.disabled;
+        let response = self.pointer_response(id, effective_hidden || effective_disabled);
+
+        let mut semantics = SemanticProperties::new(SemanticRole::Image);
+        if let Some(label) = style.label {
+            semantics = semantics.with_label(label);
+        }
+        if style.disabled {
+            semantics = semantics.disabled();
+        }
+
+        let mut element = Element::image(id, resource).with_semantics(semantics);
+        if !style.disabled {
+            element = element.interactive();
+        }
+        self.push(
+            style
+                .layout
+                .apply(element)
+                .with_disabled(style.layout.disabled || style.disabled),
+        );
+
+        Response {
+            disabled: effective_disabled,
+            ..response
+        }
+    }
+
     /// Declare a solid rectangle with no renderer or GPU dependency.
     pub fn solid_rect(&mut self, id: WidgetId, style: DeclarationStyle, color: Color) {
         let element =
@@ -1665,37 +1727,10 @@ impl<'a> DeclarationUi<'a> {
         style: ButtonStyle,
     ) -> Response {
         let label = label.into();
-        let state_id = interaction_state_id(id);
-        let mut pressed = self.state().get(state_id).is_some_and(|value| value != 0);
-        let mut clicked = false;
-        let mut hovered = false;
         let effective_hidden = self.effective_hidden || style.layout.hidden;
         let effective_disabled = self.effective_disabled || style.layout.disabled || style.disabled;
         let suppress_responses = effective_hidden || effective_disabled;
-        while let Some(response) = self.state().take_response(id) {
-            if suppress_responses {
-                continue;
-            }
-            match response.kind {
-                PointerEventKind::Press => {
-                    pressed = true;
-                    hovered = true;
-                }
-                PointerEventKind::Move => hovered = true,
-                PointerEventKind::Release => {
-                    clicked = pressed;
-                    pressed = false;
-                    hovered = true;
-                }
-                PointerEventKind::Cancel => pressed = false,
-            }
-        }
-        if suppress_responses {
-            clicked = false;
-            pressed = false;
-            hovered = false;
-        }
-        self.state().insert(state_id, u64::from(pressed));
+        let response = self.pointer_response(id, suppress_responses);
 
         let ids = ButtonIds::new(id);
         let text =
@@ -1736,10 +1771,44 @@ impl<'a> DeclarationUi<'a> {
         );
 
         Response {
+            disabled: effective_disabled,
+            ..response
+        }
+    }
+
+    fn pointer_response(&mut self, id: WidgetId, suppress: bool) -> Response {
+        let state_id = interaction_state_id(id);
+        let mut pressed = self.state().get(state_id).is_some_and(|value| value != 0);
+        let mut clicked = false;
+        let mut hovered = false;
+        while let Some(response) = self.state().take_response(id) {
+            if suppress {
+                continue;
+            }
+            match response.kind {
+                PointerEventKind::Press => {
+                    pressed = true;
+                    hovered = true;
+                }
+                PointerEventKind::Move => hovered = true,
+                PointerEventKind::Release => {
+                    clicked = pressed;
+                    pressed = false;
+                    hovered = true;
+                }
+                PointerEventKind::Cancel => pressed = false,
+            }
+        }
+        if suppress {
+            clicked = false;
+            pressed = false;
+            hovered = false;
+        }
+        self.state().insert(state_id, u64::from(pressed));
+        Response {
             clicked,
             hovered,
             pressed,
-            disabled: effective_disabled,
             ..Response::default()
         }
     }
