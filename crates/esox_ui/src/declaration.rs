@@ -6,9 +6,10 @@
 
 use crate::frame_core::{
     Axis, Color, CommittedScene, Element, FrameCore, FrameError, GenerationAttempt,
-    IntrinsicMeasurer, PaintPrimitive, PointerEventKind, SceneConsumer, SemanticProperties,
-    SemanticRole, SeparatorDeclarationError, TableDeclarationError, TextProperties,
-    VirtualListSpec, VirtualWindow, WidgetId, WidgetStateStore,
+    IntrinsicMeasurer, PaintPrimitive, PointerEventKind, ProgressDeclarationError, SceneConsumer,
+    SemanticProperties, SemanticRole, SemanticValueRange, SeparatorDeclarationError,
+    TableDeclarationError, TextProperties, VirtualListSpec, VirtualWindow, WidgetId,
+    WidgetStateStore,
 };
 use crate::response::Response;
 use esox_input::CursorIcon;
@@ -59,6 +60,52 @@ impl SeparatorStyle {
     /// Set the separator's authoritative cross-axis thickness.
     pub const fn thickness(mut self, thickness: f32) -> Self {
         self.thickness = thickness;
+        self
+    }
+}
+
+/// Renderer-neutral paint, layout, and range properties for determinate progress.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ProgressStyle {
+    pub layout: DeclarationStyle,
+    pub minimum: f32,
+    pub maximum: f32,
+    pub value: f32,
+    pub track_color: Color,
+    pub fill_color: Color,
+    pub radius: f32,
+}
+
+impl ProgressStyle {
+    /// Create a unit-range progress indicator with square corners.
+    pub const fn new(value: f32, track_color: Color, fill_color: Color) -> Self {
+        Self {
+            layout: DeclarationStyle::new(),
+            minimum: 0.0,
+            maximum: 1.0,
+            value,
+            track_color,
+            fill_color,
+            radius: 0.0,
+        }
+    }
+
+    pub const fn layout(mut self, layout: DeclarationStyle) -> Self {
+        self.layout = layout;
+        self
+    }
+
+    /// Replace the determinate range and current value without clamping.
+    pub const fn range(mut self, minimum: f32, maximum: f32, value: f32) -> Self {
+        self.minimum = minimum;
+        self.maximum = maximum;
+        self.value = value;
+        self
+    }
+
+    /// Set the exact uniform logical corner radius used for track and fill.
+    pub const fn radius(mut self, radius: f32) -> Self {
+        self.radius = radius;
         self
     }
 }
@@ -760,6 +807,16 @@ impl ButtonIds {
 
 const fn derived_id(parent: WidgetId, salt: u64) -> WidgetId {
     WidgetId(parent.0.rotate_left(23) ^ salt)
+}
+
+/// Stable FrameCore-owned identity for a progress indicator's fill node.
+pub const fn progress_fill_id(progress: WidgetId) -> WidgetId {
+    derived_id(progress, 0xa646_5928_7169_8105)
+}
+
+/// Stable FrameCore-owned identity for a progress indicator's unpainted remainder.
+pub const fn progress_remainder_id(progress: WidgetId) -> WidgetId {
+    derived_id(progress, 0x7658_021d_8d3d_91df)
 }
 
 fn interaction_state_id(id: WidgetId) -> WidgetId {
@@ -1603,6 +1660,87 @@ impl<'a> DeclarationUi<'a> {
         let element = Element::flex(id, Axis::Column, 0.0)
             .with_paint(PaintPrimitive::SolidRect { color: style.color })
             .with_semantics(SemanticProperties::new(SemanticRole::Separator));
+        self.push(style.layout.apply(element));
+        Ok(())
+    }
+
+    /// Declare a determinate progress indicator using exact rounded paint and range semantics.
+    ///
+    /// Values are never clamped and rounded paint is never approximated. The application ID
+    /// remains the track and semantic identity. The fill and unpainted layout remainder use
+    /// [`progress_fill_id`] and [`progress_remainder_id`], which applications must not reuse.
+    pub fn progress(&mut self, id: WidgetId, style: ProgressStyle) -> Result<(), FrameError> {
+        let valid_range =
+            style.minimum.is_finite() && style.maximum.is_finite() && style.minimum < style.maximum;
+        if !valid_range {
+            let error = FrameError::InvalidProgress {
+                id,
+                error: ProgressDeclarationError::InvalidRange {
+                    minimum: style.minimum,
+                    maximum: style.maximum,
+                },
+            };
+            self.error = Some(error.clone());
+            return Err(error);
+        }
+        if !style.value.is_finite() || style.value < style.minimum || style.value > style.maximum {
+            let error = FrameError::InvalidProgress {
+                id,
+                error: ProgressDeclarationError::ValueOutOfRange {
+                    minimum: style.minimum,
+                    maximum: style.maximum,
+                    value: style.value,
+                },
+            };
+            self.error = Some(error.clone());
+            return Err(error);
+        }
+        if !style.radius.is_finite() || style.radius < 0.0 {
+            let error = FrameError::InvalidProgress {
+                id,
+                error: ProgressDeclarationError::InvalidRadius(style.radius),
+            };
+            self.error = Some(error.clone());
+            return Err(error);
+        }
+
+        let fraction = ((f64::from(style.value) - f64::from(style.minimum))
+            / (f64::from(style.maximum) - f64::from(style.minimum))) as f32;
+        let mut children = Vec::with_capacity(2);
+        if fraction > 0.0 {
+            children.push(
+                Element::flex(progress_fill_id(id), Axis::Column, 0.0)
+                    .with_flex_basis(0.0)
+                    .with_flex_grow(fraction)
+                    .with_paint(PaintPrimitive::RoundedRect {
+                        color: style.fill_color,
+                        radius: style.radius,
+                    }),
+            );
+        }
+        if fraction < 1.0 {
+            children.push(
+                Element::flex(progress_remainder_id(id), Axis::Column, 0.0)
+                    .with_flex_basis(0.0)
+                    .with_flex_grow(1.0 - fraction)
+                    .without_paint(),
+            );
+        }
+
+        let semantics = SemanticProperties::new(SemanticRole::ProgressBar).with_value_range(
+            SemanticValueRange {
+                minimum: style.minimum,
+                maximum: style.maximum,
+                value: style.value,
+            },
+        );
+        let element = Element::flex(id, Axis::Row, 0.0)
+            .with_children(children)
+            .with_paint(PaintPrimitive::RoundedRect {
+                color: style.track_color,
+                radius: style.radius,
+            })
+            .with_semantics(semantics);
         self.push(style.layout.apply(element));
         Ok(())
     }

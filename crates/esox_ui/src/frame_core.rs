@@ -307,6 +307,10 @@ pub enum PaintPrimitive {
     SolidRect {
         color: Color,
     },
+    RoundedRect {
+        color: Color,
+        radius: f32,
+    },
     Border {
         color: Color,
         width: f32,
@@ -329,15 +333,25 @@ pub enum SemanticRole {
     Image,
     Button,
     Separator,
+    ProgressBar,
     ScrollView,
 }
 
+/// A determinate numeric range advertised without an accessibility-backend type.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct SemanticValueRange {
+    pub minimum: f32,
+    pub maximum: f32,
+    pub value: f32,
+}
+
 /// Serializable semantic properties declared without resolved geometry.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SemanticProperties {
     pub role: SemanticRole,
     pub label: Option<String>,
     pub disabled: bool,
+    pub value_range: Option<SemanticValueRange>,
 }
 
 impl SemanticProperties {
@@ -346,6 +360,7 @@ impl SemanticProperties {
             role,
             label: None,
             disabled: false,
+            value_range: None,
         }
     }
 
@@ -356,6 +371,11 @@ impl SemanticProperties {
 
     pub fn disabled(mut self) -> Self {
         self.disabled = true;
+        self
+    }
+
+    pub fn with_value_range(mut self, value_range: SemanticValueRange) -> Self {
+        self.value_range = Some(value_range);
         self
     }
 }
@@ -1274,6 +1294,21 @@ pub enum SeparatorDeclarationError {
     InvalidThickness(f32),
 }
 
+/// Invalid determinate progress declarations.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum ProgressDeclarationError {
+    InvalidRange {
+        minimum: f32,
+        maximum: f32,
+    },
+    ValueOutOfRange {
+        minimum: f32,
+        maximum: f32,
+        value: f32,
+    },
+    InvalidRadius(f32),
+}
+
 /// Failure before a scene reaches the atomic commit point.
 #[derive(Clone, Debug, PartialEq)]
 pub enum FrameError {
@@ -1292,6 +1327,10 @@ pub enum FrameError {
     InvalidSeparator {
         id: WidgetId,
         error: SeparatorDeclarationError,
+    },
+    InvalidProgress {
+        id: WidgetId,
+        error: ProgressDeclarationError,
     },
     DuplicateWidgetId(WidgetId),
     InvalidTransform(WidgetId),

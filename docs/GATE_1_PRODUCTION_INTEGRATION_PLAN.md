@@ -16,6 +16,9 @@ Completed and covered by production-API or renderer-boundary tests:
 - renderer-neutral horizontal and vertical separator declarations with
   authoritative cross-axis thickness, exact solid paint, semantic output, and
   typed invalid-thickness rejection;
+- renderer-neutral determinate progress declarations with exact uniform rounded-
+  rectangle track/fill submission, stable internal fill geometry, numeric range
+  semantics, and typed rejection instead of value clamping or paint fallback;
 - current-frame constraints, alignment, hidden/disabled participation, clipping,
   retained scrolling, transforms, damage expansion, and blocking overlays;
 - transactional pointer and wheel dispatch, focus/capture reconciliation, and

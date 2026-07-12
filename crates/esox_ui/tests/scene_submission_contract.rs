@@ -191,3 +191,42 @@ fn regular_and_bold_are_the_only_supported_weights() {
         assert_eq!(request.font_weight.value(), weight);
     }
 }
+
+#[test]
+fn rounded_rect_preflight_preserves_exact_radius_and_rejects_invalid_radius() {
+    let record = PaintRecord {
+        id: WidgetId(40),
+        primitive: PaintPrimitive::RoundedRect {
+            color: Color::BLACK,
+            radius: 7.25,
+        },
+        bounds: rect(1.0, 2.0, 30.0, 10.0),
+        effective_clip: None,
+    };
+    let records = [record];
+    let prepared = preflight_display_list(&records).unwrap();
+    assert_eq!(
+        prepared.records()[0].primitive,
+        SubmissionPrimitive::RoundedRect {
+            color: Color::BLACK,
+            radius: 7.25,
+        }
+    );
+
+    let invalid = PaintRecord {
+        id: WidgetId(41),
+        primitive: PaintPrimitive::RoundedRect {
+            color: Color::BLACK,
+            radius: f32::NAN,
+        },
+        bounds: rect(1.0, 2.0, 30.0, 10.0),
+        effective_clip: None,
+    };
+    assert_eq!(
+        preflight_display_list(&[invalid]).unwrap_err(),
+        SceneSubmissionError::InvalidGeometry {
+            record_index: 0,
+            id: WidgetId(41),
+        }
+    );
+}

@@ -6,7 +6,7 @@
 use std::error::Error;
 use std::fmt;
 
-use esox_gfx::{Color as GfxColor, Frame, GpuContext, RenderResources, ShapeBuilder};
+use esox_gfx::{BorderRadius, Color as GfxColor, Frame, GpuContext, RenderResources, ShapeBuilder};
 
 use crate::frame_core::{Color, LogicalRect, PaintRecord};
 use crate::scene_submission::{
@@ -155,6 +155,9 @@ where
                 .is_none_or(|clip| scale.rect(clip).is_some())
             && match record.primitive {
                 SubmissionPrimitive::SolidRect { .. } => true,
+                SubmissionPrimitive::RoundedRect { radius, .. } => {
+                    (radius * scale.get()).is_finite()
+                }
                 SubmissionPrimitive::Border { width, .. } => (width * scale.get()).is_finite(),
                 SubmissionPrimitive::Text(request) => {
                     (request.font_size * scale.get()).is_finite()
@@ -185,6 +188,12 @@ where
             SubmissionPrimitive::SolidRect { color } => frame.push(
                 ShapeBuilder::rect(bounds.x, bounds.y, bounds.width, bounds.height)
                     .color(gfx_color(color))
+                    .build(),
+            ),
+            SubmissionPrimitive::RoundedRect { color, radius } => frame.push(
+                ShapeBuilder::rect(bounds.x, bounds.y, bounds.width, bounds.height)
+                    .color(gfx_color(color))
+                    .border_radius(BorderRadius::uniform(radius * scale.get()))
                     .build(),
             ),
             SubmissionPrimitive::Border { color, width } => frame.push(

@@ -325,6 +325,35 @@ fn renderer_scale_converts_logical_geometry_exactly_once() {
 }
 
 #[test]
+fn rounded_rect_reaches_frame_with_radius_scaled_exactly_once() {
+    let display_list = vec![paint_record(
+        WidgetId(95),
+        PaintPrimitive::RoundedRect {
+            color: SOLID_COLOR,
+            radius: 3.25,
+        },
+        rect(10.0, 20.0, 30.0, 12.0),
+        None,
+    )];
+    let mut frame = Frame::new();
+    let mut text = FakeTextPaint::default();
+
+    submit_display_list_scaled(
+        &display_list,
+        &mut frame,
+        &mut text,
+        RendererScale::new(2.0).unwrap(),
+    )
+    .unwrap();
+
+    let instance = frame.instance_data()[0];
+    assert_eq!(instance.border_radius, [6.5; 4]);
+    // The renderer's SDF AA expansion happens after the one logical-to-physical transform.
+    assert_eq!(instance.rect, [18.5, 38.5, 63.0, 27.0]);
+    assert!(text.requests.is_empty());
+}
+
+#[test]
 fn invalid_renderer_transform_is_rejected_before_target_mutation() {
     assert!(RendererScale::new(0.0).is_none());
     assert!(RendererScale::new(f64::NAN).is_none());

@@ -59,6 +59,7 @@ pub trait TextPaintBoundary<Target> {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum SubmissionPrimitive<'a> {
     SolidRect { color: Color },
+    RoundedRect { color: Color, radius: f32 },
     Border { color: Color, width: f32 },
     Text(TextPaintRequest<'a>),
 }
@@ -190,6 +191,18 @@ pub fn preflight_display_list(
                 });
             }
             PaintPrimitive::SolidRect { color } => SubmissionPrimitive::SolidRect { color: *color },
+            PaintPrimitive::RoundedRect { color, radius } => {
+                if !radius.is_finite() || *radius < 0.0 {
+                    return Err(SceneSubmissionError::InvalidGeometry {
+                        record_index,
+                        id: record.id,
+                    });
+                }
+                SubmissionPrimitive::RoundedRect {
+                    color: *color,
+                    radius: *radius,
+                }
+            }
             PaintPrimitive::Border { color, width } => {
                 if !width.is_finite() {
                     return Err(SceneSubmissionError::InvalidGeometry {
