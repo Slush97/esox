@@ -4,6 +4,7 @@
 //! contracts while the production widget API is migrated incrementally.
 
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde::{Deserialize, Serialize};
 use taffy::prelude::{
@@ -1014,6 +1015,22 @@ pub enum FrameError {
     },
     DuplicateWidgetId(WidgetId),
     InvalidTransform(WidgetId),
+    GenerationOwnerMismatch {
+        attempt_owner: u64,
+        current_owner: u64,
+    },
+    StaleGenerationAttempt {
+        base_generation: u64,
+        current_generation: u64,
+    },
+    GenerationViewportChanged {
+        attempted: LogicalSize,
+        current: LogicalSize,
+    },
+    GenerationStateChanged {
+        attempted_revision: u64,
+        current_revision: u64,
+    },
     Layout(String),
 }
 
@@ -1025,9 +1042,21 @@ impl std::fmt::Display for FrameError {
 
 impl std::error::Error for FrameError {}
 
+static NEXT_FRAME_CORE_OWNER_TOKEN: AtomicU64 = AtomicU64::new(1);
+
+fn next_frame_core_owner_token() -> u64 {
+    NEXT_FRAME_CORE_OWNER_TOKEN
+        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+            current.checked_add(1)
+        })
+        .expect("FrameCore owner token space exhausted")
+}
+
 /// Per-window owner of persistent state and the last committed scene.
 #[derive(Debug)]
 pub struct FrameCore {
+    owner_token: u64,
+    mutation_revision: u64,
     viewport: LogicalSize,
     generation: u64,
     widget_state: WidgetStateStore,
@@ -1078,6 +1107,34 @@ struct GenerationCandidate {
     cancellations: VecDeque<InputResponse>,
 }
 
+/// One detached in-progress FrameCore generation attempt.
+///
+/// Input has already been dispatched into the candidate widget state exposed
+/// by [`Self::widget_state`], but no persistent FrameCore state changes until
+/// [`FrameCore::finish_generation`] resolves and commits successfully. The
+/// attempt owns no borrow of FrameCore, so application declaration can retain
+/// access to the per-window owner. Dropping or explicitly aborting it discards
+/// the candidate and leaves queued input available for deterministic retry.
+pub struct GenerationAttempt {
+    candidate: GenerationCandidate,
+    owner_token: u64,
+    base_generation: u64,
+    mutation_revision: u64,
+    viewport: LogicalSize,
+    pointer_event_prefix: usize,
+    wheel_event_prefix: usize,
+}
+
+impl GenerationAttempt {
+    /// Candidate widget state used by the once-only declaration phase.
+    pub fn widget_state(&mut self) -> &mut WidgetStateStore {
+        &mut self.candidate.widget_state
+    }
+
+    /// Explicitly discard this generation without changing persistent state.
+    pub fn abort(self) {}
+}
+
 impl FrameCore {
     /// Create an independent frame context for one logical viewport.
     pub fn new(viewport: LogicalSize) -> Self {
@@ -1090,6 +1147,8 @@ impl FrameCore {
             return None;
         }
         Some(Self {
+            owner_token: next_frame_core_owner_token(),
+            mutation_revision: 0,
             viewport,
             generation: 0,
             widget_state: WidgetStateStore::default(),
@@ -1112,6 +1171,10 @@ impl FrameCore {
             return false;
         }
         self.viewport = viewport;
+        self.mutation_revision = self
+            .mutation_revision
+            .checked_add(1)
+            .expect("FrameCore mutation revision exhausted");
         true
     }
 
@@ -1136,6 +1199,10 @@ impl FrameCore {
     pub fn set_wheel_scroll_speed(&mut self, speed: f32) {
         if speed.is_finite() && speed >= 0.0 {
             self.wheel_scroll_speed = speed;
+            self.mutation_revision = self
+                .mutation_revision
+                .checked_add(1)
+                .expect("FrameCore mutation revision exhausted");
         }
     }
 
@@ -1212,7 +1279,36 @@ impl FrameCore {
 
     /// Consume a framework-synthesized pointer cancellation at most once.
     pub fn take_cancellation(&mut self) -> Option<InputResponse> {
-        self.cancellations.pop_front()
+        let cancellation = self.cancellations.pop_front();
+        if cancellation.is_some() {
+            self.mutation_revision = self
+                .mutation_revision
+                .checked_add(1)
+                .expect("FrameCore mutation revision exhausted");
+        }
+        cancellation
+    }
+
+    /// Begin a candidate generation and dispatch queued committed-scene input.
+    ///
+    /// The returned attempt is detached from this per-window owner. Declaration
+    /// may mutate only its cloned candidate widget state while retaining access
+    /// to other window state. A later successful [`Self::finish_generation`]
+    /// installs all candidate state atomically; abort, drop, stale finish,
+    /// viewport-changed finish, and resolution failure install nothing.
+    pub fn begin_generation(&self) -> GenerationAttempt {
+        let mut candidate = self.generation_candidate();
+        self.dispatch_pending_input(&mut candidate);
+        self.dispatch_pending_wheels(&mut candidate.scroll_offsets);
+        GenerationAttempt {
+            candidate,
+            owner_token: self.owner_token,
+            base_generation: self.generation,
+            mutation_revision: self.mutation_revision,
+            viewport: self.viewport,
+            pointer_event_prefix: self.pending_pointer_events.len(),
+            wheel_event_prefix: self.pending_wheel_events.len(),
+        }
     }
 
     /// Declare exactly once, resolve from current inputs, then commit atomically.
@@ -1227,10 +1323,53 @@ impl FrameCore {
         C: SceneConsumer,
         F: FnOnce(&mut WidgetStateStore) -> Element,
     {
-        let mut candidate = self.generation_candidate();
-        self.dispatch_pending_input(&mut candidate);
-        self.dispatch_pending_wheels(&mut candidate.scroll_offsets);
-        let mut root = declare(&mut candidate.widget_state);
+        let mut attempt = self.begin_generation();
+        let root = declare(attempt.widget_state());
+        self.finish_generation(attempt, root, measurer, consumer)
+    }
+
+    /// Resolve and atomically commit a detached generation attempt.
+    pub fn finish_generation<'a, M, C>(
+        &'a mut self,
+        attempt: GenerationAttempt,
+        mut root: Element,
+        measurer: &M,
+        consumer: &mut C,
+    ) -> Result<&'a CommittedScene, FrameError>
+    where
+        M: IntrinsicMeasurer,
+        C: SceneConsumer,
+    {
+        if attempt.owner_token != self.owner_token {
+            return Err(FrameError::GenerationOwnerMismatch {
+                attempt_owner: attempt.owner_token,
+                current_owner: self.owner_token,
+            });
+        }
+        if attempt.base_generation != self.generation {
+            return Err(FrameError::StaleGenerationAttempt {
+                base_generation: attempt.base_generation,
+                current_generation: self.generation,
+            });
+        }
+        if attempt.viewport != self.viewport {
+            return Err(FrameError::GenerationViewportChanged {
+                attempted: attempt.viewport,
+                current: self.viewport,
+            });
+        }
+        if attempt.mutation_revision != self.mutation_revision {
+            return Err(FrameError::GenerationStateChanged {
+                attempted_revision: attempt.mutation_revision,
+                current_revision: self.mutation_revision,
+            });
+        }
+        let GenerationAttempt {
+            mut candidate,
+            pointer_event_prefix,
+            wheel_event_prefix,
+            ..
+        } = attempt;
         root.apply_retained_scroll_offsets(&candidate.scroll_offsets);
         let mut resolved = resolve(&root, self.viewport, measurer)?;
         Self::expand_damage(&mut resolved.damage, self.committed.as_ref());
@@ -1285,8 +1424,10 @@ impl FrameCore {
         self.active_focus_scopes = candidate.active_focus_scopes;
         self.focus_restoration = candidate.focus_restoration;
         self.cancellations = candidate.cancellations;
-        self.pending_wheel_events.clear();
-        self.pending_pointer_events.clear();
+        self.pending_wheel_events
+            .drain(..wheel_event_prefix.min(self.pending_wheel_events.len()));
+        self.pending_pointer_events
+            .drain(..pointer_event_prefix.min(self.pending_pointer_events.len()));
         self.committed = Some(scene);
         let committed = self.committed.as_ref().expect("scene was just committed");
         consumer.consume(committed);

@@ -14,7 +14,10 @@ Completed and covered by production-API or renderer-boundary tests:
 - current-frame constraints, alignment, hidden/disabled participation, clipping,
   retained scrolling, transforms, damage expansion, and blocking overlays;
 - transactional pointer and wheel dispatch, focus/capture reconciliation, and
-  logical-to-physical conversion at platform and renderer boundaries; and
+  logical-to-physical conversion at platform and renderer boundaries;
+- detached split-phase generation attempts that preserve `Ui::begin`/`finish`
+  ownership ergonomics while retaining atomic commit, retry, and per-window
+  isolation; and
 - headless first-frame, resize, structural, metric, scroll, transform, overlay,
   damage, and multi-owner contract coverage.
 
