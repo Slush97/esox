@@ -46,6 +46,7 @@ pub mod icon;
 pub mod id;
 #[cfg(feature = "markup")]
 pub mod interpret;
+pub mod intrinsic;
 pub mod layout;
 pub mod layout_tree;
 pub mod paint;
@@ -59,6 +60,7 @@ mod widgets;
 
 pub use icon::Icon;
 pub use id::{fnv1a_mix, fnv1a_runtime, HOVER_SALT};
+pub use intrinsic::{ProductionIntrinsicMeasurer, ProductionMeasurerError};
 pub use layout::{
     Align, Constraints, FlexItem, FlexWrap, GridPlacement, GridTrack, Justify, Rect, Spacing,
 };

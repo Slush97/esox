@@ -774,6 +774,7 @@ pub enum PointerEventKind {
 #[derive(Clone, Debug, Default)]
 pub struct WidgetStateStore {
     values: HashMap<WidgetId, u64>,
+    text_buffers: HashMap<WidgetId, String>,
     responses: HashMap<WidgetId, VecDeque<InputResponse>>,
     keyboard_responses: HashMap<WidgetId, VecDeque<KeyboardInputResponse>>,
     active_pointer_captures: HashMap<u64, WidgetId>,
@@ -791,6 +792,20 @@ impl WidgetStateStore {
     /// Replace a persistent value.
     pub fn insert(&mut self, id: WidgetId, value: u64) -> Option<u64> {
         self.values.insert(id, value)
+    }
+
+    /// Read text owned by this generation's transactional widget-state candidate.
+    pub fn text_buffer(&self, id: WidgetId) -> Option<&str> {
+        self.text_buffers.get(&id).map(String::as_str)
+    }
+
+    /// Mutate text owned by this generation's transactional widget-state candidate.
+    ///
+    /// The buffer is created empty on first access. A successful generation installs
+    /// the mutation atomically; a rejected or aborted generation discards it so a
+    /// redelivered keyboard response cannot double-apply the edit.
+    pub fn text_buffer_mut(&mut self, id: WidgetId) -> &mut String {
+        self.text_buffers.entry(id).or_default()
     }
 
     /// Consume the oldest pending response for this widget at most once.

@@ -123,6 +123,60 @@ fn keyboard_ledger_is_focus_routed_ordered_retryable_and_per_window() {
 }
 
 #[test]
+fn rejected_generation_discards_candidate_text_edit_before_keyboard_retry() {
+    let measurer = DeterministicMeasurer::new(8.0, 18.0);
+    let mut consumer = NullSceneConsumer::default();
+    let mut core = FrameCore::new(LogicalSize::new(100.0, 40.0));
+
+    core.run_frame(&measurer, &mut consumer, |state| {
+        state.text_buffer_mut(FIRST).push('a');
+        state.request_keyboard_focus(FIRST);
+        focus_scene()
+    })
+    .unwrap();
+    core.queue_keyboard_input(character_key("x", KeyCode::KeyX), Modifiers::empty());
+
+    let error = core
+        .run_frame(&measurer, &mut consumer, |state| {
+            let response = state.take_keyboard_response(FIRST).unwrap();
+            assert_eq!(response.committed_generation, 1);
+            assert_eq!(response.dispatch_ordinal, 0);
+            assert_eq!(state.text_buffer(FIRST), Some("a"));
+            state
+                .text_buffer_mut(FIRST)
+                .push_str(response.event.text.as_deref().unwrap());
+            assert_eq!(state.text_buffer(FIRST), Some("ax"));
+            Element::flex(ROOT, Axis::Column, 0.0).with_children(vec![
+                Element::fixed(SECOND, 50.0, 20.0),
+                Element::fixed(SECOND, 50.0, 20.0),
+            ])
+        })
+        .unwrap_err();
+    assert_eq!(error, FrameError::DuplicateWidgetId(SECOND));
+    assert_eq!(core.committed_scene().unwrap().generation, 1);
+
+    core.run_frame(&measurer, &mut consumer, |state| {
+        let response = state.take_keyboard_response(FIRST).unwrap();
+        assert_eq!(response.committed_generation, 1);
+        assert_eq!(response.dispatch_ordinal, 0);
+        assert_eq!(state.text_buffer(FIRST), Some("a"));
+        state
+            .text_buffer_mut(FIRST)
+            .push_str(response.event.text.as_deref().unwrap());
+        assert_eq!(state.text_buffer(FIRST), Some("ax"));
+        focus_scene()
+    })
+    .unwrap();
+
+    core.run_frame(&measurer, &mut consumer, |state| {
+        assert_eq!(state.take_keyboard_response(FIRST), None);
+        assert_eq!(state.text_buffer(FIRST), Some("ax"));
+        focus_scene()
+    })
+    .unwrap();
+}
+
+#[test]
 fn unconsumed_keyboard_response_is_removed_with_an_inactive_focus_target() {
     let measurer = DeterministicMeasurer::new(8.0, 18.0);
     for target_state in ["removed", "hidden", "disabled"] {
