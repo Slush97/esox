@@ -5,9 +5,9 @@
 //! semantics, and damage are resolved after the application closure returns.
 
 use crate::frame_core::{
-    Axis, Color, CommittedScene, Element, FrameCore, FrameError, IntrinsicMeasurer, PaintPrimitive,
-    PointerEventKind, SceneConsumer, SemanticProperties, SemanticRole, TextProperties, WidgetId,
-    WidgetStateStore,
+    Axis, Color, CommittedScene, Element, FrameCore, FrameError, GenerationAttempt,
+    IntrinsicMeasurer, PaintPrimitive, PointerEventKind, SceneConsumer, SemanticProperties,
+    SemanticRole, TextProperties, VirtualListSpec, VirtualWindow, WidgetId, WidgetStateStore,
 };
 use crate::response::Response;
 use esox_input::CursorIcon;
@@ -492,26 +492,67 @@ fn split_pointer_state_id(id: WidgetId) -> WidgetId {
     derived_id(id, 0x4ff4_b7e3_6f88_3690)
 }
 
+/// Stable wrapper identity reserved for one logical item in a virtual viewport.
+///
+/// Application declarations inside that item must not reuse this ID. Any
+/// collision is rejected atomically by FrameCore's duplicate-ID validation.
+pub const fn virtual_item_id(viewport: WidgetId, item: usize) -> WidgetId {
+    let item = item as u64;
+    let mixed = item.wrapping_mul(0x9e37_79b9_7f4a_7c15).rotate_left(17);
+    derived_id(viewport, 0x2349_762f_b42a_1d85 ^ mixed)
+}
+
 /// One once-only declaration context for the tree currently under construction.
+enum DeclarationState<'a> {
+    Widget(&'a mut WidgetStateStore),
+    Attempt(&'a mut GenerationAttempt),
+}
+
 pub struct DeclarationUi<'a> {
-    state: &'a mut WidgetStateStore,
+    state: DeclarationState<'a>,
     child_stacks: Vec<Vec<Element>>,
     effective_hidden: bool,
     effective_disabled: bool,
+    error: Option<FrameError>,
 }
 
 impl<'a> DeclarationUi<'a> {
+    /// Construct a declaration context without candidate virtual-scroll access.
     pub fn new(state: &'a mut WidgetStateStore) -> Self {
+        Self::with_state(DeclarationState::Widget(state))
+    }
+
+    fn from_attempt(attempt: &'a mut GenerationAttempt) -> Self {
+        Self::with_state(DeclarationState::Attempt(attempt))
+    }
+
+    fn with_state(state: DeclarationState<'a>) -> Self {
         Self {
             state,
             child_stacks: vec![Vec::new()],
             effective_hidden: false,
             effective_disabled: false,
+            error: None,
+        }
+    }
+
+    fn state(&mut self) -> &mut WidgetStateStore {
+        match &mut self.state {
+            DeclarationState::Widget(state) => state,
+            DeclarationState::Attempt(attempt) => attempt.widget_state(),
         }
     }
 
     /// Finish a declaration containing exactly one root element.
-    pub fn finish(mut self) -> Element {
+    pub fn finish(self) -> Element {
+        self.try_finish()
+            .expect("a directly constructed declaration must be valid")
+    }
+
+    fn try_finish(mut self) -> Result<Element, FrameError> {
+        if let Some(error) = self.error.take() {
+            return Err(error);
+        }
         let roots = self
             .child_stacks
             .pop()
@@ -528,22 +569,22 @@ impl<'a> DeclarationUi<'a> {
             roots.next().is_none(),
             "a declaration requires exactly one root element"
         );
-        root
+        Ok(root)
     }
 
     /// Request keyboard focus after this declaration resolves successfully.
     pub fn request_keyboard_focus(&mut self, id: WidgetId) {
-        self.state.request_keyboard_focus(id);
+        self.state().request_keyboard_focus(id);
     }
 
     /// Request pointer capture after this declaration resolves successfully.
     pub fn request_pointer_capture(&mut self, pointer: u64, id: WidgetId) {
-        self.state.request_pointer_capture(pointer, id);
+        self.state().request_pointer_capture(pointer, id);
     }
 
     /// Request release of an existing pointer capture on successful commit.
     pub fn request_pointer_release(&mut self, pointer: u64) {
-        self.state.request_pointer_release(pointer);
+        self.state().request_pointer_release(pointer);
     }
 
     /// Declare a vertical container and execute its body exactly once.
@@ -554,6 +595,89 @@ impl<'a> DeclarationUi<'a> {
     /// Declare a horizontal container and execute its body exactly once.
     pub fn row(&mut self, id: WidgetId, style: DeclarationStyle, body: impl FnOnce(&mut Self)) {
         self.container(id, Axis::Row, style, body);
+    }
+
+    /// Declare only the current visible range of a uniform-height vertical list.
+    ///
+    /// The viewport's full logical content height participates in resolution
+    /// even though the callback runs exactly once only for visible items.
+    /// `viewport_height` is authoritative: vertical padding, flex sizing, a
+    /// conflicting height/min/max, and style-owned scroll offsets are rejected
+    /// before item callbacks.
+    pub fn virtual_column(
+        &mut self,
+        spec: VirtualListSpec,
+        mut style: DeclarationStyle,
+        mut item: impl FnMut(&mut Self, usize),
+    ) -> Result<VirtualWindow, FrameError> {
+        let conflicts = style.padding != 0.0
+            || style.flex_grow != 0.0
+            || style.flex_basis.is_some()
+            || style.scroll_offset.is_some()
+            || style
+                .height
+                .is_some_and(|height| height != spec.viewport_height)
+            || style
+                .min_height
+                .is_some_and(|height| height != spec.viewport_height)
+            || style
+                .max_height
+                .is_some_and(|height| height != spec.viewport_height);
+        if conflicts {
+            let error = FrameError::InvalidVirtualContent {
+                id: spec.id,
+                error: crate::frame_core::VirtualDeclarationError::ConflictingViewportStyle,
+            };
+            self.error = Some(error.clone());
+            return Err(error);
+        }
+        let planned = match &mut self.state {
+            DeclarationState::Attempt(attempt) => attempt.plan_virtual_list(spec),
+            DeclarationState::Widget(_) => Err(FrameError::InvalidVirtualContent {
+                id: spec.id,
+                error: crate::frame_core::VirtualDeclarationError::CandidateStateUnavailable,
+            }),
+        };
+        let window = match planned {
+            Ok(window) => window,
+            Err(error) => {
+                self.error = Some(error.clone());
+                return Err(error);
+            }
+        };
+
+        let previous_participation = self.enter_container_participation(style);
+        let mut wrappers = Vec::with_capacity(window.visible_range.len());
+        for index in window.visible_range.clone() {
+            let children = self.capture_children(|ui| item(ui, index));
+            wrappers.push(
+                Element::flex(virtual_item_id(spec.id, index), Axis::Column, 0.0)
+                    .without_paint()
+                    .with_size(None, Some(spec.item_height))
+                    .with_min_size(Some(0.0), Some(spec.item_height))
+                    .with_absolute_position(
+                        0.0,
+                        (index as f64 * f64::from(spec.item_height)) as f32,
+                    )
+                    .with_children(children),
+            );
+        }
+        self.restore_container_participation(previous_participation);
+
+        style.height = Some(spec.viewport_height);
+        style.min_height = Some(spec.viewport_height);
+        style.max_height = Some(spec.viewport_height);
+        style.clip_children = true;
+        style.scrollable = true;
+        style.scroll_offset = Some((0.0, window.requested_offset));
+        let viewport = Element::flex(spec.id, Axis::Column, 0.0)
+            .without_paint()
+            .with_semantics(SemanticProperties::new(SemanticRole::ScrollView))
+            .with_children(wrappers)
+            .with_flex_shrink(0.0)
+            .with_virtual_content_height(window.content_height);
+        self.push(style.apply(viewport));
+        Ok(window)
     }
 
     /// Declare a grid container and execute its body exactly once.
@@ -687,15 +811,18 @@ impl<'a> DeclarationUi<'a> {
             0.5
         };
         let mut ratio = self
-            .state
+            .state()
             .get(ratio_state)
             .map(|bits| f32::from_bits(bits as u32))
             .filter(|ratio| ratio.is_finite())
             .unwrap_or(default_ratio)
             .clamp(MIN_RATIO, MAX_RATIO);
-        let mut dragging = self.state.get(drag_state).is_some_and(|active| active != 0);
-        let mut drag_pointer = self.state.get(pointer_state).unwrap_or_default();
-        if dragging && self.state.pointer_capture_owner(drag_pointer) != Some(ids.divider) {
+        let mut dragging = self
+            .state()
+            .get(drag_state)
+            .is_some_and(|active| active != 0);
+        let mut drag_pointer = self.state().get(pointer_state).unwrap_or_default();
+        if dragging && self.state().pointer_capture_owner(drag_pointer) != Some(ids.divider) {
             dragging = false;
         }
         let suppressed = self.effective_hidden
@@ -703,7 +830,7 @@ impl<'a> DeclarationUi<'a> {
             || style.layout.hidden
             || style.layout.disabled;
 
-        while let Some(response) = self.state.take_response(ids.divider) {
+        while let Some(response) = self.state().take_response(ids.divider) {
             if suppressed {
                 continue;
             }
@@ -711,7 +838,7 @@ impl<'a> DeclarationUi<'a> {
                 PointerEventKind::Press if !dragging => {
                     dragging = true;
                     drag_pointer = response.pointer;
-                    self.state
+                    self.state()
                         .request_pointer_capture(response.pointer, ids.divider);
                 }
                 PointerEventKind::Move if dragging && response.pointer == drag_pointer => {
@@ -743,7 +870,7 @@ impl<'a> DeclarationUi<'a> {
                     if response.pointer == drag_pointer =>
                 {
                     dragging = false;
-                    self.state.request_pointer_release(response.pointer);
+                    self.state().request_pointer_release(response.pointer);
                 }
                 PointerEventKind::Press
                 | PointerEventKind::Move
@@ -752,12 +879,12 @@ impl<'a> DeclarationUi<'a> {
             }
         }
         if suppressed && dragging {
-            self.state.request_pointer_release(drag_pointer);
+            self.state().request_pointer_release(drag_pointer);
             dragging = false;
         }
-        self.state.insert(ratio_state, u64::from(ratio.to_bits()));
-        self.state.insert(drag_state, u64::from(dragging));
-        self.state.insert(pointer_state, drag_pointer);
+        self.state().insert(ratio_state, u64::from(ratio.to_bits()));
+        self.state().insert(drag_state, u64::from(dragging));
+        self.state().insert(pointer_state, drag_pointer);
 
         let previous_participation = self.enter_container_participation(style.layout);
         let first_children = self.capture_children(first);
@@ -828,13 +955,13 @@ impl<'a> DeclarationUi<'a> {
     ) -> Response {
         let label = label.into();
         let state_id = interaction_state_id(id);
-        let mut pressed = self.state.get(state_id).is_some_and(|value| value != 0);
+        let mut pressed = self.state().get(state_id).is_some_and(|value| value != 0);
         let mut clicked = false;
         let mut hovered = false;
         let effective_hidden = self.effective_hidden || style.layout.hidden;
         let effective_disabled = self.effective_disabled || style.layout.disabled || style.disabled;
         let suppress_responses = effective_hidden || effective_disabled;
-        while let Some(response) = self.state.take_response(id) {
+        while let Some(response) = self.state().take_response(id) {
             if suppress_responses {
                 continue;
             }
@@ -857,7 +984,7 @@ impl<'a> DeclarationUi<'a> {
             pressed = false;
             hovered = false;
         }
-        self.state.insert(state_id, u64::from(pressed));
+        self.state().insert(state_id, u64::from(pressed));
 
         let ids = ButtonIds::new(id);
         let text =
@@ -927,9 +1054,9 @@ where
     C: SceneConsumer,
     F: FnOnce(&mut DeclarationUi<'_>),
 {
-    core.run_frame(measurer, consumer, |state| {
-        let mut ui = DeclarationUi::new(state);
-        declare(&mut ui);
-        ui.finish()
-    })
+    let mut attempt = core.begin_generation();
+    let mut ui = DeclarationUi::from_attempt(&mut attempt);
+    declare(&mut ui);
+    let root = ui.try_finish()?;
+    core.finish_generation(attempt, root, measurer, consumer)
 }

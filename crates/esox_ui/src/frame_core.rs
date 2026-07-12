@@ -4,6 +4,7 @@
 //! contracts while the production widget API is migrated incrementally.
 
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::ops::Range;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use esox_input::CursorIcon;
@@ -327,6 +328,7 @@ pub enum SemanticRole {
     Text,
     Image,
     Button,
+    ScrollView,
 }
 
 /// Serializable semantic properties declared without resolved geometry.
@@ -364,6 +366,7 @@ pub struct Element {
     kind: ElementKind,
     children: Vec<Self>,
     flex_grow: f32,
+    flex_shrink: Option<f32>,
     flex_basis: Option<f32>,
     padding: f32,
     size: Size<Option<f32>>,
@@ -379,6 +382,7 @@ pub struct Element {
     clips_children: bool,
     scrollable: bool,
     requested_scroll_offset: Option<LogicalPoint>,
+    virtual_content_height: Option<f32>,
     absolute_position: Option<LogicalPoint>,
     blocking_overlay: bool,
     hidden: bool,
@@ -409,6 +413,7 @@ impl Element {
             kind,
             children: Vec::new(),
             flex_grow: 0.0,
+            flex_shrink: None,
             flex_basis: None,
             padding: 0.0,
             size: Size::NONE,
@@ -424,6 +429,7 @@ impl Element {
             clips_children: false,
             scrollable: false,
             requested_scroll_offset: None,
+            virtual_content_height: None,
             absolute_position: None,
             blocking_overlay: false,
             hidden: false,
@@ -501,6 +507,12 @@ impl Element {
     /// Let this node consume remaining space on its parent's main axis.
     pub fn with_flex_grow(mut self, grow: f32) -> Self {
         self.flex_grow = grow;
+        self
+    }
+
+    /// Set the flex shrink factor used when the parent is constrained.
+    pub fn with_flex_shrink(mut self, shrink: f32) -> Self {
+        self.flex_shrink = Some(shrink);
         self
     }
 
@@ -608,12 +620,21 @@ impl Element {
         self
     }
 
+    /// Declare a full logical vertical content extent independently of children.
+    ///
+    /// This lets a virtual viewport clamp scrolling against all logical items
+    /// while its current-generation tree contains only visible item wrappers.
+    pub fn with_virtual_content_height(mut self, height: f32) -> Self {
+        self.virtual_content_height = Some(height);
+        self
+    }
+
     fn apply_retained_scroll_offsets(&mut self, retained: &HashMap<WidgetId, ScrollOffsetState>) {
         if self.scrollable && self.requested_scroll_offset.is_none() {
             self.requested_scroll_offset = Some(
                 retained
                     .get(&self.id)
-                    .map(|state| state.applied)
+                    .map(|state| state.requested)
                     .unwrap_or_default(),
             );
         }
@@ -892,12 +913,88 @@ pub struct ScrollOffsetState {
     pub applied: LogicalPoint,
 }
 
+/// Inputs for one uniform-height vertical virtual viewport.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct VirtualListSpec {
+    pub id: WidgetId,
+    pub item_count: usize,
+    pub item_height: f32,
+    pub viewport_height: f32,
+    pub explicit_offset: Option<f32>,
+    pub scroll_to: Option<usize>,
+}
+
+impl VirtualListSpec {
+    pub const fn new(
+        id: WidgetId,
+        item_count: usize,
+        item_height: f32,
+        viewport_height: f32,
+    ) -> Self {
+        Self {
+            id,
+            item_count,
+            item_height,
+            viewport_height,
+            explicit_offset: None,
+            scroll_to: None,
+        }
+    }
+
+    /// Override retained and wheel-driven state for this generation.
+    pub const fn with_offset(mut self, offset: f32) -> Self {
+        self.explicit_offset = Some(offset);
+        self
+    }
+
+    /// Minimally reveal one logical item unless an explicit offset is present.
+    pub const fn scroll_to(mut self, item: usize) -> Self {
+        self.scroll_to = Some(item);
+        self
+    }
+}
+
+/// Candidate virtual range and scroll geometry visible during declaration.
+#[derive(Clone, Debug, PartialEq)]
+pub struct VirtualWindow {
+    pub visible_range: Range<usize>,
+    pub requested_offset: f32,
+    pub applied_offset: f32,
+    pub maximum_offset: f32,
+    pub content_height: f32,
+}
+
+/// Invalid virtual content rejected before any item callback executes.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum VirtualDeclarationError {
+    CandidateStateUnavailable,
+    ConflictingViewportStyle,
+    InvalidItemHeight(f32),
+    InvalidViewportHeight(f32),
+    InvalidContentHeight(f32),
+    UnrepresentableContentExtent {
+        item_count: usize,
+        item_height: f32,
+    },
+    UnrepresentableScrollGeometry {
+        item_count: usize,
+        item_height: f32,
+        viewport_height: f32,
+    },
+    UnrepresentableItemPositions {
+        item_count: usize,
+        item_height: f32,
+    },
+}
+
 /// All scene products for one resolved node, sourced by one traversal.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ResolvedNode {
     pub id: WidgetId,
     /// Stable parent relationship in this immutable committed generation.
     pub parent: Option<WidgetId>,
+    /// Still-declared virtual viewport owning this visible descendant.
+    pub virtual_owner: Option<WidgetId>,
     pub bounds: LogicalRect,
     /// This node's layout rectangle after the composed logical transform.
     pub transformed_bounds: LogicalRect,
@@ -1059,6 +1156,10 @@ pub enum GridDeclarationError {
 /// Failure before a scene reaches the atomic commit point.
 #[derive(Clone, Debug, PartialEq)]
 pub enum FrameError {
+    InvalidVirtualContent {
+        id: WidgetId,
+        error: VirtualDeclarationError,
+    },
     InvalidGrid {
         id: WidgetId,
         error: GridDeclarationError,
@@ -1183,6 +1284,137 @@ impl GenerationAttempt {
     /// Candidate widget state used by the once-only declaration phase.
     pub fn widget_state(&mut self) -> &mut WidgetStateStore {
         &mut self.candidate.widget_state
+    }
+
+    /// Compute and retain a current-generation uniform virtual window.
+    ///
+    /// Queued wheel input has already been routed into this attempt's candidate
+    /// scroll map. All mutations remain transactional until the attempt commits.
+    pub fn plan_virtual_list(
+        &mut self,
+        spec: VirtualListSpec,
+    ) -> Result<VirtualWindow, FrameError> {
+        if !spec.item_height.is_finite() || spec.item_height <= 0.0 {
+            return Err(FrameError::InvalidVirtualContent {
+                id: spec.id,
+                error: VirtualDeclarationError::InvalidItemHeight(spec.item_height),
+            });
+        }
+        if !spec.viewport_height.is_finite() || spec.viewport_height <= 0.0 {
+            return Err(FrameError::InvalidVirtualContent {
+                id: spec.id,
+                error: VirtualDeclarationError::InvalidViewportHeight(spec.viewport_height),
+            });
+        }
+        let content_height64 = spec.item_count as f64 * f64::from(spec.item_height);
+        if !content_height64.is_finite() || content_height64 > f64::from(f32::MAX) {
+            return Err(FrameError::InvalidVirtualContent {
+                id: spec.id,
+                error: VirtualDeclarationError::UnrepresentableContentExtent {
+                    item_count: spec.item_count,
+                    item_height: spec.item_height,
+                },
+            });
+        }
+        if spec.item_count > 1 {
+            let previous = ((spec.item_count - 2) as f64 * f64::from(spec.item_height)) as f32;
+            let last = ((spec.item_count - 1) as f64 * f64::from(spec.item_height)) as f32;
+            let bits = last.to_bits();
+            let spacing_down = last - f32::from_bits(bits.saturating_sub(1));
+            let spacing_up = f32::from_bits(bits.saturating_add(1)) - last;
+            if previous == last || spacing_down.max(spacing_up) > spec.item_height {
+                return Err(FrameError::InvalidVirtualContent {
+                    id: spec.id,
+                    error: VirtualDeclarationError::UnrepresentableItemPositions {
+                        item_count: spec.item_count,
+                        item_height: spec.item_height,
+                    },
+                });
+            }
+        }
+
+        let content_height = content_height64 as f32;
+        let maximum_offset64 = (content_height64 - f64::from(spec.viewport_height)).max(0.0);
+        let maximum_offset = maximum_offset64 as f32;
+        let last_bottom_is_finite = if spec.item_count == 0 {
+            true
+        } else {
+            let last_top = ((spec.item_count - 1) as f64 * f64::from(spec.item_height)) as f32;
+            (last_top + spec.item_height).is_finite()
+        };
+        let viewport_movement_is_distinct = maximum_offset64 == 0.0
+            || (maximum_offset.is_finite()
+                && f64::from(maximum_offset) < content_height64
+                && maximum_offset < content_height
+                && (maximum_offset + spec.viewport_height).is_finite());
+        if !last_bottom_is_finite || !viewport_movement_is_distinct {
+            return Err(FrameError::InvalidVirtualContent {
+                id: spec.id,
+                error: VirtualDeclarationError::UnrepresentableScrollGeometry {
+                    item_count: spec.item_count,
+                    item_height: spec.item_height,
+                    viewport_height: spec.viewport_height,
+                },
+            });
+        }
+        let sanitize = |offset: f32| {
+            if offset.is_nan() || offset == f32::NEG_INFINITY {
+                0.0
+            } else if offset == f32::INFINITY {
+                maximum_offset
+            } else {
+                offset.clamp(0.0, maximum_offset)
+            }
+        };
+        let retained = self
+            .candidate
+            .scroll_offsets
+            .get(&spec.id)
+            .copied()
+            .unwrap_or_default();
+        let mut requested_offset = spec.explicit_offset.unwrap_or(retained.requested.y);
+        let mut applied_offset = sanitize(requested_offset);
+
+        if spec.explicit_offset.is_none() {
+            if let Some(target) = spec.scroll_to.filter(|_| spec.item_count > 0) {
+                let target = target.min(spec.item_count - 1);
+                let target_top = (target as f64 * f64::from(spec.item_height)) as f32;
+                let target_bottom = ((target + 1) as f64 * f64::from(spec.item_height)) as f32;
+                if target_top < applied_offset {
+                    requested_offset = target_top;
+                } else if target_bottom > applied_offset + spec.viewport_height {
+                    requested_offset = target_bottom - spec.viewport_height;
+                } else {
+                    requested_offset = applied_offset;
+                }
+                applied_offset = sanitize(requested_offset);
+            }
+        }
+        if spec.item_count == 0 {
+            requested_offset = 0.0;
+            applied_offset = 0.0;
+        }
+
+        self.candidate.scroll_offsets.insert(
+            spec.id,
+            ScrollOffsetState {
+                requested: LogicalPoint::new(0.0, requested_offset),
+                applied: LogicalPoint::new(0.0, applied_offset),
+            },
+        );
+
+        let first = (f64::from(applied_offset) / f64::from(spec.item_height)).floor() as usize;
+        let end = ((f64::from(applied_offset) + f64::from(spec.viewport_height))
+            / f64::from(spec.item_height))
+        .ceil()
+        .min(spec.item_count as f64) as usize;
+        Ok(VirtualWindow {
+            visible_range: first.min(spec.item_count)..end.max(first.min(spec.item_count)),
+            requested_offset,
+            applied_offset,
+            maximum_offset,
+            content_height,
+        })
     }
 
     /// Explicitly discard this generation without changing persistent state.
@@ -1578,6 +1810,8 @@ impl FrameCore {
             .map(|node| node.id);
         let mut route_x = delta.x != 0.0;
         let mut route_y = delta.y != 0.0;
+        let mut deferred_x = None;
+        let mut deferred_y = None;
         while let Some(id) = route.filter(|_| route_x || route_y) {
             let node = scene
                 .node(id)
@@ -1588,6 +1822,28 @@ impl FrameCore {
                     applied: metrics.applied_offset,
                 });
                 let previous = state.applied;
+                let accumulate = |applied: f32, requested: f32, delta: f32| {
+                    let same_direction_overshoot = (delta > 0.0 && requested > applied)
+                        || (delta < 0.0 && requested < applied);
+                    let base = if same_direction_overshoot {
+                        requested
+                    } else {
+                        applied
+                    };
+                    base + delta
+                };
+                let raw_requested = LogicalPoint::new(
+                    if route_x {
+                        accumulate(previous.x, state.requested.x, delta.x)
+                    } else {
+                        state.requested.x
+                    },
+                    if route_y {
+                        accumulate(previous.y, state.requested.y, delta.y)
+                    } else {
+                        state.requested.y
+                    },
+                );
                 let next = LogicalPoint::new(
                     if route_x {
                         (previous.x + delta.x).clamp(0.0, metrics.maximum_offset.x)
@@ -1601,18 +1857,40 @@ impl FrameCore {
                     },
                 );
                 if route_x && next.x != previous.x {
+                    state.requested.x = raw_requested.x;
                     route_x = false;
+                } else if route_x && deferred_x.is_none() {
+                    deferred_x = Some((id, raw_requested.x));
                 }
                 if route_y && next.y != previous.y {
+                    state.requested.y = raw_requested.y;
                     route_y = false;
+                } else if route_y && deferred_y.is_none() {
+                    deferred_y = Some((id, raw_requested.y));
                 }
                 // Each axis is consumed by the deepest viewport that changes
                 // on that axis, even when clamping applies only part of the
                 // delta. Residual delta is intentionally not propagated.
-                state.requested = next;
                 state.applied = next;
             }
             route = node.parent;
+        }
+        // If no viewport on the committed ancestry could move, preserve the
+        // raw intent on the deepest eligible viewport. A same-generation
+        // content growth can then apply it without changing ancestor routing.
+        if route_x {
+            if let Some((id, requested)) = deferred_x {
+                if let Some(state) = offsets.get_mut(&id) {
+                    state.requested.x = requested;
+                }
+            }
+        }
+        if route_y {
+            if let Some((id, requested)) = deferred_y {
+                if let Some(state) = offsets.get_mut(&id) {
+                    state.requested.y = requested;
+                }
+            }
         }
     }
 
@@ -1809,10 +2087,32 @@ impl FrameCore {
             candidate.keyboard_focus = scene.focus_order.first().copied();
         }
         candidate.active_focus_scopes = current_scopes;
-        candidate.widget_state.responses.retain(|id, _| {
-            scene.node(*id).is_some_and(|node| {
+        candidate.widget_state.responses.retain(|id, responses| {
+            let current_target = scene.node(*id).is_some_and(|node| {
                 !node.effective_hidden && !node.effective_disabled && node.hit_bounds.is_some()
-            })
+            });
+            if current_target {
+                return true;
+            }
+            // A same-batch wheel may move a committed virtual descendant out
+            // of the declaration range after pointer dispatch. Retain only
+            // responses from that immediately preceding generation, and only
+            // while its virtual owner remains an active scroll viewport. A
+            // later generation drops an unconsumed response rather than
+            // creating immortal stale input.
+            let retained_virtual_response = committed
+                .and_then(|old| old.node(*id))
+                .and_then(|old_node| old_node.virtual_owner)
+                .and_then(|owner| scene.node(owner))
+                .is_some_and(|owner| {
+                    !owner.effective_hidden
+                        && !owner.effective_disabled
+                        && owner.scroll_metrics.is_some()
+                        && responses.iter().all(|response| {
+                            response.committed_generation.checked_add(1) == Some(scene.generation)
+                        })
+                });
+            retained_virtual_response
         });
     }
 }
@@ -1832,6 +2132,7 @@ struct TraversalContext {
     clip: Option<LogicalRect>,
     transform: ResolvedTransform,
     parent: Option<WidgetId>,
+    virtual_owner: Option<WidgetId>,
     focus_scope: Option<WidgetId>,
     semantic_parent: Option<WidgetId>,
     hidden: bool,
@@ -1861,6 +2162,19 @@ fn resolve(
             return Err(FrameError::InvalidFlexBasis {
                 id: element.id,
                 value: element.flex_basis.expect("invalid basis was present"),
+            });
+        }
+        if element
+            .virtual_content_height
+            .is_some_and(|height| !height.is_finite() || height < 0.0)
+        {
+            return Err(FrameError::InvalidVirtualContent {
+                id: element.id,
+                error: VirtualDeclarationError::InvalidContentHeight(
+                    element
+                        .virtual_content_height
+                        .expect("invalid virtual content height was present"),
+                ),
             });
         }
 
@@ -1964,6 +2278,9 @@ fn resolve(
             },
         };
         style.flex_grow = element.flex_grow;
+        if let Some(shrink) = element.flex_shrink {
+            style.flex_shrink = shrink;
+        }
         if let Some(basis) = element.flex_basis {
             style.flex_basis = length(basis);
         }
@@ -2157,7 +2474,11 @@ fn resolve(
             let viewport_extent = LogicalSize::new(layout.size.width, layout.size.height);
             let content_extent = LogicalSize::new(
                 layout.content_size.width.max(viewport_extent.width),
-                layout.content_size.height.max(viewport_extent.height),
+                layout
+                    .content_size
+                    .height
+                    .max(element.virtual_content_height.unwrap_or(0.0))
+                    .max(viewport_extent.height),
             );
             let maximum_offset = LogicalPoint::new(
                 (content_extent.width - viewport_extent.width).max(0.0),
@@ -2202,6 +2523,7 @@ fn resolve(
         output.nodes.push(ResolvedNode {
             id: element.id,
             parent: context.parent,
+            virtual_owner: context.virtual_owner,
             bounds,
             transformed_bounds,
             paint_bounds,
@@ -2292,6 +2614,10 @@ fn resolve(
             bounds.x - applied_scroll_offset.x,
             bounds.y - applied_scroll_offset.y,
         );
+        let virtual_owner = element
+            .virtual_content_height
+            .map(|_| element.id)
+            .or(context.virtual_owner);
         for child in &element.children {
             collect(
                 child,
@@ -2302,6 +2628,7 @@ fn resolve(
                     clip: child_clip,
                     transform,
                     parent: Some(element.id),
+                    virtual_owner,
                     focus_scope,
                     semantic_parent,
                     hidden: effective_hidden,
@@ -2329,6 +2656,7 @@ fn resolve(
             clip: Some(viewport_rect),
             transform: ResolvedTransform::IDENTITY,
             parent: None,
+            virtual_owner: None,
             focus_scope: None,
             semantic_parent: None,
             hidden: false,

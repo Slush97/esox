@@ -108,6 +108,7 @@ fn representative_scene() -> CommittedScene {
         nodes: vec![ResolvedNode {
             id: SOLID,
             parent: None,
+            virtual_owner: None,
             bounds: rect(301.0, 302.0, 303.0, 304.0),
             transformed_bounds: rect(306.0, 307.0, 308.0, 309.0),
             paint_bounds: Some(solid_bounds),

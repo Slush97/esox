@@ -20,13 +20,18 @@ Completed and covered by production-API or renderer-boundary tests:
   isolation;
 - production split panes with current-frame ratio layout, transactional drag
   capture, committed cursor metadata, and same-batch ordered pointer routing;
-  and
+- renderer-neutral uniform virtual content with candidate-generation retained
+  and wheel state, full logical content extents, once-only visible item
+  declaration, stable logical item identities, current-generation scroll-to and
+  clamping, and transactional retry; and
 - headless first-frame, resize, structural, metric, scroll, transform, overlay,
   damage, and multi-owner contract coverage.
 
 Still required before Gate 1 closes:
 
 - migrate compound containers and the remaining production leaves;
+- migrate the legacy `Ui::virtual_scroll` caller surface and tables onto the
+  FrameCore virtual-content primitive;
 - route the existing application-facing `Ui::begin`/`Ui::finish` path through
   one `FrameCore` owner per window;
 - remove production `prev_layout`, `layout_cache`, cursor fallback, and
@@ -117,6 +122,23 @@ not propagated to ancestors. A still-declared hidden or disabled viewport keeps
 its stable-ID offset, but neither participates in wheel routing. Removing the
 viewport drops its retained state. Explicit declaration offsets override
 retained input state whenever the viewport participates in that generation.
+Raw same-direction wheel intent is retained separately from the old committed
+clamp so repeated deltas can apply if that viewport's content grows in the
+generation being declared. This does not retroactively change committed-scene
+routing: when a committed ancestor can scroll, it consumes the axis and later
+inner growth does not reroute that event to the descendant.
+
+A pointer response dispatched to a committed virtual descendant is retained for
+one successful generation when same-batch scrolling moves that item outside the
+new visible range and the virtual owner remains active. It is available if the
+item is declared again in the immediately following generation, then expires;
+it is not generic stale response retention. Pointer capture is stricter: a
+captured virtual descendant leaving the declared range loses capture and emits
+the normal cancellation even while its virtual owner remains present.
+
+FrameCore reserves deterministic wrapper IDs derived from the virtual viewport
+and logical item index. Application declarations own their descendant IDs and
+must not reuse a wrapper ID; collisions fail duplicate-ID validation atomically.
 
 The platform boundary owns cursor validity and redraw eligibility per window.
 Cursor state has no coordinate sentinel: it is unavailable until a finite
@@ -154,6 +176,11 @@ rejected before persistent or renderer mutation and have no fallback target.
 
 The semantic record remains an Esox type. A later AccessKit adapter consumes a
 committed semantic snapshot and does not own widget hierarchy or bounds.
+The current virtualization slice exposes a `ScrollView` semantic node and only
+the semantic rows in the visible declared range. Virtual collection size/index
+metadata, offscreen accessibility navigation, and accessibility scroll actions
+remain required before accessibility support for virtual collections can be
+called complete.
 
 ## Production-neutral leaf boundaries
 
